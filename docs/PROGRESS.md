@@ -74,7 +74,7 @@ OpenClaw heartbeat: alive (2026-05-10 19:05)
 
 ## In Progress
 
-- [ ] **M1-T5**: WhisperX forced alignment + 測試
+- **M1-T5**: WhisperX forced alignment + 測試（喚醒中 2026-05-10 21:54 UTC+8）
 
 ---
 
@@ -86,7 +86,7 @@ OpenClaw heartbeat: alive (2026-05-10 19:05)
 - [x] **M1-T2**: yt-dlp wrapper + 測試 ← 已完成
 - [x] **M1-T3**: Demucs wrapper + 測試 ← 已完成
 - [x] **M1-T4**: 歌詞抓取 manager + 各 source ← 已完成（2026-05-10）
-- [ ] **M1-T5**: WhisperX forced alignment + 測試
+- **M1-T5**: WhisperX forced alignment + 測試（喚醒中 2026-05-10 21:54 UTC+8）
 - [ ] **M1-T6**: LRC → ASS 轉換 + 測試
 - [ ] **M1-T7**: Pipeline orchestrator（heartbeat + state machine + 總 timeout 15min）
 - [ ] **M1-T8**: 整合 CLI + 使用者驗收
