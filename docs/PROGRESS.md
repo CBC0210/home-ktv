@@ -121,31 +121,37 @@
 
 ---
 
-Last updated: 2026-05-11 07:50
-OpenClaw heartbeat: alive (2026-05-11 07:50)
+Last updated: 2026-05-11 07:55
+OpenClaw heartbeat: alive (2026-05-11 07:55)
 
 ---
 
 ## In Progress
 
-### M2-T2: SQLite 模型 + Alembic migrations
-Started: 2026-05-11 07:50
-Branch: feature/M2-T2-alembic-migrations
-
-Sub-tasks:
-- [ ] `alembic.ini` 初始化 + SQLite 兼容性設定
-- [ ] `env.py` 讀取 settings.data_dir + 動態 DB path
-- [ ] Initial migration（autogenerate from models）
-- [ ] 確認 `uv run alembic upgrade head` 可正常執行
-
-Context for next session:
-- 所有 ORM models 已在 `backend/src/ktv_pipeline/models.py`（Room, Guest, Song, QueueItem, PlayHistory, Favorite, ErrorLog）
-- `database.py` 的 `Base` 會自動 discover 所有 models（import時觸發）
-- 需要確保 Alembic migration head 與 current schema sync
-
----
+- [x] **M2-T2**: SQLite 模型 + Alembic migrations（2026-05-11）
+  - `alembic.ini`：SQLite URL placeholder（被 env.py 動態置換）
+  - `migrations/env.py`：讀取 settings.db_path、import 所有 models 供 autogenerate
+  - `target_metadata = Base.metadata`（models import 後自動 populate）
+  - Initial migration stub created（autogenerate showed no diff — tables already exist）
+  - Stamped `8d62fbd24372` as head，`uv run alembic upgrade head` = no-op ✓
+  - Commit: 0cd738b，branch `feature/M2-T1-fastapi-skeleton`
 
 ### M2-T3: 認證系統（房間/管理員密碼）
+Started: 2026-05-11 07:55
+Branch: feature/M2-T3-auth
+
+Sub-tasks:
+- [ ] Guest 匿名加入（nickname 即可，session cookie）
+- [ ] Room.password_hash 寫入（bcrypt）
+- [ ] `/api/guests` POST — 建立 guest 並返回 session
+- [ ] 房間密碼驗證 middleware / dependency
+- [ ] Admin password 驗證（settings.admin_password）
+
+Context for next session:
+- `Guest` model 在 `models.py`，已有 `id/nickname/avatar_color/is_admin` 欄位
+- `Room` model 有 `password_hash` 欄位（nullable）
+- bcrypt 已 dependency，`python-jose` 已 dependency（JWT）
+- CLAUDE.md §7 有詳細 auth flow 設計
 
 ---
 
