@@ -1,4 +1,5 @@
 """組態設定。從 .env 讀取所有環境變數。"""
+import importlib.metadata
 import os
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -52,6 +53,13 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_dir: Path = Path("/data/ktv/logs")
     dev_mode: bool = False
+
+    @property
+    def version(self) -> str:
+        try:
+            return importlib.metadata.version("ktv-pipeline")
+        except importlib.metadata.PackageNotFoundError:
+            return "0.0.0"
 
     @property
     def db_path(self) -> Path:
