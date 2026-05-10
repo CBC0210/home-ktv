@@ -43,10 +43,20 @@
   - 錯誤分類：PermDownloadError（私人/下架/地區封鎖）vs TempDownloadError（網路/timeout）
   - 冪等性：已下載的歌不重新下載，從 info.json 讀取 metadata
   - pytest 26 passed 0 errors ✓
+- [x] **M1-T3**: Demucs wrapper + 測試（2026-05-10）
+  - `backend/src/ktv_pipeline/pipeline/demucs.py` — DemucsWrapper class
+  - GPU 序列化：module-level `asyncio.Lock`，一次只跑一個 GPU job
+  - 模型：htdemucs_ft（設定檔可調），device=cuda（GTX 1650 4GB）
+  - 輸出：`/data/ktv/cache/demucs/<song_id>/vocals.wav` + `no_vocals.wav`
+  - Timeout：10 分鐘；超時視為 TemporaryError，最多重試 3 次
+  - 錯誤分類：TemporaryError（OOM/IO/網路）vs PermanentError（模型損壞/格式錯誤）
+  - CUDA OOM 後自動 `torch.cuda.empty_cache()`
+  - 冪等性：輸出已存在則跳過，重試前清除 partial outputs
+  - pytest 32 passed（全套 58 passed）✓
 
 ---
 
-Last updated: 2026-05-10 20:15
+Last updated: 2026-05-10 21:10
 OpenClaw heartbeat: alive (2026-05-10 19:05)
 
 ---
@@ -63,8 +73,7 @@ OpenClaw heartbeat: alive (2026-05-10 19:05)
 
 - [x] **M1-T1**: 後端專案 scaffolding ← 已完成
 - [x] **M1-T2**: yt-dlp wrapper + 測試 ← 已完成
-- [ ] **M1-T3**: Demucs wrapper + 測試
-- [ ] **M1-T3**: Demucs wrapper + 測試
+- [x] **M1-T3**: Demucs wrapper + 測試 ← 已完成
 - [ ] **M1-T4**: 歌詞抓取 manager + 各 source
 - [ ] **M1-T5**: WhisperX forced alignment + 測試
 - [ ] **M1-T6**: LRC → ASS 轉換 + 測試
