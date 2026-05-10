@@ -73,6 +73,18 @@
   - 中文：逐字時間戳；英文：逐字時間戳；超出 word_data 用行時間戳兜底
   - 43 個單元測試全部通過 ✓
   - Commit: 99cd5d4，branch `feature/M1-T5-whisperx-alignment`
+- [x] **M1-T6**: LRC → ASS 轉換 + 測試（2026-05-10）
+  - `backend/src/ktv_pipeline/pipeline/lrc_to_ass.py` — 完整實作
+  - Karaoke `\kf` fill 標籤（centiseconds）做卡拉 OK 效果
+  - 雙行顯示：Default（當前行）+ Preview（下一行預覽）
+  - `\fad(100ms,0)` fade-in per event
+  - `parse_lrc_tokens()`：解析 `[mm:ss.xx]text` 為 `_Token` 清單
+  - `_group_word_level()`：依 1500ms gap 門檻分組 tokens
+  - `_expand_line_level()`：將 line-level tokens 拆分為逐字單元
+  - `ConversionError` 處理 empty/invalid LRC
+  - AssConfig 可自訂：黑体 bold、 colours、 resolution
+  - 34 個單元測試全部通過 ✓
+  - Commit: 9b8061d，branch `feature/M1-T6-lrc-to-ass`
 
 ---
 
@@ -83,7 +95,7 @@ OpenClaw heartbeat: alive (2026-05-10 22:00)
 
 ## In Progress
 
-- [ ] **M1-T6**: LRC → ASS 轉換 + 測試
+- [ ] **M1-T7**: Pipeline orchestrator（heartbeat + state machine + 總 timeout 15min）
 
 ---
 
@@ -96,7 +108,7 @@ OpenClaw heartbeat: alive (2026-05-10 22:00)
 - [x] **M1-T3**: Demucs wrapper + 測試 ← 已完成
 - [x] **M1-T4**: 歌詞抓取 manager + 各 source ← 已完成（2026-05-10）
 - [x] **M1-T5**: WhisperX forced alignment + 測試 ← 已完成（2026-05-10 22:00）
-- [ ] **M1-T6**: LRC → ASS 轉換 + 測試
+- [x] **M1-T6**: LRC → ASS 轉換 + 測試 ← 已完成（2026-05-10）
 - [ ] **M1-T7**: Pipeline orchestrator（heartbeat + state machine + 總 timeout 15min）
 - [ ] **M1-T8**: 整合 CLI + 使用者驗收
 
