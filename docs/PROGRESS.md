@@ -16,7 +16,7 @@ OpenClaw heartbeat: alive (2026-05-10 17:30)
 - [x] **M0-T3**: 確認 `docs/` 下的初版檔案完整
 - [x] **M0-T4**: 寫 `openclaw-skill/SKILL.md`
 - [x] **M0-T2**: 初始化專案目錄、backend/ + frontend/ scaffold + data/ 目錄結構
-  - Commit: (see below after commit)
+  - Commit: abed44e + df044b9 (2026-05-10)
   - 完成內容：
     - `backend/` — uv 專案（ktv-pipeline），FastAPI skeleton，/health 端點，pytest 測試通過
     - `frontend/` — Next.js 15 + TypeScript + Tailwind v4，4 個頁面骨架（player/remote/admin/room），pnpm build ✓
@@ -95,5 +95,5 @@ OpenClaw heartbeat: alive (2026-05-10 17:30)
 
 ## Decision Log（重大決策摘要，完整版見 docs/DECISIONS.md）
 
-- 2026-05-10 M0-T2: frontend 套件管理用 npm（伺服器未安裝 pnpm），CLAUDE.md 指定 pnpm 但 CLAUDE.md §0.1 未列套件管理工具，npm 等效替代
+- 2026-05-10 M0-T2: frontend 套件管理確認用 pnpm（CLAUDE.md §11 規定）；需在 package.json 加入 `pnpm.onlyBuiltDependencies` 允許 sharp/unrs-resolver build scripts
 - 2026-05-10 M0-T2: backend 套件名稱用 `ktv-pipeline`（Python package: `ktv_pipeline`），M1-T1 時再確認是否需改為 `ktv`
