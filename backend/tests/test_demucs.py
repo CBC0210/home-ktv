@@ -145,7 +145,7 @@ class TestDemucsWrapperInterface:
     def test_instantiation_defaults(self, tmp_path):
         w = DemucsWrapper(cache_dir=tmp_path)
         assert w.cache_dir == tmp_path
-        assert w.model_name == "htdemucs_ft"
+        assert w.model_name == "htdemucs"
         assert w.max_retries == 3
         assert w.timeout_sec == 600
 

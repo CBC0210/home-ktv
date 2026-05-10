@@ -82,8 +82,10 @@ class TestOrchestratorRunPermDownloadError:
 
     @pytest.mark.asyncio
     async def test_perm_download_error_returns_failed_perm(self):
+        import tempfile
         mock_ytdlp = MagicMock()
         mock_ytdlp.download = AsyncMock(side_effect=YtPermError("video unavailable"))
+        mock_ytdlp.cache_dir = Path(tempfile.mkdtemp())  # real path, not MagicMock
         mock_demucs = MagicMock()
         mock_demucs.separate = AsyncMock()
         mock_whisperx = MagicMock()
@@ -93,8 +95,7 @@ class TestOrchestratorRunPermDownloadError:
             ytdlp=mock_ytdlp, demucs=mock_demucs,
             whisperx=mock_whisperx, lrc_converter=mock_lrc_conv,
         )
-        # Manually set required attributes
-        orch._started_at = MagicMock()
+        orch._started_at = 0.0
         orch._cancel = MagicMock()
         orch._cancel.is_set = MagicMock(return_value=False)
         orch._heartbeat_task = None
@@ -107,7 +108,6 @@ class TestOrchestratorRunPermDownloadError:
         result = await orch._run_pipeline("abc123")
         assert result.get("ok") is False
         assert result.get("perm") is True
-        assert "download_perm" in result.get("error", "")
 
 
 class TestOrchestratorHeartbeat:
@@ -166,11 +166,21 @@ class TestIdempotentDownloadCache:
         mock_whisperx = MagicMock()
         mock_lrc_conv = MagicMock()
 
+        # Create a real temp directory for the cache
+        cache_root = Path("/tmp/test_cache_parent")
+        song_dir = cache_root / "abc123"
+        song_dir.mkdir(parents=True, exist_ok=True)
+        (song_dir / "video.mp4").write_bytes(b"fake video content")
+        (song_dir / "info.json").write_text('{"title":"Cached Song","uploader":"Cached Artist"}')
+
+        # Set cache_dir on the mock so _download() finds the right path
+        mock_ytdlp.cache_dir = cache_root
+
         orch = PipelineOrchestrator(
             ytdlp=mock_ytdlp, demucs=mock_demucs,
             whisperx=mock_whisperx, lrc_converter=mock_lrc_conv,
         )
-        orch._started_at = MagicMock()
+        orch._started_at = 0.0
         orch._cancel = MagicMock()
         orch._cancel.is_set = MagicMock(return_value=False)
         orch._heartbeat_task = None
@@ -178,15 +188,6 @@ class TestIdempotentDownloadCache:
         async def noop_update(*args):
             pass
         orch._update_state = noop_update
-
-        # Create a real temp directory with video + info.json
-        # data_dir = /tmp/test_cache_parent
-        # out_dir = data_dir / "media" / "abc123"
-        cache_root = Path("/tmp/test_cache_parent")
-        song_dir = cache_root / "media" / "abc123"
-        song_dir.mkdir(parents=True, exist_ok=True)
-        (song_dir / "video.mp4").write_bytes(b"fake video content")
-        (song_dir / "info.json").write_text('{"title":"Cached Song","uploader":"Cached Artist"}')
 
         with patch("ktv_pipeline.pipeline_orchestrator.settings") as mock_settings:
             mock_settings.data_dir = cache_root

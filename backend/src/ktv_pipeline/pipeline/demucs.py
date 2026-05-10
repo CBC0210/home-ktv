@@ -108,11 +108,17 @@ def _run_demucs_sync(
     We rename to the flat layout expected by the pipeline:
       - out_dir/vocals.wav
       - out_dir/no_vocals.wav
+
+    Audio is loaded via PyAV (``av``) to avoid torchcodec binary
+    incompatibility with the system FFmpeg 6 on this machine.
+    ``av`` is already installed as a dependency.
     """
+    import numpy as np
     import torch
     from demucs.pretrained import get_model
     from demucs.apply import apply_model
-    import torchaudio
+    import av
+    import scipy.io.wavfile as wavfile
 
     # Load model
     model = get_model(model_name)
@@ -123,11 +129,21 @@ def _run_demucs_sync(
     else:
         log.info("Demucs running on CPU")
 
-    # Load audio → (channels, samples) float tensor
-    wav, sr = torchaudio.load(str(audio_path))
-    # Demucs expects shape (batch, channels, samples); ensure stereo
-    if wav.shape[0] == 1:
-        wav = wav.repeat(2, 1)
+    # Load audio via PyAV (av) — avoids torchcodec binary compatibility issues
+    with av.open(str(audio_path)) as container:
+        stream = container.streams.audio[0]
+        frames = []
+        for packet in container.demux(stream):
+            for frame in packet.decode():
+                frames.append(frame.to_ndarray())
+        # frames: list of (channels, samples_per_frame), e.g. (2, 1024)
+        arr = np.concatenate(frames, axis=-1)  # → (channels, total_samples)
+        if arr.shape[0] == 1:
+            arr = np.repeat(arr, 2, axis=0)
+        wav = torch.from_numpy(arr).float()  # (2, total_samples)
+        sr = stream.rate
+
+    # Demucs expects shape (batch, channels, samples)
     wav = wav.unsqueeze(0)  # (1, 2, samples)
 
     if device == "cuda" and torch.cuda.is_available():
@@ -141,14 +157,15 @@ def _run_demucs_sync(
 
     stem_names = model.sources  # e.g. ['drums', 'bass', 'other', 'vocals']
     vocal_idx = stem_names.index("vocals")
-
     vocals = sources[vocal_idx]  # (2, samples)
-    # instrumental = sum of all non-vocal stems
     non_vocal = sum(sources[i] for i, s in enumerate(stem_names) if s != "vocals")
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    torchaudio.save(str(out_dir / "vocals.wav"), vocals, sr)
-    torchaudio.save(str(out_dir / "no_vocals.wav"), non_vocal, sr)
+    # Save vocals and instrumental as WAV using scipy (avoids torchcodec / FFmpeg incompatibility)
+    vocal_data = vocals.numpy().T.astype(np.float32)  # (samples, channels)
+    wavfile.write(str(out_dir / "vocals.wav"), sr, vocal_data)
+    no_vocal_data = sum(sources[i] for i, s in enumerate(stem_names) if s != "vocals").numpy().T.astype(np.float32)
+    wavfile.write(str(out_dir / "no_vocals.wav"), sr, no_vocal_data)
 
     # Release GPU memory explicitly
     if device == "cuda":

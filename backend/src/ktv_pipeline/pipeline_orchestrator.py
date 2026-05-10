@@ -290,37 +290,28 @@ class PipelineOrchestrator:
         """Stage 1: yt-dlp download.
 
         Idempotent: returns cached result if video already downloaded.
+        Caches to self._ytdlp.cache_dir (settings.data_dir / "cache").
         """
         log.info("[%s] Stage: download", song_id)
         await self._update_state(song_id, SongState.DOWNLOADING)
 
-        # Check cache
-        out_dir = settings.data_dir / "media" / song_id
-        video_path = out_dir / "video.mp4"
-        if video_path.exists() and video_path.stat().st_size > 0:
-            log.info("[%s] Download cache hit, skipping yt-dlp", song_id)
-            # Return minimal result from info.json if available
-            info_path = out_dir / "info.json"
-            if info_path.exists():
-                import json
-                info = json.loads(info_path.read_text())
-                from .pipeline.ytdlp import _build_result
-                return _build_result(song_id, info, video_path)
+        cache_dir = self._ytdlp.cache_dir
+        video_path = cache_dir / song_id / "video.mp4"
+        info_path = cache_dir / song_id / "info.json"
 
-        # Run download
+        # Idempotent cache check
+        if video_path.exists() and video_path.stat().st_size > 0 and info_path.exists():
+            log.info("[%s] Download cache hit, skipping yt-dlp", song_id)
+            import json
+            info = json.loads(info_path.read_text())
+            from .pipeline.ytdlp import _build_result
+            return _build_result(song_id, info, video_path)
+
+        # Run download (use self._ytdlp so cache_dir is consistent)
+        url = f"https://www.youtube.com/watch?v={song_id}"
         for attempt in range(self.config.max_retries):
             try:
-                result = await self._ytdlp.download(song_id)
-                # Save info.json for cache hit
-                out_dir.mkdir(parents=True, exist_ok=True)
-                import json
-                info = {
-                    "title": result.title,
-                    "uploader": result.artist,
-                    "duration": result.duration_sec,
-                    "thumbnail": result.thumbnail_url,
-                }
-                (out_dir / "info.json").write_text(json.dumps(info))
+                result = await self._ytdlp.download(url)
                 return result
             except YtTempError as exc:
                 if attempt < self.config.max_retries - 1:
@@ -337,13 +328,13 @@ class PipelineOrchestrator:
         log.info("[%s] Stage: separate", song_id)
         await self._update_state(song_id, SongState.SEPARATING)
 
-        # Check cache
-        out_dir = settings.data_dir / "media" / song_id
+        # Check cache — Demucs outputs go to self._demucs.cache_dir
+        out_dir = self._demucs.cache_dir / song_id
         vocal_path = out_dir / "vocals.wav"
         inst_path = out_dir / "no_vocals.wav"
         if vocal_path.exists() and vocal_path.stat().st_size > 0 and inst_path.exists():
             log.info("[%s] Separation cache hit, skipping Demucs", song_id)
-            from .demucs import SeparationResult as SepRes
+            from .pipeline.demucs import SeparationResult as SepRes
             return SepRes(song_id=song_id, vocal_path=vocal_path, instrumental_path=inst_path)
 
         for attempt in range(self.config.max_retries):

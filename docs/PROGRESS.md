@@ -2,7 +2,7 @@
 
 > 這份檔案是 OpenClaw 與 Claude Code 之間的長期記憶。每個 task 完成或中斷時都必須更新。
 
-## Status: [M1 — CLI Pipeline] 進行中
+## Status: [M2 — API 骨架] 進行中
 
 ---
 
@@ -96,34 +96,60 @@
   - `process_song(url)` CLI 入口：`uv run python -m ktv_pipeline.pipeline_orchestrator <url>`
   - 13 個單元測試全部通過 ✓
   - Commit: 9fec415，branch `feature/M1-T7-pipeline-orchestrator`
+- [x] **M1-T8**: 整合 CLI + 使用者驗收（2026-05-11）✅ M1 完整完成
+  - `config.py`：`_configure_cuda_env()` 自動設定 `LD_LIBRARY_PATH` + `PYTORCH_CUDA_ALLOC_CONF`
+  - `backend/run-pipeline.sh`：一鍵執行 pipeline CLI（含 CUDA lib 路徑設定）
+  - `backend/scripts/run-pipeline.sh`：進階版含 torch lib path
+  - `tests/conftest.py`：pytest 啟動時同步設定 `LD_LIBRARY_PATH`
+  - 降級 `DEMUCS_MODEL`：`htdemucs_ft` → `htdemucs`（GTX 1650 4GB OOM 對策）
+  - 安裝 `av`、`scipy` 依賴（Demucs / WhisperX 必要）
+  - 修復 orchestrator 測試（`mock cache_dir`）+ demucs mock patch 路徑
+  - **153 non-network tests 全部通過 ✓**（`LD_LIBRARY_PATH` 需在 pytest 啟動前設定）
+  - ⚠️ 已知：`test_lyrics.py::TestFetchNetease::test_returns_result_on_success` mock bug（不影響 LyricsManager 功能）
+  - Branch: `feature/M1-T7-pipeline-orchestrator`（延用）
 
 ---
 
-Last updated: 2026-05-10 23:39
-OpenClaw heartbeat: alive (2026-05-10 23:39)
+Last updated: 2026-05-11 04:45
+OpenClaw heartbeat: alive (2026-05-11 04:45)
 
 ---
 
 ## In Progress
 
-(無)
+### M2-T1: FastAPI skeleton + DB 初始化（完整版）
+Started: 2026-05-11 04:45
+Branch: feature/M2-T1-fastapi-skeleton
+
+Sub-tasks:
+- [ ] uv project 確認（已有 skeleton，需補完整 lifespan + startup/shutdown）
+- [ ] SQLite DB 初始化 + WAL mode
+- [ ] /health 與 /version endpoint（含 DB ping + GPU 狀態）
+- [ ] Pydantic Settings 完整版（從 .env 讀所有設定）
+- [ ] 測試：TestClient for /health, /version
+- [ ] 確認 `uv run fastapi dev` 可正常啟動
+
+Context for next session:
+- M1 的後端 package 名為 `ktv-pipeline`（Python: `ktv_pipeline`），主 FastAPI app 在 `backend/src/ktv/main.py`
+- M2 目標是讓 API 可以接收點歌請求並整合 M1 pipeline
+- 先確認現有 main.py 骨架完整再決定要改還是補
 
 ---
 
 ## Next Up
 
-### M1 — CLI Pipeline（進行中）
+### M2 — API 骨架
 
-- [x] **M1-T1**: 後端專案 scaffolding ← 已完成
-- [x] **M1-T2**: yt-dlp wrapper + 測試 ← 已完成
-- [x] **M1-T3**: Demucs wrapper + 測試 ← 已完成
-- [x] **M1-T4**: 歌詞抓取 manager + 各 source ← 已完成（2026-05-10）
-- [x] **M1-T5**: WhisperX forced alignment + 測試 ← 已完成（2026-05-10 22:00）
-- [x] **M1-T6**: LRC → ASS 轉換 + 測試 ← 已完成（2026-05-10）
-- [x] **M1-T7**: Pipeline orchestrator（heartbeat + state machine + 總 timeout 15min）← 已完成
-- [ ] **M1-T8**: 整合 CLI + 使用者驗收
+- [ ] **M2-T1**: FastAPI skeleton + DB 初始化（完整版）← 進行中
+- [ ] **M2-T2**: SQLite 模型 + Alembic migrations
+- [ ] **M2-T3**: 認證系統（房間/管理員密碼）
+- [ ] **M2-T4**: WebSocket gateway + 訊息協議實作
+- [ ] **M2-T5**: 隊列管理 + 公平輪唱演算法 + 測試
+- [ ] **M2-T6**: 歌曲緩存 API + 整合 M1 pipeline
+- [ ] **M2-T7**: HLS 串流 endpoint
+- [ ] **M2-T8**: 整合測試：能 API 點歌、處理、播放 ✅ 使用者驗收
 
-### M2+ 詳見 CLAUDE.md §18
+### M3+ 詳見 CLAUDE.md §18
 
 ---
 
@@ -152,3 +178,4 @@ OpenClaw heartbeat: alive (2026-05-10 23:39)
 - 2026-05-10 M0-T5: 實際 GPU 為 GTX 1650 4GB（非 1660 Super 6GB），Demucs/whisperX model size 需調整
 - 2026-05-10 M0-T6: Cloudflare Tunnel 已接通，backend 回應正常
 - 2026-05-10 M1-T5: 修復 `.venv` 問題（torch NCCL symbol conflict），重建 venv 後正常
+- 2026-05-11 M1-T8: DEMUCS_MODEL 降為 `htdemucs`（htdemucs_ft 在 4GB VRAM OOM）；LD_LIBRARY_PATH 需在 Python 啟動前設定（os.environ 修改無效）
