@@ -26,5 +26,5 @@ class TestLyricsManagerInterface:
 
     def test_fetch_all_fail_returns_none_result(self):
         m = LyricsManager()
-        with patch.object(m, "_fetch_amll', return_value=None):
+        with patch.object(m, "_fetch_amll", return_value=None):
             pass
