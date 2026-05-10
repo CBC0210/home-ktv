@@ -4,10 +4,6 @@
 
 ## Status: [M1 — CLI Pipeline] 進行中
 
-Last updated: 2026-05-10 19:00
-Current Claude session ID: (M1 待启动)
-OpenClaw heartbeat: alive (2026-05-10 19:00)
-
 ---
 
 ## Done
@@ -34,9 +30,14 @@ OpenClaw heartbeat: alive (2026-05-10 19:00)
 
 ---
 
+Last updated: 2026-05-10 19:05
+OpenClaw heartbeat: alive (2026-05-10 19:05)
+
+---
+
 ## In Progress
 
-(無 — M1 待 CBC 啟動)
+- **M1-T1**: 後端專案 scaffolding（Claude 處理中，2026-05-10 19:05 啟動）
 
 ---
 
