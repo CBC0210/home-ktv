@@ -34,7 +34,8 @@ yarn-error.log*
 pnpm-debug.log*
 
 # 資料目錄（本地媒體緩存與 DB）
-data/
+data/**
+!data/**/.gitkeep
 *.db
 *.db-wal
 *.db-shm

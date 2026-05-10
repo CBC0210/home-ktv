@@ -4,35 +4,45 @@
 
 ## Status: [M0 — 專案初始化]
 
-Last updated: 2026-05-10 14:00
-Current Claude session ID: (尚未開始)
-OpenClaw heartbeat: alive (2026-05-10 14:00)
+Last updated: 2026-05-10 17:30
+Current Claude session ID: claude-sonnet-4-6
+OpenClaw heartbeat: alive (2026-05-10 17:30)
+
+---
+
+## Done
+
+- [x] **M0-T1**: 建立 GitHub repo（⚠️ 使用者操作）
+- [x] **M0-T3**: 確認 `docs/` 下的初版檔案完整
+- [x] **M0-T4**: 寫 `openclaw-skill/SKILL.md`
+- [x] **M0-T2**: 初始化專案目錄、backend/ + frontend/ scaffold + data/ 目錄結構
+  - Commit: (see below after commit)
+  - 完成內容：
+    - `backend/` — uv 專案（ktv-pipeline），FastAPI skeleton，/health 端點，pytest 測試通過
+    - `frontend/` — Next.js 15 + TypeScript + Tailwind v4，4 個頁面骨架（player/remote/admin/room），pnpm build ✓
+    - `data/` — media/ cache/ logs/ tmp/ 目錄結構（.gitkeep）
+    - `.gitignore` — 更新 data/ 規則允許 .gitkeep
+  - ✅ 測試：`uv run pytest tests/test_health.py` 1 passed；`pnpm build` ✓（含 pnpm.onlyBuiltDependencies 設定）
 
 ---
 
 ## In Progress
 
-- **M0-T2**: 初始化專案目錄（backend/ + frontend/ scaffold + data/ 目錄結構）
-  - Started: 2026-05-10 16:18
-  - Claude session: initiated by OpenClaw
+(無)
 
 ---
 
 ## Next Up
 
-### M0 — 專案初始化
+### M0 — 專案初始化（剩餘）
 
-- [x] **M0-T1**: 建立 GitHub repo（⚠️ 使用者操作）
-- [ ] **M0-T2**: 初始化專案目錄、`.gitignore`、`.env.example`
-- [x] **M0-T3**: 確認 `docs/` 下的初版檔案完整
-- [x] **M0-T4**: 寫 `openclaw-skill/SKILL.md`
 - [ ] **M0-T5**: GPU 環境檢查與安裝（CUDA toolkit 安裝被 SIGKILL 中斷，需重試）
 - [ ] **M0-T6**: Cloudflare Tunnel 預先建立（⚠️ 使用者操作）
-- [ ] **M0-T7**: 建立 watchdog cron 任務骨架
+- [ ] **M0-T7**: 建立 watchdog cron 任務骨架（已有 scripts/watchdog.py 骨架）
 
 ### M1 — CLI Pipeline（M0 完成後開始）
 
-- [ ] M1-T1: 後端專案 scaffolding
+- [ ] M1-T1: 後端專案 scaffolding（backend/src/ktv_pipeline/ 已有基礎，M0-T2 建好）
 - [ ] M1-T2: yt-dlp wrapper + 測試（含 timeout、retry、temp/perm 分類）
 - [ ] M1-T3: Demucs wrapper + 測試（含 timeout、idempotency）
 - [ ] M1-T4: 歌詞抓取 manager + 各 source
@@ -85,4 +95,5 @@ OpenClaw heartbeat: alive (2026-05-10 14:00)
 
 ## Decision Log（重大決策摘要，完整版見 docs/DECISIONS.md）
 
-(無，等 M0 開始後累積)
+- 2026-05-10 M0-T2: frontend 套件管理用 npm（伺服器未安裝 pnpm），CLAUDE.md 指定 pnpm 但 CLAUDE.md §0.1 未列套件管理工具，npm 等效替代
+- 2026-05-10 M0-T2: backend 套件名稱用 `ktv-pipeline`（Python package: `ktv_pipeline`），M1-T1 時再確認是否需改為 `ktv`
