@@ -1,0 +1,48 @@
+[project]
+name = "ktv-pipeline"
+version = "0.1.0"
+description = "Home KTV backend — FastAPI + pipeline workers"
+readme = "README.md"
+authors = [
+    { name = "章魚", email = "cbc210.tech@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "sqlalchemy>=2.0.0",
+    "aiosqlite>=0.20.0",
+    "alembic>=1.13.0",
+    "yt-dlp>=2024.1.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "python-multipart>=0.0.9",
+    "python-jose[cryptography]>=3.3.0",
+    "bcrypt>=4.0.0",
+    "websockets>=12.0",
+    "aiofiles>=23.0.0",
+]
+
+[project.optional-dependencies]
+gpu = [
+    "torch>=2.0.0",
+    "torchaudio>=2.0.0",
+    "demucs>=4.0.0",
+    "openai-whisper>=20231117",
+    "whisperx>=3.0.0",
+]
+
+[project.scripts]
+ktv-server = "ktv_pipeline.main:run"
+
+[build-system]
+requires = ["uv_build>=0.11.9,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "httpx>=0.27.0",
+]
