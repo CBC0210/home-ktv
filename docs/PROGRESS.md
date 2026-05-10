@@ -4,21 +4,17 @@
 
 ## Status: [M0 — 專案初始化]
 
-Last updated: 2026-05-09 (initial)
+Last updated: 2026-05-10 14:00
 Current Claude session ID: (尚未開始)
-OpenClaw heartbeat: (尚未啟動)
-
----
-
-## Done
-
-(尚無)
+OpenClaw heartbeat: alive (2026-05-10 14:00)
 
 ---
 
 ## In Progress
 
-(尚無 — 等待使用者透過 Telegram 啟動 M0)
+- **M0-T2**: 初始化專案目錄（backend/ + frontend/ scaffold + data/ 目錄結構）
+  - Started: 2026-05-10 16:18
+  - Claude session: initiated by OpenClaw
 
 ---
 
@@ -26,13 +22,13 @@ OpenClaw heartbeat: (尚未啟動)
 
 ### M0 — 專案初始化
 
-- [ ] **M0-T1**: 建立 GitHub repo（⚠️ 使用者操作）
+- [x] **M0-T1**: 建立 GitHub repo（⚠️ 使用者操作）
 - [ ] **M0-T2**: 初始化專案目錄、`.gitignore`、`.env.example`
-- [ ] **M0-T3**: 確認 `docs/` 下的初版檔案完整
-- [ ] **M0-T4**: 寫 `openclaw-skill/SKILL.md`，讓 OpenClaw 接管專案管理
-- [ ] **M0-T5**: GPU 環境檢查與安裝（`scripts/gpu-setup-check.sh`）
+- [x] **M0-T3**: 確認 `docs/` 下的初版檔案完整
+- [x] **M0-T4**: 寫 `openclaw-skill/SKILL.md`
+- [ ] **M0-T5**: GPU 環境檢查與安裝（CUDA toolkit 安裝被 SIGKILL 中斷，需重試）
 - [ ] **M0-T6**: Cloudflare Tunnel 預先建立（⚠️ 使用者操作）
-- [ ] **M0-T7**: 建立 watchdog cron 任務骨架（給 OpenClaw 用）
+- [ ] **M0-T7**: 建立 watchdog cron 任務骨架
 
 ### M1 — CLI Pipeline（M0 完成後開始）
 
