@@ -123,7 +123,7 @@ def _parse_lrc_lines(lrc: str) -> list[tuple[str, str]]:
     pattern = re.compile(r"\[(\d{1,2}:\d{2}(?:\.\d{1,3})?)\](.*)")
     for line in lrc.splitlines():
         m = pattern.match(line.strip())
-        if m:
+        if m and m.group(2).strip():
             yield m.group(1), m.group(2).strip()
 
 
@@ -172,26 +172,15 @@ def _build_word_lrc(
                     # Fall back to the line timestamp if we run out of word data
                     output_lines.append(f"[{ts}]{char}")
         else:
-            # English: emit one timestamped tag per word
-            # Collect all words for this line
-            line_words: list[str] = []
-            while wi < len(word_data):
-                wd = word_data[wi]
-                w = wd["word"]
-                # Stop at end of line boundary (heuristic: next word is much later)
-                line_words.append(w)
-                wi += 1
-                # Rough heuristic: if we've collected enough words, break
-                if len(line_words) >= len(text.split()) + 2:
-                    break
-
-            # Re-emit with timestamps (simplified — use word-level timestamps)
-            for w_item in line_words[:len(text.split())]:
+            # English: one timestamped tag per word, consume from word_data in order.
+            for word in text.split():
                 if wi < len(word_data):
                     wd = word_data[wi]
                     ts_out = _format_ts_ms(wd["start"])
-                    output_lines.append(f"[{ts_out}]{w_item}")
+                    output_lines.append(f"[{ts_out}]{word}")
                     wi += 1
+                else:
+                    output_lines.append(f"[{ts}]{word}")
 
     return "\n".join(output_lines)
 

@@ -196,7 +196,7 @@ class TestBuildWordLrc:
         lines = [("00:10.00", ""), ("00:12.00", "Hi")]
         word_data = [{"word": "Hi", "start": 12000.0, "end": 12500.0}]
         result = _build_word_lrc(lines, word_data)
-        assert result.count("\n") == 1  # only "Hi" line
+        assert result.count("\n") == 0  # only "Hi" line → 1 entry, 0 newlines
 
 
 # ---------------------------------------------------------------------------
@@ -418,7 +418,7 @@ class TestTemporaryErrors:
 
 
 class TestGpuLock:
-    async def test_gpu_lock_serializes_concurrent_calls(self, tmp_path, audio_file):
+    async def test_gpu_lock_serializes_concurrent_calls(self, tmp_path):
         order = []
         wrapper = WhisperXWrapper(
             cache_dir=tmp_path / "whisperx",
