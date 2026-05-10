@@ -27,44 +27,33 @@
 - [x] **M0-T7**: watchdog cron jobs（2026-05-10）
   - OpenClaw cron "home-ktv watchdog — 10min patrol" ✅
   - OpenClaw cron "home-ktv daily summary — 22:00" ✅
+- [x] **M1-T1**: 後端專案 scaffolding（2026-05-10）
+  - Commits: bdcfde0 → 4964754（fix）
+  - SQLAlchemy models + Alembic-ready Base + DB init ✓
+  - Pydantic Settings from .env ✓
+  - API routers: /api/rooms, /api/songs, /api/queue, /api/guests ✓
+  - /health endpoint ✓
+  - pytest 1 passed 0 warnings ✓
+  - Server smoke test: /health ✓ /api/rooms → [] ✓
 
 ---
 
-Last updated: 2026-05-10 19:05
+Last updated: 2026-05-10 19:40
 OpenClaw heartbeat: alive (2026-05-10 19:05)
 
 ---
 
 ## In Progress
 
-### M1-T1: 後端專案 scaffolding
-Started: 2026-05-10 19:05
-Last heartbeat: 2026-05-10 19:15
-Branch: feature/M1-T1-backend-scaffolding
-Active session: M1-T1-active
-
-Sub-tasks:
-- [ ] config.py (Pydantic Settings)
-- [ ] db/models.py (SQLAlchemy ORM)
-- [ ] db/__init__.py (engine + session)
-- [ ] db/schemas.py (Pydantic schemas)
-- [ ] api/ routers (rooms, songs, queue, guests, auth, ws)
-- [ ] pipeline/ stubs
-- [ ] queue/ stubs
-- [ ] errors.py + utils/
-- [ ] main.py 更新（含 lifespan DB init）
-- [ ] Alembic 設定 + alembic upgrade head
-- [ ] 測試通過
+（空）
 
 ---
 
 ## Next Up
 
-### M1 — CLI Pipeline（下一個 milestone）
+### M1 — CLI Pipeline（進行中）
 
-CBC 說「開始 M1」後從 M1-T1 開始。
-
-- [ ] **M1-T1**: 後端專案 scaffolding
+- [x] **M1-T1**: 後端專案 scaffolding ← 已完成
 - [ ] **M1-T2**: yt-dlp wrapper + 測試
 - [ ] **M1-T3**: Demucs wrapper + 測試
 - [ ] **M1-T4**: 歌詞抓取 manager + 各 source
