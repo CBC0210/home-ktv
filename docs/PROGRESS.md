@@ -46,7 +46,10 @@ OpenClaw heartbeat: alive (2026-05-10 16:55)
 ### M0 — 專案初始化（剩餘）
 
 - [ ] **M0-T6**: Cloudflare Tunnel 預先建立（⚠️ 使用者操作）
-- [ ] **M0-T7**: 建立 watchdog cron 任務骨架（已有 scripts/watchdog.py 骨架）
+- [x] **M0-T7**: 建立 watchdog cron 任務骨架
+  - OpenClaw cron "home-ktv watchdog — 10min patrol" ✅
+  - OpenClaw cron "home-ktv daily summary — 22:00" ✅
+  - scripts/watchdog.py 骨架已就緒
 
 ### M1 — CLI Pipeline（M0 完成後開始）
 
