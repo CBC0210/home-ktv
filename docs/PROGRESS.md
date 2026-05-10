@@ -35,10 +35,18 @@
   - /health endpoint ✓
   - pytest 1 passed 0 warnings ✓
   - Server smoke test: /health ✓ /api/rooms → [] ✓
+- [x] **M1-T2**: yt-dlp wrapper + 測試（2026-05-10）
+  - `backend/src/ktv_pipeline/pipeline/ytdlp.py` — YtDlpWrapper class
+  - Python lib mode（yt_dlp.YoutubeDL），非 subprocess
+  - 格式：bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best
+  - 3 次重試 + 指數退避（1s, 2s, 4s）；總 timeout 5 分鐘
+  - 錯誤分類：PermDownloadError（私人/下架/地區封鎖）vs TempDownloadError（網路/timeout）
+  - 冪等性：已下載的歌不重新下載，從 info.json 讀取 metadata
+  - pytest 26 passed 0 errors ✓
 
 ---
 
-Last updated: 2026-05-10 19:40
+Last updated: 2026-05-10 20:15
 OpenClaw heartbeat: alive (2026-05-10 19:05)
 
 ---
@@ -54,7 +62,8 @@ OpenClaw heartbeat: alive (2026-05-10 19:05)
 ### M1 — CLI Pipeline（進行中）
 
 - [x] **M1-T1**: 後端專案 scaffolding ← 已完成
-- [ ] **M1-T2**: yt-dlp wrapper + 測試
+- [x] **M1-T2**: yt-dlp wrapper + 測試 ← 已完成
+- [ ] **M1-T3**: Demucs wrapper + 測試
 - [ ] **M1-T3**: Demucs wrapper + 測試
 - [ ] **M1-T4**: 歌詞抓取 manager + 各 source
 - [ ] **M1-T5**: WhisperX forced alignment + 測試
