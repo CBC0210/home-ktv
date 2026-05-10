@@ -106,6 +106,9 @@ class Favorite(Base):
     song_id: Mapped[str] = mapped_column(String(64), ForeignKey("songs.id"), primary_key=True)
     added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=now_utc)
 
+    guest: Mapped["Guest"] = relationship("Guest", back_populates="favorites")
+    song: Mapped["Song"] = relationship("Song", back_populates="favorites")
+
 
 class ErrorLog(Base):
     __tablename__ = "error_log"

@@ -47,6 +47,7 @@ def get_db_session() -> Generator[Session, None, None]:
 
 
 def init_db() -> None:
+    from . import models as _models  # noqa: F401 — registers all ORM classes with Base
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     engine = get_engine()
     Base.metadata.create_all(bind=engine)

@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class HealthResponse(BaseModel):
@@ -21,12 +21,11 @@ class RoomCreate(RoomBase):
 
 
 class RoomOut(RoomBase):
+    model_config = ConfigDict(from_attributes=True)
+
     is_default: bool
     created_at: datetime
     settings: Optional[dict] = None
-
-    class Config:
-        from_attributes = True
 
 
 class GuestBase(BaseModel):
@@ -39,17 +38,18 @@ class GuestCreate(GuestBase):
 
 
 class GuestOut(GuestBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     avatar_color: Optional[str] = None
     is_admin: bool
     first_seen: datetime
     last_seen: datetime
 
-    class Config:
-        from_attributes = True
-
 
 class SongOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     title: str
     artist: Optional[str] = None
@@ -61,9 +61,6 @@ class SongOut(BaseModel):
     has_timing: bool = False
     lyrics_quality: Optional[str] = None
 
-    class Config:
-        from_attributes = True
-
 
 class QueueItemCreate(BaseModel):
     song_id: str
@@ -71,6 +68,8 @@ class QueueItemCreate(BaseModel):
 
 
 class QueueItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     song_id: str
     guest_id: str
@@ -79,6 +78,3 @@ class QueueItemOut(BaseModel):
     status: str
     played_at: Optional[datetime] = None
     manually_moved: bool = False
-
-    class Config:
-        from_attributes = True
