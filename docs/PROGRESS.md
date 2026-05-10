@@ -37,7 +37,24 @@ OpenClaw heartbeat: alive (2026-05-10 19:05)
 
 ## In Progress
 
-- **M1-T1**: 後端專案 scaffolding（Claude 處理中，2026-05-10 19:05 啟動）
+### M1-T1: 後端專案 scaffolding
+Started: 2026-05-10 19:05
+Last heartbeat: 2026-05-10 19:15
+Branch: feature/M1-T1-backend-scaffolding
+Active session: M1-T1-active
+
+Sub-tasks:
+- [ ] config.py (Pydantic Settings)
+- [ ] db/models.py (SQLAlchemy ORM)
+- [ ] db/__init__.py (engine + session)
+- [ ] db/schemas.py (Pydantic schemas)
+- [ ] api/ routers (rooms, songs, queue, guests, auth, ws)
+- [ ] pipeline/ stubs
+- [ ] queue/ stubs
+- [ ] errors.py + utils/
+- [ ] main.py 更新（含 lifespan DB init）
+- [ ] Alembic 設定 + alembic upgrade head
+- [ ] 測試通過
 
 ---
 
