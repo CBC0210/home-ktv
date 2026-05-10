@@ -96,6 +96,17 @@
   - `process_song(url)` CLI 入口：`uv run python -m ktv_pipeline.pipeline_orchestrator <url>`
   - 13 個單元測試全部通過 ✓
   - Commit: 9fec415，branch `feature/M1-T7-pipeline-orchestrator`
+- [x] **M2-T1**: FastAPI skeleton + DB 初始化（完整版）（2026-05-11）
+  - `src/main.py`：proper lifespan context manager（取代 deprecated @on_event）
+  - `/health`：DB ping + version
+  - `/version`：GPU status（nvidia-smi）+ settings + DB path
+  - `database.py`：`check_db_connection()` + `get_gpu_status()` + WAL mode
+  - `config.py`：`settings.version` from `importlib.metadata`
+  - 9 個新測試（`tests/test_version.py`）
+  - 所有 22 tests pass ✓
+  - Commit: 2121cd6，branch `feature/M2-T1-fastapi-skeleton`
+  - ⚠️ 注意：uvicorn 需用 `src.main:app`（不是 `main:app`）
+
 - [x] **M1-T8**: 整合 CLI + 使用者驗收（2026-05-11）✅ M1 完整完成
   - `config.py`：`_configure_cuda_env()` 自動設定 `LD_LIBRARY_PATH` + `PYTORCH_CUDA_ALLOC_CONF`
   - `backend/run-pipeline.sh`：一鍵執行 pipeline CLI（含 CUDA lib 路徑設定）
@@ -110,44 +121,51 @@
 
 ---
 
-Last updated: 2026-05-11 04:45
-OpenClaw heartbeat: alive (2026-05-11 04:45)
+Last updated: 2026-05-11 07:50
+OpenClaw heartbeat: alive (2026-05-11 07:50)
 
 ---
 
 ## In Progress
 
-### M2-T1: FastAPI skeleton + DB 初始化（完整版）
-Started: 2026-05-11 04:45
-Branch: feature/M2-T1-fastapi-skeleton
+### M2-T2: SQLite 模型 + Alembic migrations
+Started: 2026-05-11 07:50
+Branch: feature/M2-T2-alembic-migrations
 
 Sub-tasks:
-- [ ] uv project 確認（已有 skeleton，需補完整 lifespan + startup/shutdown）
-- [ ] SQLite DB 初始化 + WAL mode
-- [ ] /health 與 /version endpoint（含 DB ping + GPU 狀態）
-- [ ] Pydantic Settings 完整版（從 .env 讀所有設定）
-- [ ] 測試：TestClient for /health, /version
-- [ ] 確認 `uv run fastapi dev` 可正常啟動
+- [ ] `alembic.ini` 初始化 + SQLite 兼容性設定
+- [ ] `env.py` 讀取 settings.data_dir + 動態 DB path
+- [ ] Initial migration（autogenerate from models）
+- [ ] 確認 `uv run alembic upgrade head` 可正常執行
 
 Context for next session:
-- M1 的後端 package 名為 `ktv-pipeline`（Python: `ktv_pipeline`），主 FastAPI app 在 `backend/src/ktv/main.py`
-- M2 目標是讓 API 可以接收點歌請求並整合 M1 pipeline
-- 先確認現有 main.py 骨架完整再決定要改還是補
+- 所有 ORM models 已在 `backend/src/ktv_pipeline/models.py`（Room, Guest, Song, QueueItem, PlayHistory, Favorite, ErrorLog）
+- `database.py` 的 `Base` 會自動 discover 所有 models（import時觸發）
+- 需要確保 Alembic migration head 與 current schema sync
 
 ---
 
-## Next Up
+### M2-T3: 認證系統（房間/管理員密碼）
 
-### M2 — API 骨架
+---
 
-- [ ] **M2-T1**: FastAPI skeleton + DB 初始化（完整版）← 進行中
-- [ ] **M2-T2**: SQLite 模型 + Alembic migrations
-- [ ] **M2-T3**: 認證系統（房間/管理員密碼）
-- [ ] **M2-T4**: WebSocket gateway + 訊息協議實作
-- [ ] **M2-T5**: 隊列管理 + 公平輪唱演算法 + 測試
-- [ ] **M2-T6**: 歌曲緩存 API + 整合 M1 pipeline
-- [ ] **M2-T7**: HLS 串流 endpoint
-- [ ] **M2-T8**: 整合測試：能 API 點歌、處理、播放 ✅ 使用者驗收
+### M2-T4: WebSocket gateway + 訊息協議實作
+
+---
+
+### M2-T5: 隊列管理 + 公平輪唱演算法 + 測試
+
+---
+
+### M2-T6: 歌曲緩存 API + 整合 M1 pipeline
+
+---
+
+### M2-T7: HLS 串流 endpoint
+
+---
+
+### M2-T8: 整合測試：能 API 點歌、處理、播放 ✅ 使用者驗收
 
 ### M3+ 詳見 CLAUDE.md §18
 
