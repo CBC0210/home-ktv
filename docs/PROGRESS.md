@@ -85,17 +85,28 @@
   - AssConfig 可自訂：黑体 bold、 colours、 resolution
   - 34 個單元測試全部通過 ✓
   - Commit: 9b8061d，branch `feature/M1-T6-lrc-to-ass`
+- [x] **M1-T7**: Pipeline orchestrator（heartbeat + state machine + 總 timeout 15min）
+  - `backend/src/ktv_pipeline/pipeline_orchestrator.py` — PipelineOrchestrator class
+  - State machine：queued → pending → downloading → separating → fetching_lyrics → aligning → packaging → ready
+  - Total timeout：15 分鐘（`settings.song_total_timeout_sec`），超時標記 `failed_perm`
+  - Heartbeat loop：每 30 秒更新 `songs.last_heartbeat` 和 `queue_items.status`
+  - Temp/Perm 錯誤分類：各階段 retry 3 次（指數退避），perm 直接跳過
+  - 冪等性：每階段檢查 cache，已完成則跳過
+  - GPU 序列化：Demucs + WhisperX 共享 `_GPU_LOCK`（現有實作）
+  - `process_song(url)` CLI 入口：`uv run python -m ktv_pipeline.pipeline_orchestrator <url>`
+  - 13 個單元測試全部通過 ✓
+  - Commit: 9fec415，branch `feature/M1-T7-pipeline-orchestrator`
 
 ---
 
-Last updated: 2026-05-10 22:00
-OpenClaw heartbeat: alive (2026-05-10 22:00)
+Last updated: 2026-05-10 23:39
+OpenClaw heartbeat: alive (2026-05-10 23:39)
 
 ---
 
 ## In Progress
 
-- [ ] **M1-T7**: Pipeline orchestrator（heartbeat + state machine + 總 timeout 15min）
+(無)
 
 ---
 
@@ -109,7 +120,7 @@ OpenClaw heartbeat: alive (2026-05-10 22:00)
 - [x] **M1-T4**: 歌詞抓取 manager + 各 source ← 已完成（2026-05-10）
 - [x] **M1-T5**: WhisperX forced alignment + 測試 ← 已完成（2026-05-10 22:00）
 - [x] **M1-T6**: LRC → ASS 轉換 + 測試 ← 已完成（2026-05-10）
-- [ ] **M1-T7**: Pipeline orchestrator（heartbeat + state machine + 總 timeout 15min）
+- [x] **M1-T7**: Pipeline orchestrator（heartbeat + state machine + 總 timeout 15min）← 已完成
 - [ ] **M1-T8**: 整合 CLI + 使用者驗收
 
 ### M2+ 詳見 CLAUDE.md §18
