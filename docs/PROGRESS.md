@@ -4,9 +4,9 @@
 
 ## Status: [M0 — 專案初始化]
 
-Last updated: 2026-05-10 17:30
+Last updated: 2026-05-10 16:55
 Current Claude session ID: claude-sonnet-4-6
-OpenClaw heartbeat: alive (2026-05-10 17:30)
+OpenClaw heartbeat: alive (2026-05-10 16:55)
 
 ---
 
@@ -23,6 +23,15 @@ OpenClaw heartbeat: alive (2026-05-10 17:30)
     - `data/` — media/ cache/ logs/ tmp/ 目錄結構（.gitkeep）
     - `.gitignore` — 更新 data/ 規則允許 .gitkeep
   - ✅ 測試：`uv run pytest tests/test_health.py` 1 passed；`pnpm build` ✓（含 pnpm.onlyBuiltDependencies 設定）
+- [x] **M0-T5**: GPU 環境檢查與安裝 (2026-05-10)
+  - ✅ nvidia-smi: NVIDIA GeForce GTX 1650，Driver 580.65.06，CUDA Driver 13.0
+  - ✅ nvcc (CUDA Toolkit 12.0): `/usr/bin/nvcc`（之前被 SIGKILL 中斷的安裝已完成）
+  - ✅ PyTorch: `torch.cuda.is_available() == True`，CUDA 13.0
+  - ⚠️ **重要**：實際 GPU 為 GTX 1650（4GB），非規格書 §3.3 的 GTX 1660 Super（6GB）
+    - Demucs FP16 在 4GB 可能更緊張，需實測
+    - WhisperX 建議從 `small` 開始，而非 `medium`
+    - 已更新 `.env.example` 備注
+  - 腳本執行記錄：`data/logs/gpu-setup.log`
 
 ---
 
@@ -36,7 +45,6 @@ OpenClaw heartbeat: alive (2026-05-10 17:30)
 
 ### M0 — 專案初始化（剩餘）
 
-- [ ] **M0-T5**: GPU 環境檢查與安裝（CUDA toolkit 安裝被 SIGKILL 中斷，需重試）
 - [ ] **M0-T6**: Cloudflare Tunnel 預先建立（⚠️ 使用者操作）
 - [ ] **M0-T7**: 建立 watchdog cron 任務骨架（已有 scripts/watchdog.py 骨架）
 

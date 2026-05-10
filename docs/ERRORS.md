@@ -29,7 +29,35 @@
 
 ## 已解決
 
-(尚無)
+### 2026-05-10 — CUDA Toolkit 安裝被 SIGKILL 中斷
+
+- **發生於**: M0-T5 / gpu-setup-check.sh / apt install nvidia-cuda-toolkit
+- **嚴重程度**: warning
+- **症狀**:
+  ```
+  Killed
+  E: Sub-process /usr/bin/dpkg returned an error code (1)
+  ```
+  `apt install nvidia-cuda-toolkit` 跑到一半被 SIGKILL（記憶體不足或 OOM killer），導致 `nvcc` 未安裝完成。
+- **可能原因**: 系統記憶體不足，OOM killer 殺掉 dpkg；或上一次安裝只安裝了部分套件
+- **解決方式**: 重新執行時 `nvcc` 已存在（`/usr/bin/nvcc`，CUDA 12.0），上次安裝實際已成功，只是未正常退出。`gpu-setup-check.sh` 確認 ✅ 通過。
+- **狀態**: ✅ 已解決（2026-05-10）
+
+### 2026-05-10 — GPU 規格與 CLAUDE.md 不符
+
+- **發生於**: M0-T5 / gpu-setup-check.sh
+- **嚴重程度**: warning（不影響開發，但影響模型選型）
+- **症狀**:
+  ```
+  NVIDIA GeForce GTX 1650, 580.65.06, 4096 MiB
+  ```
+  實際 GPU 是 GTX 1650（4GB VRAM），而 CLAUDE.md §3.3 記載的是「GTX 1660 Super（6GB VRAM）」。
+- **影響**:
+  - Demucs `htdemucs_ft` FP16 在 4GB 更緊張，需實測（建議 M1-T3 先測試）
+  - WhisperX：預設從 `small` 開始而非 `medium`（4GB 更謹慎）
+  - 如果 Demucs FP16 OOM，可試 `htdemucs`（較輕量）
+- **解決方式**: 已更新 `.env.example` 的 `WHISPERX_MODEL` 備注；M1-T3 + M1-T5 實作時要做 VRAM 壓力測試
+- **狀態**: ✅ 已記錄，不阻塞開發（M1-T3 時再確認）
 
 ---
 
