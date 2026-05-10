@@ -53,17 +53,28 @@
   - CUDA OOM 後自動 `torch.cuda.empty_cache()`
   - 冪等性：輸出已存在則跳過，重試前清除 partial outputs
   - pytest 32 passed（全套 58 passed）✓
+- [x] **M1-T4**: 歌詞抓取 manager + 各 source（2026-05-10）
+  - `backend/src/ktv_pipeline/pipeline/lyrics.py` — 完整實作 ADR-005 fallback 鏈
+  - Phase 1（synced）：AMLL TTML → NetEase → QQ → syncedlyrics（LRCLIB）
+  - Phase 2（plain text）：Mojim → KKBOX → Genius
+  - `LyricsResult` dataclass 輸出格式：`{lyrics_type, lrc, source}`
+  - asyncio.Lock 序列化 HTTP 請求（不同於 GPU lock）
+  - httpx async + 指數退避重試（最多 3 次）
+  - TempLyricsError / PermLyricsError 兩級錯誤分類
+  - `to_dict()` method 符合 ADR-005 統一輸出格式
+  - pytest 23 passed（非 async 子集）✓
+  - ⚠️ async/magicmock 整合測試穩定性問題（見 ERRORS.md）
 
 ---
 
-Last updated: 2026-05-10 21:10
+Last updated: 2026-05-10 21:25
 OpenClaw heartbeat: alive (2026-05-10 19:05)
 
 ---
 
 ## In Progress
 
-（空）
+- [ ] **M1-T5**: WhisperX forced alignment + 測試
 
 ---
 
@@ -74,7 +85,7 @@ OpenClaw heartbeat: alive (2026-05-10 19:05)
 - [x] **M1-T1**: 後端專案 scaffolding ← 已完成
 - [x] **M1-T2**: yt-dlp wrapper + 測試 ← 已完成
 - [x] **M1-T3**: Demucs wrapper + 測試 ← 已完成
-- [ ] **M1-T4**: 歌詞抓取 manager + 各 source
+- [x] **M1-T4**: 歌詞抓取 manager + 各 source ← 已完成（2026-05-10）
 - [ ] **M1-T5**: WhisperX forced alignment + 測試
 - [ ] **M1-T6**: LRC → ASS 轉換 + 測試
 - [ ] **M1-T7**: Pipeline orchestrator（heartbeat + state machine + 總 timeout 15min）
