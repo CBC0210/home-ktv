@@ -81,7 +81,14 @@ export type ServerEvent =
   | { type: "playback.state"; state: PlaybackState }
   | { type: "reaction"; emoji: string; from: string }
   | { type: "system.error"; message: string }
-  | { type: "system.restarted" };
+  | { type: "system.restarted" }
+  // Commands forwarded from Remote → Server → Player
+  | { type: "playback.play" }
+  | { type: "playback.pause" }
+  | { type: "playback.seek"; positionSec: number }
+  | { type: "playback.skip" }
+  | { type: "playback.replay" }
+  | { type: "playback.setVolume"; main?: number; vocal?: number };
 
 export type ClientCommand =
   | { type: "queue.add"; youtubeId: string; position?: "end" | "next" }

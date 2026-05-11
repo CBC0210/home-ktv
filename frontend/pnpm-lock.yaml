@@ -14,6 +14,9 @@ importers:
       hls.js:
         specifier: ^1.5.0
         version: 1.6.16
+      libass-wasm:
+        specifier: ^4.1.0
+        version: 4.1.0
       next:
         specifier: 15.3.2
         version: 15.3.2(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -1336,6 +1339,9 @@ packages:
   levn@0.4.1:
     resolution: {integrity: sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==}
     engines: {node: '>= 0.8.0'}
+
+  libass-wasm@4.1.0:
+    resolution: {integrity: sha512-+RbYT/uuI6VHExCmGyUuMg3A2gQOaCRTzSn8GGDSf3q4cEoUNiINd9u4RGfZXA1UKafW+Hv8bmcKIX4FKbSh0Q==}
 
   lightningcss-android-arm64@1.32.0:
     resolution: {integrity: sha512-YK7/ClTt4kAK0vo6w3X+Pnm0D2cf2vPHbhOXdoNti1Ga0al1P4TBZhwjATvjNwLEBCnKvjJc2jQgHXH0NEwlAg==}
@@ -3227,6 +3233,8 @@ snapshots:
     dependencies:
       prelude-ls: 1.2.1
       type-check: 0.4.0
+
+  libass-wasm@4.1.0: {}
 
   lightningcss-android-arm64@1.32.0:
     optional: true
