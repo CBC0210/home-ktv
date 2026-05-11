@@ -3,9 +3,11 @@
 import { useState, useCallback, useRef } from "react";
 import Image from "next/image";
 import { youtubeSearch, searchSongs, addSong, isYoutubeUrl, type YoutubeResult } from "@/lib/api";
+import LeaderboardView from "./LeaderboardView";
 
 interface Props {
   roomId: string;
+  token?: string | null;
   onAdded?: () => void;
 }
 
@@ -16,7 +18,10 @@ function formatDuration(sec: number | null): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export default function SearchView({ roomId, onAdded }: Props) {
+type SubTab = "search" | "leaderboard";
+
+export default function SearchView({ roomId, token = null, onAdded }: Props) {
+  const [subTab, setSubTab] = useState<SubTab>("search");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<YoutubeResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -119,6 +124,38 @@ export default function SearchView({ roomId, onAdded }: Props) {
 
   return (
     <div className="flex flex-col h-full">
+      {/* Sub-tab selector */}
+      <div className="flex gap-0 border-b border-gray-800 sticky top-0 bg-gray-950 z-10">
+        <button
+          onClick={() => setSubTab("search")}
+          className={`flex-1 py-3 text-sm font-medium transition-colors border-b-2 ${
+            subTab === "search"
+              ? "border-purple-500 text-purple-400"
+              : "border-transparent text-gray-500 hover:text-gray-300"
+          }`}
+        >
+          🔍 搜尋
+        </button>
+        <button
+          onClick={() => setSubTab("leaderboard")}
+          className={`flex-1 py-3 text-sm font-medium transition-colors border-b-2 ${
+            subTab === "leaderboard"
+              ? "border-purple-500 text-purple-400"
+              : "border-transparent text-gray-500 hover:text-gray-300"
+          }`}
+        >
+          🏆 排行榜
+        </button>
+      </div>
+
+      {/* Leaderboard sub-tab */}
+      {subTab === "leaderboard" && (
+        <LeaderboardView roomId={roomId} token={token} onAdded={onAdded} />
+      )}
+
+      {/* Search sub-tab */}
+      {subTab === "search" && (
+      <>
       {/* Search bar */}
       <form onSubmit={onSubmit} className="p-4 flex gap-2 sticky top-0 bg-gray-950 z-10">
         <input
@@ -220,6 +257,8 @@ export default function SearchView({ roomId, onAdded }: Props) {
           </div>
         ))}
       </div>
+      </>
+      )}
     </div>
   );
 }

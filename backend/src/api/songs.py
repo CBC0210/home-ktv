@@ -1,13 +1,16 @@
 """Songs API — search, create from YouTube URL, trigger pipeline."""
 import re
 import asyncio
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from datetime import datetime, timezone
+from typing import Optional
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Request
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from ktv_pipeline.database import get_db_session
-from ktv_pipeline.models import Song, QueueItem, Room
+from ktv_pipeline.models import Song, QueueItem, Room, PlayHistory
 from ktv_pipeline.schemas import SongCreate, SongOut, QueueItemOut
-from ktv_pipeline.deps import get_current_guest
+from ktv_pipeline.deps import get_current_guest, get_optional_guest_dep
 from ktv_pipeline.queue_manager import QueueManager
 
 router = APIRouter(prefix="/songs", tags=["songs"])
@@ -103,6 +106,125 @@ def youtube_search(q: str, limit: int = 10):
         ]
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"YouTube search unavailable: {exc}")
+
+
+@router.get("/leaderboard")
+def get_leaderboard(
+    category: str = "all_time",
+    limit: int = 10,
+    session: Session = Depends(get_session),
+    payload: Optional[dict] = Depends(get_optional_guest_dep),
+):
+    """Return top songs for the given leaderboard category.
+
+    Categories:
+    - all_time: songs ordered by total play_count (all time)
+    - monthly_hot: songs most played in the current calendar month
+    - personal: songs most played by the authenticated guest (requires auth)
+    """
+    limit = max(1, min(limit, 50))
+
+    if category == "all_time":
+        rows = (
+            session.query(Song)
+            .filter(Song.play_count > 0)
+            .order_by(Song.play_count.desc())
+            .limit(limit)
+            .all()
+        )
+        return [
+            {
+                "rank": i + 1,
+                "song_id": s.id,
+                "title": s.title,
+                "artist": s.artist,
+                "thumbnail_url": s.thumbnail_url,
+                "duration_sec": s.duration_sec,
+                "play_count": s.play_count,
+                "last_played_at": s.last_played_at.isoformat() if s.last_played_at else None,
+            }
+            for i, s in enumerate(rows)
+        ]
+
+    elif category == "monthly_hot":
+        now = datetime.now(timezone.utc)
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        agg = (
+            session.query(
+                PlayHistory.song_id,
+                func.count(PlayHistory.id).label("period_count"),
+            )
+            .filter(PlayHistory.played_at >= month_start)
+            .group_by(PlayHistory.song_id)
+            .order_by(func.count(PlayHistory.id).desc())
+            .limit(limit)
+            .all()
+        )
+        if not agg:
+            return []
+
+        song_ids = [r.song_id for r in agg]
+        songs_map = {s.id: s for s in session.query(Song).filter(Song.id.in_(song_ids)).all()}
+
+        result = []
+        for i, row in enumerate(agg):
+            s = songs_map.get(row.song_id)
+            if not s:
+                continue
+            result.append({
+                "rank": i + 1,
+                "song_id": s.id,
+                "title": s.title,
+                "artist": s.artist,
+                "thumbnail_url": s.thumbnail_url,
+                "duration_sec": s.duration_sec,
+                "play_count": row.period_count,
+                "last_played_at": s.last_played_at.isoformat() if s.last_played_at else None,
+            })
+        return result
+
+    elif category == "personal":
+        if not payload:
+            raise HTTPException(status_code=401, detail="Authentication required for personal leaderboard")
+
+        guest_id = payload["sub"]
+        agg = (
+            session.query(
+                PlayHistory.song_id,
+                func.count(PlayHistory.id).label("period_count"),
+            )
+            .filter(PlayHistory.guest_id == guest_id)
+            .group_by(PlayHistory.song_id)
+            .order_by(func.count(PlayHistory.id).desc())
+            .limit(limit)
+            .all()
+        )
+        if not agg:
+            return []
+
+        song_ids = [r.song_id for r in agg]
+        songs_map = {s.id: s for s in session.query(Song).filter(Song.id.in_(song_ids)).all()}
+
+        result = []
+        for i, row in enumerate(agg):
+            s = songs_map.get(row.song_id)
+            if not s:
+                continue
+            result.append({
+                "rank": i + 1,
+                "song_id": s.id,
+                "title": s.title,
+                "artist": s.artist,
+                "thumbnail_url": s.thumbnail_url,
+                "duration_sec": s.duration_sec,
+                "play_count": row.period_count,
+                "last_played_at": s.last_played_at.isoformat() if s.last_played_at else None,
+            })
+        return result
+
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown category: {category}. Use all_time, monthly_hot, or personal")
 
 
 @router.get("/{song_id}", response_model=SongOut)

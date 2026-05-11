@@ -187,6 +187,7 @@ export default function RemoteView({ roomId }: Props) {
         {tab === "search" && (
           <SearchView
             roomId={roomId}
+            token={session.token}
             onAdded={() => setTab("queue")}
           />
         )}

@@ -164,6 +164,25 @@ export const updateLyricsAss = (songId: string, ass: string) =>
     body: JSON.stringify({ ass }),
   });
 
+// Leaderboard
+export interface LeaderboardItem {
+  rank: number;
+  song_id: string;
+  title: string;
+  artist: string | null;
+  thumbnail_url: string | null;
+  duration_sec: number | null;
+  play_count: number;
+  last_played_at: string | null;
+}
+
+export type LeaderboardCategory = "all_time" | "monthly_hot" | "personal";
+
+export const getLeaderboard = (category: LeaderboardCategory = "all_time", limit = 10) =>
+  apiFetch<LeaderboardItem[]>(
+    `/api/songs/leaderboard?category=${category}&limit=${limit}`
+  );
+
 // YouTube URL detection
 export function extractYoutubeId(input: string): string | null {
   const patterns = [
