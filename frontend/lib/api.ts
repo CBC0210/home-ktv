@@ -98,6 +98,62 @@ export const adminLogin = (password: string) =>
     body: JSON.stringify({ password }),
   });
 
+// Room stats
+export interface RoomStats {
+  room_id: string;
+  total_songs_played: number;
+  unique_songs: number;
+  total_play_duration_sec: number | null;
+  avg_rating: number | null;
+  top_songs: {
+    song_id: string;
+    title: string;
+    artist: string | null;
+    thumbnail_url: string | null;
+    play_count: number;
+    total_duration_sec: number;
+  }[];
+  recent_plays: {
+    song_id: string;
+    played_at: string | null;
+    duration_sec: number | null;
+    rating: number | null;
+  }[];
+}
+export const getRoomStats = (roomId: string) =>
+  apiFetch<RoomStats>(`/api/rooms/${roomId}/stats`);
+
+// Stats
+export interface RoomStats {
+  room_id: string;
+  total_songs_played: number;
+  unique_songs: number;
+  total_play_duration_sec: number;
+  avg_rating: number | null;
+  top_songs: Array<{
+    song_id: string;
+    title: string;
+    artist: string | null;
+    thumbnail_url: string | null;
+    play_count: number;
+    total_duration_sec: number;
+  }>;
+  recent_plays: Array<{
+    song_id: string;
+    played_at: string | null;
+    duration_sec: number | null;
+    rating: number | null;
+  }>;
+}
+export const getRoomStats = (roomId: string) =>
+  apiFetch<RoomStats>(`/api/rooms/${roomId}/stats`);
+
+// ── Room Stats (processing) ──────────────────────────────────────────────────
+export const getProcessingStats = (roomId: string) =>
+  apiFetch<{ pending: number; processing: number; ready: number; failed_perm: number }>(
+    `/api/rooms/${roomId}/stats/processing`
+  );
+
 // Streaming URLs (client-side construction)
 export function streamUrl(songId: string): string {
   return `${BASE}/songs/${songId}/stream.m3u8`;

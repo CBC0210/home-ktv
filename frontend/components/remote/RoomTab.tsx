@@ -1,8 +1,11 @@
 "use client";
 
 import type { Room, Guest, GuestSession } from "@/lib/types";
-import { useState } from "react";
+import type { RoomStats } from "@/lib/api";
+import { useState, useEffect } from "react";
+import Image from "next/image";
 import { useKtvStore, type PlayerTheme } from "@/lib/stores";
+import { getRoomStats } from "@/lib/api";
 
 const THEMES: { id: PlayerTheme; label: string; preview: string }[] = [
   { id: "default", label: "預設暗色", preview: "bg-gray-900" },
@@ -18,8 +21,26 @@ interface Props {
   onLeave: () => void;
 }
 
+function formatDuration(sec: number | null): string {
+  if (!sec) return "0m";
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (h > 0) return `${h}小時${m}分`;
+  return `${m}分`;
+}
+
+function RatingStars({ rating }: { rating: number }) {
+  const full = Math.floor(rating);
+  return (
+    <span className="text-amber-400">
+      {"★".repeat(full)}{"☆".repeat(Math.max(0, 5 - full))}
+    </span>
+  );
+}
+
 export default function RoomTab({ room, session, guests, onLeave }: Props) {
   const [copied, setCopied] = useState(false);
+  const [stats, setStats] = useState<RoomStats | null>(null);
   const { theme, setTheme } = useKtvStore();
 
   const roomUrl =
@@ -33,6 +54,13 @@ export default function RoomTab({ room, session, guests, onLeave }: Props) {
       setTimeout(() => setCopied(false), 2000);
     });
   }
+
+  // Load room stats
+  useEffect(() => {
+    getRoomStats(room.id)
+      .then(setStats)
+      .catch(() => {});
+  }, [room.id]);
 
   return (
     <div className="p-4 flex flex-col gap-5">
@@ -96,6 +124,65 @@ export default function RoomTab({ room, session, guests, onLeave }: Props) {
           )}
         </div>
       </div>
+
+      {/* Stats */}
+      {stats && (
+        <div className="bg-gray-800 rounded-xl p-4">
+          <p className="text-gray-400 text-sm mb-3">播放統計</p>
+          <div className="grid grid-cols-3 gap-3 mb-4">
+            <div className="bg-gray-700/50 rounded-lg px-3 py-2 text-center">
+              <p className="text-white text-lg font-bold">{stats.total_songs_played}</p>
+              <p className="text-gray-500 text-xs">已唱</p>
+            </div>
+            <div className="bg-gray-700/50 rounded-lg px-3 py-2 text-center">
+              <p className="text-white text-lg font-bold">{stats.unique_songs}</p>
+              <p className="text-gray-500 text-xs">不重複</p>
+            </div>
+            <div className="bg-gray-700/50 rounded-lg px-3 py-2 text-center">
+              <p className="text-white text-lg font-bold">{formatDuration(stats.total_play_duration_sec)}</p>
+              <p className="text-gray-500 text-xs">總時長</p>
+            </div>
+          </div>
+
+          {stats.avg_rating != null && (
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-gray-400 text-sm">平均評分</span>
+              <RatingStars rating={stats.avg_rating} />
+              <span className="text-gray-300 text-sm">{stats.avg_rating.toFixed(1)}</span>
+            </div>
+          )}
+
+          {stats.top_songs.length > 0 && (
+            <div>
+              <p className="text-gray-400 text-xs mb-2">熱門歌曲</p>
+              <div className="flex flex-col gap-1">
+                {stats.top_songs.slice(0, 5).map((s, i) => (
+                  <div key={s.song_id} className="flex items-center gap-2 text-xs">
+                    <span className={`w-4 text-center font-bold ${i === 0 ? "text-amber-400" : "text-gray-600"}`}>
+                      {i + 1}
+                    </span>
+                    <div className="relative w-7 h-5 rounded overflow-hidden bg-gray-700 flex-shrink-0">
+                      {s.thumbnail_url ? (
+                        <Image
+                          src={s.thumbnail_url}
+                          alt={s.title}
+                          fill
+                          className="object-cover"
+                          unoptimized
+                        />
+                      ) : (
+                        <span className="text-xs text-center w-full">🎵</span>
+                      )}
+                    </div>
+                    <span className="text-gray-300 flex-1 truncate">{s.title}</span>
+                    <span className="text-gray-500">{s.play_count}次</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Theme switcher */}
       <div className="bg-gray-800 rounded-xl p-4">

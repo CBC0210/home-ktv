@@ -106,3 +106,137 @@ def set_room_password(
     session.commit()
 
     return {"status": "ok", "room_id": room_id, "has_password": True}
+
+
+@router.get("/{room_id}/stats")
+def get_room_stats(room_id: str, session: Session = Depends(get_session)):
+    """Get room statistics from PlayHistory."""
+    from ktv_pipeline.models import PlayHistory, Song, QueueItem
+    from sqlalchemy import func
+
+    # Verify room exists
+    room = session.query(Room).filter_by(id=room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    # Total songs played
+    total_played = (
+        session.query(func.count(PlayHistory.id))
+        .filter_by(room_id=room_id)
+        .scalar() or 0
+    )
+
+    # Unique songs
+    unique_songs = (
+        session.query(func.count(func.distinct(PlayHistory.song_id)))
+        .filter_by(room_id=room_id)
+        .scalar() or 0
+    )
+
+    # Total play time
+    total_duration = (
+        session.query(func.sum(PlayHistory.duration_sec))
+        .filter_by(room_id=room_id)
+        .scalar() or 0
+    )
+
+    # Top songs (by play count)
+    top_songs_rows = (
+        session.query(
+            PlayHistory.song_id,
+            func.count(PlayHistory.id).label("play_count"),
+            func.sum(PlayHistory.duration_sec).label("total_duration"),
+        )
+        .filter_by(room_id=room_id)
+        .group_by(PlayHistory.song_id)
+        .order_by(func.count(PlayHistory.id).desc())
+        .limit(10)
+        .all()
+    )
+
+    song_ids = [r.song_id for r in top_songs_rows]
+    songs_map = {s.id: s for s in session.query(Song).filter(Song.id.in_(song_ids)).all()}
+
+    top_songs = []
+    for row in top_songs_rows:
+        song = songs_map.get(row.song_id)
+        top_songs.append({
+            "song_id": row.song_id,
+            "title": song.title if song else row.song_id,
+            "artist": song.artist if song else None,
+            "thumbnail_url": song.thumbnail_url if song else None,
+            "play_count": row.play_count,
+            "total_duration_sec": row.total_duration or 0,
+        })
+
+    # Recent plays (last 10)
+    recent_rows = (
+        session.query(PlayHistory)
+        .filter_by(room_id=room_id)
+        .order_by(PlayHistory.played_at.desc())
+        .limit(10)
+        .all()
+    )
+
+    # Avg rating
+    avg_rating = (
+        session.query(func.avg(PlayHistory.rating))
+        .filter_by(room_id=room_id)
+        .filter(PlayHistory.rating.isnot(None))
+        .scalar()
+    )
+
+@router.get("/{room_id}/stats/processing")
+def get_processing_stats(room_id: str, session: Session = Depends(get_session)):
+    """Get processing statistics for songs in a room's queue."""
+    from ktv_pipeline.models import Song, QueueItem
+    from sqlalchemy import func
+
+    # Verify room exists
+    room = session.query(Room).filter_by(id=room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    # Get all song IDs in this room's queue
+    queue_song_ids = (
+        session.query(QueueItem.song_id)
+        .filter_by(room_id=room_id)
+        .distinct()
+        .all()
+    )
+    song_ids = [r.song_id for r in queue_song_ids]
+
+    if not song_ids:
+        return {"pending": 0, "processing": 0, "ready": 0, "failed_perm": 0, "failed_temp": 0}
+
+    counts = (
+        session.query(Song.status, func.count(Song.id))
+        .filter(Song.id.in_(song_ids))
+        .group_by(Song.status)
+        .all()
+    )
+
+    result = {"pending": 0, "processing": 0, "ready": 0, "failed_perm": 0, "failed_temp": 0}
+    for status, count in counts:
+        if status in result:
+            result[status] = count
+
+    return result
+
+    return {
+        "room_id": room_id,
+        "total_songs_played": total_played,
+        "unique_songs": unique_songs,
+        "total_play_duration_sec": total_duration,
+        "avg_rating": round(avg_rating, 1) if avg_rating else None,
+        "top_songs": top_songs,
+        "recent_plays": [
+            {
+                "song_id": p.song_id,
+                "played_at": p.played_at.isoformat() if p.played_at else None,
+                "duration_sec": p.duration_sec,
+                "rating": p.rating,
+            }
+            for p in recent_rows
+        ],
+    }
