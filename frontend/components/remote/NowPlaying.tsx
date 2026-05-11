@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { useRef } from "react";
 import type { Song, PlaybackState, ClientCommand, QueueItem } from "@/lib/types";
 
 interface Props {
@@ -32,6 +33,16 @@ export default function NowPlaying({
   processing,
   sendCommand,
 }: Props) {
+  const progressBarRef = useRef<HTMLDivElement>(null);
+
+  function handleSeek(e: React.MouseEvent<HTMLDivElement>) {
+    const bar = progressBarRef.current;
+    if (!bar || !currentSong?.duration_sec) return;
+    const rect = bar.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    sendCommand({ type: "playback.seek", positionSec: ratio * currentSong.duration_sec });
+  }
+
   if (!currentSong && !processing) {
     return (
       <div className="flex flex-col items-center justify-center flex-1 text-center p-8 gap-4">
@@ -99,12 +110,17 @@ export default function NowPlaying({
         </div>
       )}
 
-      {/* Progress bar */}
+      {/* Progress bar — click to seek */}
       {currentSong && (
         <div>
-          <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+          <div
+            ref={progressBarRef}
+            onClick={handleSeek}
+            className="h-3 bg-gray-700 rounded-full overflow-hidden cursor-pointer active:opacity-80 group relative"
+            title="點擊跳轉"
+          >
             <div
-              className="h-full bg-purple-500 transition-all"
+              className="h-full bg-purple-500 rounded-full transition-all group-hover:bg-purple-400"
               style={{ width: `${progress}%` }}
             />
           </div>
