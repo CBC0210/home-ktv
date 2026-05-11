@@ -90,6 +90,8 @@ export const joinRoom = (data: {
     body: JSON.stringify(data),
   });
 export const getMe = () => apiFetch<Guest>("/api/guests/me");
+export const getOnlineGuests = (roomId: string) =>
+  apiFetch<Guest[]>(`/api/guests/online/${roomId}`);
 
 // Admin
 export const adminLogin = (password: string) =>
@@ -147,6 +149,20 @@ export function audioUrl(
 export function lyricsUrl(songId: string): string {
   return `${BASE}/songs/${songId}/lyrics.ass`;
 }
+
+// Lyrics
+export async function getLyricsAss(songId: string): Promise<string> {
+  const base = process.env.NEXT_PUBLIC_API_URL ?? "";
+  const res = await fetch(`${base}/songs/${songId}/lyrics.ass`, { credentials: "include" });
+  if (!res.ok) return "";
+  return res.text();
+}
+
+export const updateLyricsAss = (songId: string, ass: string) =>
+  apiFetch<{ status: string; bytes: number }>(`/songs/${songId}/lyrics`, {
+    method: "PUT",
+    body: JSON.stringify({ ass }),
+  });
 
 // YouTube URL detection
 export function extractYoutubeId(input: string): string | null {

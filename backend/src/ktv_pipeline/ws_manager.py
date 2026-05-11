@@ -158,6 +158,13 @@ class ConnectionManager:
     async def broadcast_system_error(self, room_id: str, message: str) -> None:
         await self.send_to_room(room_id, {"type": "system.error", "message": message})
 
+    async def broadcast_lyrics_updated(self, room_id: str, song_id: str) -> None:
+        """Notify Player clients in a room that lyrics.ass has been replaced."""
+        await self.send_to_role(room_id, ClientRole.PLAYER, {
+            "type": "lyrics.updated",
+            "songId": song_id,
+        })
+
 
 # Global singleton
 manager = ConnectionManager()

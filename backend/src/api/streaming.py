@@ -7,6 +7,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse, Response
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ktv_pipeline.config import settings
@@ -175,6 +176,31 @@ async def serve_lyrics_ass(song_id: str, session: Session = Depends(get_session)
             "Content-Length": str(ass_path.stat().st_size),
         },
     )
+
+
+class LyricsUpdateBody(BaseModel):
+    ass: str
+
+
+@router.put("/{song_id}/lyrics")
+async def update_lyrics_ass(
+    song_id: str,
+    body: LyricsUpdateBody,
+    session: Session = Depends(get_session),
+):
+    """Replace the cached ASS lyrics file for a song (user-edited karaoke timing)."""
+    if not body.ass.strip():
+        raise HTTPException(status_code=400, detail="ASS content cannot be empty")
+
+    song = session.query(Song).filter_by(id=song_id).first()
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+
+    ass_path = _song_ass_path(song_id)
+    ass_path.parent.mkdir(parents=True, exist_ok=True)
+    ass_path.write_text(body.ass, encoding="utf-8")
+
+    return {"status": "ok", "song_id": song_id, "bytes": len(body.ass.encode("utf-8"))}
 
 
 @router.get("/{song_id}/info")

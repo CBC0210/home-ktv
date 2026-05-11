@@ -2,19 +2,18 @@
 
 > 這份檔案是 OpenClaw 與 Claude Code 之間的長期記憶。每個 task 完成或中斷時都必須更新。
 
-## Status: 🚧 M5-T1 進行中
+## Status: 🚧 M5-T2 進行中
 
 ### Next Up
-- M5-T1: 用戶流程最終確認 + 歌詞 ASS 替換
-- M5-T2: 第一首歌端到端實測
+- M5-T2: 第一首歌端到端實測（真實下載 + Demucs + 歌詞 + 播放驗收）
 - M5-T3: 部署文檔與交接
 
 ### In Progress
-- **M5-T1**: 用戶流程最終確認 + 歌詞 ASS 替換
-  - 現況：M4 完成，啟動 M5
-  - 驗證：§17.6 用戶流程全確認
+- **M5-T2**: 第一首歌端到端實測
+  - 現況：M5-T1 完成，需要真實 pipeline 測試
+  - 目標：用 YouTube URL 完整跑完 pipeline，驗收 HLS + 字幕播放
 
-### Last heartbeat: 2026-05-11 14:09 (章魚 watchdog)
+### Last heartbeat: 2026-05-11 15:30 (Claude session)
 
 ---
 
@@ -253,6 +252,33 @@ Sub-tasks:
 
 ---
 
+### M5-T1: 用戶流程最終確認 + 歌詞 ASS 替換 ✅ (2026-05-11)
+
+Sub-tasks:
+- [x] M4-T6 commit（recharts stats charts + test_lyrics.py mock fix）
+- [x] `ws_manager.py`: `broadcast_lyrics_updated()` — notify PLAYER clients
+- [x] `ws.py`: `lyrics.edit` WS handler（overwrite ASS file → notify Player）
+- [x] `ws.py`: `playback.setVolume` forward to PLAYER（was missing）
+- [x] `ws.py`: `_get_room_guests_info()` + `guests.updated` broadcast on connect/disconnect
+- [x] `streaming.py`: `PUT /songs/{song_id}/lyrics` endpoint（validate → write → 200）
+- [x] `frontend/lib/types.ts`: `lyrics.updated` server event
+- [x] `frontend/lib/api.ts`: `getLyricsAss()` + `updateLyricsAss()` + `getOnlineGuests()`
+- [x] `frontend/PlayerView.tsx`: handle `lyrics.updated` → `subtitleRevision` key increment
+- [x] `frontend/NowPlaying.tsx`: ✏️ 歌詞時間軸 button + ASS textarea modal + save → `lyrics.edit` WS
+- [x] Backend tests: 138 passed ✓
+- [x] Frontend build: 6 routes ✓
+
+**完整用戶流程確認：**
+- 訪客進房間 → JoinForm → LocalStorage session ✓
+- 搜尋歌曲 → YouTube search → 加入隊列 ✓
+- WS 隊列同步（add / remove / reorder）✓
+- 播放控制（play / pause / seek / setVolume / skip / replay）✓
+- 表情反應 ✓
+- 房間統計（pie chart + bar chart）✓
+- 歌詞 ASS 替換（NowPlaying ✏️ → WS lyrics.edit → Player SubtitleLayer 重新掛載）✓
+
+---
+
 ## ⚠️ User Action Required
 
 (無)
@@ -280,5 +306,5 @@ Sub-tasks:
 
 
 ---
-Last updated: 2026-05-11 14:09 (章魚 watchdog)
-Last heartbeat: 2026-05-11 14:09 (章魚 watchdog)
+Last updated: 2026-05-11 15:30 (Claude session — M5-T1 complete)
+Last heartbeat: 2026-05-11 15:30

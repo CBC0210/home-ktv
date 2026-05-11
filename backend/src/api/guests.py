@@ -101,6 +101,18 @@ def update_guest(
     return guest
 
 
+@router.get("/online/{room_id}", response_model=list[GuestOut])
+def get_online_guests(room_id: str, session: Session = Depends(get_session)):
+    """Return guests currently connected to a room via WebSocket."""
+    from ktv_pipeline.ws_manager import manager
+    clients = manager.get_room_clients(room_id)
+    guest_ids = list({c.guest_id for c in clients if c.guest_id})
+    if not guest_ids:
+        return []
+    guests = session.query(Guest).filter(Guest.id.in_(guest_ids)).all()
+    return guests
+
+
 @router.get("/{guest_id}", response_model=GuestOut)
 def get_guest(guest_id: str, session: Session = Depends(get_session)):
     """Get a guest by ID. Public endpoint."""

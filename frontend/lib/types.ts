@@ -82,6 +82,7 @@ export type ServerEvent =
   | { type: "reaction"; emoji: string; from: string }
   | { type: "system.error"; message: string }
   | { type: "system.restarted" }
+  | { type: "lyrics.updated"; songId: string }
   // Commands forwarded from Remote → Server → Player
   | { type: "playback.play" }
   | { type: "playback.pause" }

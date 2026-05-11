@@ -1,5 +1,6 @@
 """WebSocket endpoint — connection, authentication, message dispatch."""
 import uuid
+from typing import List
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, HTTPException
 
 from ktv_pipeline.ws_manager import manager, ClientRole
@@ -8,6 +9,20 @@ from ktv_pipeline.database import get_db_session
 from ktv_pipeline.models import Room, Guest
 
 router = APIRouter()
+
+
+async def _get_room_guests_info(room_id: str) -> List[dict]:
+    """Return guest info dicts for all guests currently connected to a room."""
+    clients = manager.get_room_clients(room_id)
+    guest_ids = list({c.guest_id for c in clients if c.guest_id})
+    if not guest_ids:
+        return []
+    with get_db_session() as session:
+        guests = session.query(Guest).filter(Guest.id.in_(guest_ids)).all()
+        return [
+            {"id": g.id, "nickname": g.nickname, "avatar_color": g.avatar_color, "is_admin": g.is_admin}
+            for g in guests
+        ]
 
 
 def authenticate_websocket_token(token: str) -> dict:
@@ -71,6 +86,10 @@ async def ws_endpoint(
             guest = session.query(Guest).filter_by(id=guest_id).first()
             nickname = guest.nickname if guest else "Unknown"
 
+        # Notify room of new guest (send full list to all, including new client)
+        guests_info = await _get_room_guests_info(room_id)
+        await manager.broadcast_guests_updated(room_id, guests_info)
+
         # Dispatch loop
         while True:
             raw = await websocket.receive_text()
@@ -80,6 +99,9 @@ async def ws_endpoint(
         pass
     finally:
         await manager.disconnect(client_id)
+        # Notify remaining room members of the departure
+        remaining = await _get_room_guests_info(room_id)
+        await manager.broadcast_guests_updated(room_id, remaining)
 
 
 async def dispatch_message(
@@ -139,6 +161,14 @@ async def dispatch_message(
             position = msg.get("positionSec", 0)
             await manager.send_to_role(room_id, ClientRole.PLAYER, {"type": "playback.seek", "positionSec": position})
 
+        elif msg_type == "playback.setVolume":
+            fwd: dict = {"type": "playback.setVolume"}
+            if "main" in msg:
+                fwd["main"] = float(msg["main"])
+            if "vocal" in msg:
+                fwd["vocal"] = float(msg["vocal"])
+            await manager.send_to_role(room_id, ClientRole.PLAYER, fwd)
+
         elif msg_type == "queue.add":
             await _handle_queue_add(room_id, guest_id, msg)
 
@@ -147,6 +177,9 @@ async def dispatch_message(
 
         elif msg_type == "queue.reorder":
             await _handle_queue_reorder(room_id, msg)
+
+        elif msg_type == "lyrics.edit":
+            await _handle_lyrics_edit(room_id, msg)
 
     # ── Admin messages ─────────────────────────────────────────────────────────
     elif role == ClientRole.ADMIN:
@@ -223,6 +256,23 @@ async def _handle_queue_reorder(room_id: str, msg: dict) -> None:
             await manager.broadcast_queue_updated(room_id, [_qi_to_dict(qi, song_map.get(qi.song_id), guest_map.get(qi.guest_id)) for qi in queue])
     except Exception as exc:
         await manager.broadcast_system_error(room_id, f"queue.reorder failed: {exc}")
+
+
+async def _handle_lyrics_edit(room_id: str, msg: dict) -> None:
+    """Handle lyrics.edit from remote — overwrite cached ASS and notify Player."""
+    song_id = msg.get("songId")
+    ass_content = msg.get("ass", "")
+    if not song_id or not ass_content.strip():
+        await manager.broadcast_system_error(room_id, "lyrics.edit: missing songId or ass content")
+        return
+    try:
+        from ktv_pipeline.config import settings
+        ass_path = settings.data_dir / "cache" / "lrc" / song_id / "vocal.ass"
+        ass_path.parent.mkdir(parents=True, exist_ok=True)
+        ass_path.write_text(ass_content, encoding="utf-8")
+        await manager.broadcast_lyrics_updated(room_id, song_id)
+    except Exception as exc:
+        await manager.broadcast_system_error(room_id, f"lyrics.edit failed: {exc}")
 
 
 def _qi_to_dict(qi, song, guest) -> dict:

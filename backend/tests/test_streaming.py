@@ -54,6 +54,53 @@ class TestLyricsAssEndpoint:
         response = client.get("/songs/nonexistent-id-abc123/lyrics.ass")
         assert response.status_code == 404
 
+    def test_put_lyrics_404_for_nonexistent_song(self, client):
+        response = client.put(
+            "/songs/nonexistent-id-abc123/lyrics",
+            json={"ass": "[Script Info]\nTitle: Test\n"},
+        )
+        assert response.status_code == 404
+
+    def test_put_lyrics_400_for_empty_ass(self, client):
+        """Empty ASS content must be rejected."""
+        from ktv_pipeline.database import get_db_session
+        from ktv_pipeline.models import Song
+        song_id = "testlyrics-empty-ass-check"
+        with get_db_session() as session:
+            if not session.query(Song).filter_by(id=song_id).first():
+                session.add(Song(id=song_id, title="T", status="ready"))
+                session.commit()
+        response = client.put(
+            f"/songs/{song_id}/lyrics",
+            json={"ass": "   "},  # whitespace-only
+        )
+        assert response.status_code == 400
+
+    def test_put_lyrics_writes_file(self, client, tmp_path, monkeypatch):
+        """Valid PUT request writes file and returns ok."""
+        from ktv_pipeline.database import get_db_session
+        from ktv_pipeline.models import Song
+        song_id = "testlyrics-write-file-check"
+        with get_db_session() as session:
+            if not session.query(Song).filter_by(id=song_id).first():
+                session.add(Song(id=song_id, title="T2", status="ready"))
+                session.commit()
+
+        ass = "[Script Info]\nTitle: Test\n\n[Events]\nDialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,Hello"
+
+        import ktv_pipeline.config as cfg_mod
+        from pathlib import Path
+        monkeypatch.setattr(cfg_mod.settings, "data_dir", Path(tmp_path))
+
+        response = client.put(
+            f"/songs/{song_id}/lyrics",
+            json={"ass": ass},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ok"
+        assert data["bytes"] > 0
+
 
 class TestHLSServing:
     """Tests for the HLS manifest endpoint."""

@@ -128,6 +128,8 @@ export default function PlayerView({ roomId }: Props) {
   const mixerRef = useRef<DualAudioMixer | null>(null);
   const positionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [remoteUrl, setRemoteUrl] = useState<string>("");
+  // Increment to force SubtitleLayer remount when lyrics are replaced
+  const [subtitleRevision, setSubtitleRevision] = useState(0);
   const clock = useClock();
 
   const {
@@ -208,6 +210,10 @@ export default function PlayerView({ roomId }: Props) {
         case "playback.skip":
         case "playback.replay":
           // Queue management not yet implemented in player; server handles via queue API
+          break;
+        case "lyrics.updated":
+          // Reload SubtitleLayer so it fetches the updated .ass file
+          setSubtitleRevision((r) => r + 1);
           break;
       }
     },
@@ -425,7 +431,7 @@ export default function PlayerView({ roomId }: Props) {
         muted
       />
 
-      <SubtitleLayer song={currentSong} positionSec={playback.position_sec} />
+      <SubtitleLayer key={subtitleRevision} song={currentSong} positionSec={playback.position_sec} />
 
       <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-sm rounded-xl px-4 py-2.5 max-w-sm">
         <p className="text-white font-semibold text-sm truncate">

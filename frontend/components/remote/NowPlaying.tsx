@@ -1,8 +1,9 @@
 "use client";
 
 import Image from "next/image";
-import { useRef } from "react";
+import { useRef, useState, useCallback } from "react";
 import type { Song, PlaybackState, ClientCommand, QueueItem } from "@/lib/types";
+import { getLyricsAss } from "@/lib/api";
 
 interface Props {
   currentSong: Song | null;
@@ -34,6 +35,33 @@ export default function NowPlaying({
   sendCommand,
 }: Props) {
   const progressBarRef = useRef<HTMLDivElement>(null);
+  const [lyricsEditorOpen, setLyricsEditorOpen] = useState(false);
+  const [assContent, setAssContent] = useState("");
+  const [lyricsLoading, setLyricsLoading] = useState(false);
+  const [lyricsSaving, setLyricsSaving] = useState(false);
+
+  const openLyricsEditor = useCallback(async () => {
+    if (!currentSong) return;
+    setLyricsLoading(true);
+    setLyricsEditorOpen(true);
+    try {
+      const content = await getLyricsAss(currentSong.id);
+      setAssContent(content);
+    } finally {
+      setLyricsLoading(false);
+    }
+  }, [currentSong]);
+
+  function saveLyrics() {
+    if (!currentSong || !assContent.trim()) return;
+    setLyricsSaving(true);
+    sendCommand({ type: "lyrics.edit", songId: currentSong.id, ass: assContent });
+    // Close after short delay to let WS message dispatch
+    setTimeout(() => {
+      setLyricsSaving(false);
+      setLyricsEditorOpen(false);
+    }, 800);
+  }
 
   function handleSeek(e: React.MouseEvent<HTMLDivElement>) {
     const bar = progressBarRef.current;
@@ -215,6 +243,61 @@ export default function NowPlaying({
           </button>
         ))}
       </div>
+
+      {/* Lyrics edit button — only for songs with timing */}
+      {currentSong?.has_timing && (
+        <button
+          onClick={openLyricsEditor}
+          className="w-full text-sm text-gray-500 hover:text-purple-400 py-2 transition-colors"
+        >
+          ✏️ 編輯歌詞時間軸
+        </button>
+      )}
+
+      {/* Lyrics editor modal */}
+      {lyricsEditorOpen && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex flex-col">
+          <div className="flex items-center justify-between px-4 py-3 bg-gray-900 border-b border-gray-700">
+            <h3 className="text-white font-medium text-sm">編輯 ASS 時間軸</h3>
+            <button
+              onClick={() => setLyricsEditorOpen(false)}
+              className="text-gray-400 hover:text-white text-lg"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="flex-1 overflow-hidden flex flex-col p-3 gap-3">
+            {lyricsLoading ? (
+              <div className="flex-1 flex items-center justify-center">
+                <p className="text-gray-400 text-sm">載入歌詞中…</p>
+              </div>
+            ) : (
+              <textarea
+                value={assContent}
+                onChange={(e) => setAssContent(e.target.value)}
+                className="flex-1 bg-gray-800 text-white text-xs font-mono p-3 rounded-xl resize-none outline-none border border-gray-700 focus:border-purple-500"
+                spellCheck={false}
+                placeholder="ASS 內容…"
+              />
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setLyricsEditorOpen(false)}
+                className="flex-1 py-2.5 rounded-xl bg-gray-700 text-gray-300 text-sm hover:bg-gray-600 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={saveLyrics}
+                disabled={lyricsSaving || lyricsLoading || !assContent.trim()}
+                className="flex-1 py-2.5 rounded-xl bg-purple-600 text-white text-sm hover:bg-purple-500 transition-colors disabled:opacity-50"
+              >
+                {lyricsSaving ? "儲存中…" : "儲存並更新"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

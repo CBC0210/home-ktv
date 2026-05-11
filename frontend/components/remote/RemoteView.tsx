@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useKtvStore } from "@/lib/stores";
 import { useWebSocket } from "@/lib/ws";
-import { getRoom, getQueue } from "@/lib/api";
+import { getRoom, getQueue, getOnlineGuests } from "@/lib/api";
 import type { GuestSession, ServerEvent, ClientCommand } from "@/lib/types";
 import JoinForm from "./JoinForm";
 import NowPlaying from "./NowPlaying";
@@ -71,6 +71,14 @@ export default function RemoteView({ roomId }: Props) {
       .then(setQueue)
       .catch(() => {});
   }, [roomId, session, setQueue]);
+
+  // Fetch initial online guests (WS events keep it updated after that)
+  useEffect(() => {
+    if (!session) return;
+    getOnlineGuests(roomId)
+      .then(setGuests)
+      .catch(() => {});
+  }, [roomId, session, setGuests]);
 
   // Sync session to store
   useEffect(() => {
