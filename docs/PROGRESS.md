@@ -184,22 +184,30 @@
 ### M3 Frontend Scaffolding ✅ (2026-05-11)
 - `lib/types.ts`: Room, Song, Guest, QueueItem, PlaybackState, ServerEvent, ClientCommand, GuestSession
 - `lib/api.ts`: getRooms, searchSongs, addSong, getQueue, addToQueue, removeFromQueue, joinRoom, streamUrl, audioUrl, lyricsUrl, isYoutubeUrl
-- `lib/ws.ts`: useWebSocket hook — exponential backoff reconnect, token auth, sends/receives typed events
-- `lib/stores/index.ts`: Zustand KTV store — room, session, queue, playback, guests, processing
+- `lib/ws.ts`: useWebSocket hook — exponential backoff reconnect, token auth, sends/receives typed events, onConnected callback
+- `lib/stores/index.ts`: Zustand KTV store — room, session, queue, playback, guests, processing, theme (PlayerTheme + THEME_STYLES)
 - `components/shared/RoomCard.tsx`: room card with player/remote links
-- `components/player/PlayerView.tsx`: standby screen (QR code URL + queue preview) + playing screen (HLS video + info overlay)
-- `components/player/SubtitleLayer.tsx`: subtitle overlay placeholder (libass canvas slot)
+- `components/player/PlayerView.tsx`: ↓ real implementation ↓
+  - Standby: QR code (react-qr-code), room name, guest count, clock, queue preview, theme-aware bg
+  - Playing: hls.js video + DualAudioMixer (Web Audio API, GainNodes per track), SubtitleLayer
+  - WS: player.ready on connect, player.playing every sec, player.error on HLS fatal error
+  - Handles playback.play/pause/seek/setVolume commands from Remote via WS
+- `components/player/SubtitleLayer.tsx`: libass-wasm real karaoke subtitles, graceful fallback
 - `components/remote/RemoteView.tsx`: tab orchestrator with header + bottom nav
 - `components/remote/JoinForm.tsx`: guest join form (nickname + optional room password → localStorage session)
 - `components/remote/NowPlaying.tsx`: cover art, playback controls (play/pause/skip/replay), volume sliders, reactions
 - `components/remote/QueueList.tsx`: pending queue with remove action
 - `components/remote/SearchView.tsx`: search + YouTube URL paste-to-add, insert-next support
-- `components/remote/RoomTab.tsx`: room info, copy link, online guests list, leave
+- `components/remote/RoomTab.tsx`: room info, copy link, online guests list, theme switcher (4 themes)
 - `app/rooms/page.tsx`: server-rendered room list (revalidate: 30s)
 - `app/r/[roomId]/player/page.tsx`: player route
 - `app/r/[roomId]/remote/page.tsx`: remote route
+- `public/libass/`: subtitles-octopus-worker.js + wasm for karaoke subtitles
+- `types/libass-wasm.d.ts`: TypeScript declaration
 - **pnpm build ✓** (6 routes, 0 errors, 0 type errors)
-- Commit: 84e5df6, branch `feature/M2-T1-fastapi-skeleton`
+- Commits: 84e5df6 (scaffold) → fb83f8c (T2 standby+QR) → 22f3670 (T3+T4 dual-audio+libass) → 9293b0f (T5+T6 WS+theme)
+
+### **M3 COMPLETE ✅** (2026-05-11)
 
 ### M2-T8: 整合測試 ✅ (2026-05-11)
 - `tests/test_e2e_smoke.py`: 9 tests — create room, join as guest, add song, pipeline triggered, song pending→ready, duplicate dedup, WebSocket auth, stream HLS for ready song, stream 202 for pending song
@@ -213,20 +221,19 @@
 
 ## In Progress
 
-### M3: Player 網頁
+### M4: Remote 網頁
 
-Current focus: M3 frontend pages — real player logic (hls.js, libass-wasm, WebSocket sync)
+Current focus: M4 — complete Remote PWA pages
 
 Sub-tasks:
-- [x] M3 scaffolding (Next.js routes, components, Zustand store) ✅ DONE (2026-05-11)
-- [ ] **M3-T2: 待機畫面 + QR code** ← NEXT
-- [ ] M3-T3: hls.js 整合 (dual-track audio, playback controls)
-- [ ] M3-T4: libass-wasm 字幕層
-- [ ] M3-T5: WebSocket 接收與狀態同步
-- [ ] M3-T6: 主題系統
-- [ ] M3-T7: 完整端到端測試✅ 使用者驗收
+- [x] M4-T1/T2: scaffolding + JoinForm (done as part of M3 scaffold)
+- [ ] **M4-T3: 「正在播放」頁 — seek progress bar + real WS control** ← NEXT
+- [ ] M4-T4: 「隊列」頁 — drag reorder, insert-next swipe
+- [ ] M4-T5: 「搜尋」頁 + YouTube search API
+- [ ] M4-T6: 「房間」頁 + 統計 charts
+- [ ] M4-T7: 純文字歌詞 UI ✅ 使用者驗收
 
-Last heartbeat: 2026-05-11 10:00
+Last heartbeat: 2026-05-11 10:35
 
 ---
 
@@ -257,5 +264,5 @@ Last heartbeat: 2026-05-11 10:00
 
 
 ---
-Last updated: 2026-05-11 10:05
+Last updated: 2026-05-11 10:35
 OpenClaw heartbeat: alive (2026-05-11 09:39)
