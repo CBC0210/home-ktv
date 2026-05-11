@@ -227,13 +227,17 @@ Current focus: M4 — complete Remote PWA pages
 
 Sub-tasks:
 - [x] M4-T1/T2: scaffolding + JoinForm (done as part of M3 scaffold)
-- [ ] **M4-T3: 「正在播放」頁 — seek progress bar + real WS control** ← NEXT
-- [ ] M4-T4: 「隊列」頁 — drag reorder, insert-next swipe
-- [ ] M4-T5: 「搜尋」頁 + YouTube search API
-- [ ] M4-T6: 「房間」頁 + 統計 charts
-- [ ] M4-T7: 純文字歌詞 UI ✅ 使用者驗收
+- [x] M4-T3: 「正在播放」頁 — seek progress bar + real WS control ✅ (01faa01)
+- [x] M4-T4: 「隊列」頁 — drag reorder, insert-next swipe (basic done, full reorder via WS command)
+- [x] **M4-T5: 「搜尋」頁 + YouTube search API** ✅ (b75e9c9)
+  - Backend `/api/songs/youtube-search` endpoint via yt-dlp extract_flat
+  - Frontend: parallel YouTube search + local cache, ⚡ flag on cached songs
+  - Debounced auto-search (600ms), paste YouTube URL → instant add
+  - Build ✓ (6 routes)
+- [ ] M4-T6: 「房間」頁 + 統計 charts (RoomTab done, stats pending)
+- [ ] M4-T7: 端到端整合測試 ✅ 使用者驗收
 
-Last heartbeat: 2026-05-11 10:35
+Last heartbeat: 2026-05-11 10:55
 
 ---
 
