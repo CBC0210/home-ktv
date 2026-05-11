@@ -23,7 +23,12 @@ def verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode(), hashed.encode())
 
 
-def create_access_token(guest_id: str, room_id: str, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(
+    guest_id: str,
+    room_id: str,
+    is_admin: bool = False,
+    expires_delta: Optional[timedelta] = None,
+) -> str:
     """Create a signed JWT for a guest session."""
     if expires_delta is None:
         expires_delta = timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
@@ -31,6 +36,7 @@ def create_access_token(guest_id: str, room_id: str, expires_delta: Optional[tim
     payload = {
         "sub": guest_id,
         "room_id": room_id,
+        "is_admin": is_admin,
         "exp": expire,
         "iat": datetime.now(timezone.utc),
     }

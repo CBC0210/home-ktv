@@ -201,19 +201,32 @@
 - **pnpm build ✓** (6 routes, 0 errors, 0 type errors)
 - Commit: 84e5df6, branch `feature/M2-T1-fastapi-skeleton`
 
+### M2-T8: 整合測試 ✅ (2026-05-11)
+- `tests/test_e2e_smoke.py`: 9 tests — create room, join as guest, add song, pipeline triggered, song pending→ready, duplicate dedup, WebSocket auth, stream HLS for ready song, stream 202 for pending song
+- Bug fixes: `create_access_token` now includes `is_admin` in JWT payload (was missing → admin-only routes returned 403); `POST /api/songs` returns `SongOut` instead of mismatched `QueueItemOut`
+- 107 non-GPU/network tests pass ✓
+- Branch: `feature/M2-T1-fastapi-skeleton`
+
+**M2 COMPLETE ✅**
+
 ---
 
 ## In Progress
 
-### M2-T8: 整合測試：能 API 點歌、處理、播放 ✅ 使用者驗收
+### M3: Player 網頁
+
+Current focus: M3 frontend pages — real player logic (hls.js, libass-wasm, WebSocket sync)
 
 Sub-tasks:
-- [ ] End-to-end smoke test: create room → join → add song → verify pipeline triggered → song becomes ready
-- [ ] Verify WebSocket connection works with JWT auth
-- [ ] Verify stream endpoint returns audio for ready songs
-- [x] Frontend scaffolding (Next.js pages for rooms, queue, player) ✅ DONE
+- [x] M3 scaffolding (Next.js routes, components, Zustand store) ✅ DONE (2026-05-11)
+- [ ] **M3-T2: 待機畫面 + QR code** ← NEXT
+- [ ] M3-T3: hls.js 整合 (dual-track audio, playback controls)
+- [ ] M3-T4: libass-wasm 字幕層
+- [ ] M3-T5: WebSocket 接收與狀態同步
+- [ ] M3-T6: 主題系統
+- [ ] M3-T7: 完整端到端測試✅ 使用者驗收
 
-Context: M2-T8 is the final M2 task. After this, M2 is complete and we move to M3 (frontend UI).
+Last heartbeat: 2026-05-11 10:00
 
 ---
 
@@ -242,5 +255,7 @@ Context: M2-T8 is the final M2 task. After this, M2 is complete and we move to M
 
 ---
 
-Last updated: 2026-05-11 08:50
-OpenClaw heartbeat: alive (2026-05-11 08:50)
+
+---
+Last updated: 2026-05-11 10:05
+OpenClaw heartbeat: alive (2026-05-11 09:39)

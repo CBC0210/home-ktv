@@ -36,7 +36,7 @@ def admin_login(password: str) -> SessionOut:
             session.commit()
             session.refresh(admin)
 
-        token = create_access_token(guest_id=admin.id, room_id="__admin__")
+        token = create_access_token(guest_id=admin.id, room_id="__admin__", is_admin=True)
 
         return SessionOut(
             access_token=token,

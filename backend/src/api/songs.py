@@ -127,7 +127,8 @@ def add_song(
         .first()
     )
     if existing_item:
-        return QueueItemOut.model_validate(existing_item)
+        session.refresh(song)
+        return song
 
     # Add to queue
     mgr = QueueManager(session)
@@ -140,7 +141,8 @@ def add_song(
     if song.status != "ready":
         background_tasks.add_task(_run_pipeline_sync, item.id)
 
-    return QueueItemOut.model_validate(item)
+    session.refresh(song)
+    return song
 
 
 @router.get("/{song_id}/status")
