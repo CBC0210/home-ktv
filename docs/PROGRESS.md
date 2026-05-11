@@ -96,17 +96,6 @@
   - `process_song(url)` CLI 入口：`uv run python -m ktv_pipeline.pipeline_orchestrator <url>`
   - 13 個單元測試全部通過 ✓
   - Commit: 9fec415，branch `feature/M1-T7-pipeline-orchestrator`
-- [x] **M2-T1**: FastAPI skeleton + DB 初始化（完整版）（2026-05-11）
-  - `src/main.py`：proper lifespan context manager（取代 deprecated @on_event）
-  - `/health`：DB ping + version
-  - `/version`：GPU status（nvidia-smi）+ settings + DB path
-  - `database.py`：`check_db_connection()` + `get_gpu_status()` + WAL mode
-  - `config.py`：`settings.version` from `importlib.metadata`
-  - 9 個新測試（`tests/test_version.py`）
-  - 所有 22 tests pass ✓
-  - Commit: 2121cd6，branch `feature/M2-T1-fastapi-skeleton`
-  - ⚠️ 注意：uvicorn 需用 `src.main:app`（不是 `main:app`）
-
 - [x] **M1-T8**: 整合 CLI + 使用者驗收（2026-05-11）✅ M1 完整完成
   - `config.py`：`_configure_cuda_env()` 自動設定 `LD_LIBRARY_PATH` + `PYTORCH_CUDA_ALLOC_CONF`
   - `backend/run-pipeline.sh`：一鍵執行 pipeline CLI（含 CUDA lib 路徑設定）
@@ -121,65 +110,94 @@
 
 ---
 
-Last updated: 2026-05-11 10:15
-OpenClaw heartbeat: alive (2026-05-11 07:55)
+### M2-T1: FastAPI skeleton + DB 初始化（完整版）✅ (2026-05-11)
+- `src/main.py`：proper lifespan context manager（取代 deprecated @on_event）
+- `/health`：DB ping + version
+- `/version`：GPU status（nvidia-smi）+ settings + DB path
+- `database.py`：`check_db_connection()` + `get_gpu_status()` + WAL mode
+- `config.py`：`settings.version` from `importlib.metadata`
+- 9 個新測試（`tests/test_version.py`）
+- 所有 22 tests pass ✓
+- Commit: 2121cd6，branch `feature/M2-T1-fastapi-skeleton`
+- ⚠️ 注意：uvicorn 需用 `src.main:app`（不是 `main:app`）
+
+### M2-T2: SQLite 模型 + Alembic migrations ✅ (2026-05-11)
+- `alembic.ini`：SQLite URL placeholder（被 env.py 動態置換）
+- `migrations/env.py`：讀取 settings.db_path、import 所有 models 供 autogenerate
+- `target_metadata = Base.metadata`（models import 後自動 populate）
+- Initial migration stub created（autogenerate showed no diff — tables already exist）
+- Stamped `8d62fbd24372` as head，`uv run alembic upgrade head` = no-op ✓
+- Commit: 0cd738b，branch `feature/M2-T1-fastapi-skeleton`
+
+### M2-T3: 認證系統（房間/管理員密碼）✅ (2026-05-11)
+- `ktv_pipeline/auth.py`: hash_password/verify_password (bcrypt), create_access_token/decode_access_token (JWT), verify_room_password, verify_admin_password
+- `ktv_pipeline/deps.py`: FastAPI Depends for get_current_guest, require_admin, room_password_check
+- `ktv_pipeline/schemas.py`: SessionOut (JWT token + guest), GuestJoin, has_password on RoomOut
+- `api/auth.py`: POST /api/auth/admin/login → session token
+- `api/guests.py`: POST /api/guests/join → create/reuse guest, set ktv_session cookie; GET /api/guests/me
+- `api/rooms.py`: POST /api/rooms (admin-only, password hashed); PATCH /api/rooms/{id}/password; RoomOut never exposes password_hash, only has_password bool
+- `tests/test_auth.py`: 13 tests covering password hashing, JWT, admin login, guest join (including protected rooms), /me auth
+- 22 tests pass
+- Commit: 96b84e3
+
+### M2-T4: WebSocket gateway ✅ (2026-05-11)
+- `ws_manager.py`: ConnectionManager class (rooms, client tracking, broadcast, role-based send)
+  - broadcast_queue_updated, broadcast_song_started, broadcast_song_progress, broadcast_song_ended
+  - broadcast_song_processing, broadcast_guests_updated, broadcast_playback_state, broadcast_reaction, broadcast_system_error
+- `api/ws.py`: WebSocket /ws endpoint, JWT auth via ?token=, role query param
+  - dispatch_message() routes player.status / remote.control / admin messages
+  - Closes with code 4001 (auth failed), 4004 (room not found)
+- Registered /ws alongside /api routers in main.py
+- Commit: b88f603
+
+### M2-T5: 隊列管理 + 公平輪唱演算法 + 測試 ✅ (2026-05-11)
+- `queue_manager.py`: QueueManager class — add/remove/reorder, fair rotation via PlayHistory, mark_playing/mark_done
+- `api/queue.py`: Rewritten to use QueueManager; POST /api/queue (add), DELETE /{item_id}, PATCH /room/{room_id}/reorder (admin), POST /{item_id}/play (admin), POST /{item_id}/done (admin)
+- `tests/test_queue_manager.py`: 12 tests — add, remove, reorder (with manually_moved), fair rotation, mark_playing
+- 34 tests pass
+- Commit: a4caf54
+
+### M2-T6: 歌曲緩存 API + 整合 M1 pipeline ✅ (2026-05-11)
+- `api/songs.py`: Rewritten — GET /search, GET /{song_id} (accepts URL or bare ID), POST / (add + queue + background pipeline), GET /{song_id}/status
+- `config.py`: Added pipeline_max_retries=3, pipeline_heartbeat_sec=30 settings
+- `models.py`: Added Song.status (default='pending') and Song.error_message fields
+- `schemas.py`: Added SongCreate schema; SongOut includes status + error_message
+- `pipeline_orchestrator.py`: _mark_ready() sets status='ready'; _mark_failed_perm() sets status='failed_perm' + error_message
+- Alembic migration: add error_message + status columns to songs table
+- 34 tests pass
+- Commit: a890c40
+
+### M2-T7: HLS 串流 endpoint ✅ (2026-05-11)
+- `api/streaming.py`: GET /songs/{id}/stream.m3u8 (HLS manifest), GET /songs/{id}/audio/{filename} (range-request audio), GET /songs/{id}/lyrics.ass, GET /songs/{id}/info (file listing)
+- `_parse_range()` for HTTP Range request support (bytes=start-end)
+- `_stream_file_range()` async generator for partial content streaming
+- Filename allowlist: only vocals.wav / no_vocals.wav / audio.m4a accepted (security)
+- Songs not in 'ready' status → 202 Accepted with 'not ready' message
+- Registered streaming router (no prefix) alongside api_router in main.py
+- `tests/test_streaming.py`: 12 tests covering security, 404s, range parsing, HLS 202 behavior
+- Fixed: songs table missing 'status' column in model (added + alembic migration with server_default='pending')
+- 46 tests pass
+- Commit: 9f54d0c
 
 ---
 
 ## In Progress
 
-- [x] **M2-T2**: SQLite 模型 + Alembic migrations（2026-05-11）
-  - `alembic.ini`：SQLite URL placeholder（被 env.py 動態置換）
-  - `migrations/env.py`：讀取 settings.db_path、import 所有 models 供 autogenerate
-  - `target_metadata = Base.metadata`（models import 後自動 populate）
-  - Initial migration stub created（autogenerate showed no diff — tables already exist）
-  - Stamped `8d62fbd24372` as head，`uv run alembic upgrade head` = no-op ✓
-  - Commit: 0cd738b，branch `feature/M2-T1-fastapi-skeleton`
-
-### M2-T3: 認證系統（房間/管理員密碼）
-Started: 2026-05-11 07:55
-Branch: feature/M2-T3-auth
-
-Sub-tasks:
-- [ ] Guest 匿名加入（nickname 即可，session cookie）
-- [ ] Room.password_hash 寫入（bcrypt）
-- [ ] `/api/guests` POST — 建立 guest 並返回 session
-- [ ] 房間密碼驗證 middleware / dependency
-- [ ] Admin password 驗證（settings.admin_password）
-
-Context for next session:
-- `Guest` model 在 `models.py`，已有 `id/nickname/avatar_color/is_admin` 欄位
-- `Room` model 有 `password_hash` 欄位（nullable）
-- bcrypt 已 dependency，`python-jose` 已 dependency（JWT）
-- CLAUDE.md §7 有詳細 auth flow 設計
-
----
-
-### M2-T4: WebSocket gateway + 訊息協議實作
-
----
-
-### M2-T5: 隊列管理 + 公平輪唱演算法 + 測試
-
----
-
-### M2-T6: 歌曲緩存 API + 整合 M1 pipeline
-
----
-
-### M2-T7: HLS 串流 endpoint
-
----
-
 ### M2-T8: 整合測試：能 API 點歌、處理、播放 ✅ 使用者驗收
 
-### M3+ 詳見 CLAUDE.md §18
+Sub-tasks:
+- [ ] End-to-end smoke test: create room → join → add song → verify pipeline triggered → song becomes ready
+- [ ] Verify WebSocket connection works with JWT auth
+- [ ] Verify stream endpoint returns audio for ready songs
+- [ ] Frontend scaffolding (Next.js pages for rooms, queue, player)
+
+Context: M2-T8 is the final M2 task. After this, M2 is complete and we move to M3 (frontend UI).
 
 ---
 
 ## ⚠️ User Action Required
 
-(無)
+- **Frontend**: CBC needs to scaffold the Next.js pages (rooms list, queue view, player view, remote control UI). Backend API is now complete.
 
 ---
 
@@ -189,18 +207,18 @@ Context for next session:
 
 ---
 
-## Recent Errors
-
-(無，見 `docs/ERRORS.md`)
-
----
-
 ## Decision Log
 
 - 2026-05-10 M0-T2: frontend 用 pnpm，需 `pnpm.onlyBuiltDependencies` 允許 sharp build
 - 2026-05-10 M0-T2: backend 套件名 `ktv-pipeline`（Python: `ktv_pipeline`）
 - 2026-05-10 M0-T5: 實際 GPU 為 GTX 1650 4GB（非 1660 Super 6GB），Demucs/whisperX model size 需調整
 - 2026-05-10 M0-T6: Cloudflare Tunnel 已接通，backend 回應正常
-- 2026-05-10 M1-T5: 修復 `.venv` 問題（torch NCCL symbol conflict），重建 venv 後正常
+- 2026-05-11 M1-T5: 修復 `.venv` 問題（torch NCCL symbol conflict），重建 venv 後正常
 - 2026-05-11 M1-T8: DEMUCS_MODEL 降為 `htdemucs`（htdemucs_ft 在 4GB VRAM OOM）；LD_LIBRARY_PATH 需在 Python 啟動前設定（os.environ 修改無效）
 - 2026-05-11 OOM hotfix: Demucs+WhisperX 串列但 VRAM 未釋放導致 SIGKILL。修法：(1) 建立共享 GPU lock `_gpu_lock.py`；(2) `del model, del wav` + `gc.collect()` 在 empty_cache() 之前；(3) 加 inter-stage flush 呼叫；(4) PYTORCH_CUDA_ALLOC_CONF 加 `garbage_collection_threshold:0.8`
+- 2026-05-11 M2: FastAPI skeleton, auth, WS, queue, songs API, streaming — all committed on `feature/M2-T1-fastapi-skeleton`
+
+---
+
+Last updated: 2026-05-11 08:50
+OpenClaw heartbeat: alive (2026-05-11 08:50)

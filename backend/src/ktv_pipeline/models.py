@@ -57,6 +57,7 @@ class Song(Base):
     lyrics_source: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     lyrics_quality: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
     has_timing: Mapped[bool] = mapped_column(Boolean, default=False)
     extra_metadata: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
