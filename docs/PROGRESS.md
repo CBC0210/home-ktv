@@ -121,7 +121,7 @@
 
 ---
 
-Last updated: 2026-05-11 07:55
+Last updated: 2026-05-11 10:15
 OpenClaw heartbeat: alive (2026-05-11 07:55)
 
 ---
@@ -203,3 +203,4 @@ Context for next session:
 - 2026-05-10 M0-T6: Cloudflare Tunnel 已接通，backend 回應正常
 - 2026-05-10 M1-T5: 修復 `.venv` 問題（torch NCCL symbol conflict），重建 venv 後正常
 - 2026-05-11 M1-T8: DEMUCS_MODEL 降為 `htdemucs`（htdemucs_ft 在 4GB VRAM OOM）；LD_LIBRARY_PATH 需在 Python 啟動前設定（os.environ 修改無效）
+- 2026-05-11 OOM hotfix: Demucs+WhisperX 串列但 VRAM 未釋放導致 SIGKILL。修法：(1) 建立共享 GPU lock `_gpu_lock.py`；(2) `del model, del wav` + `gc.collect()` 在 empty_cache() 之前；(3) 加 inter-stage flush 呼叫；(4) PYTORCH_CUDA_ALLOC_CONF 加 `garbage_collection_threshold:0.8`

@@ -32,13 +32,9 @@ from pathlib import Path
 from typing import Optional
 
 from ..config import settings
+from ._gpu_lock import GPU_LOCK as _GPU_LOCK
 
 log = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Lock — serialises ALL GPU tasks (WhisperX + Demucs share the same card).
-# ---------------------------------------------------------------------------
-_GPU_LOCK: asyncio.Lock = asyncio.Lock()
 
 # Retry delays in seconds (exponential back-off) for TemporaryError.
 _RETRY_DELAYS = (10, 30, 60)
@@ -271,10 +267,14 @@ def _run_align_sync(
 
     aligned_lrc = _build_word_lrc(lrc_lines, all_words)
 
-    # Clean up GPU memory
+    # Explicitly release GPU memory before returning.
+    # gc.collect() must run BEFORE empty_cache() so refcounts drop to zero.
     del model
+    import gc
     if device == "cuda":
+        gc.collect()
         torch.cuda.empty_cache()
+        log.debug("VRAM released after WhisperX alignment")
 
     return {
         "success": True,

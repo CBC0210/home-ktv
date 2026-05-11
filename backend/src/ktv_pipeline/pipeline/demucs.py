@@ -19,11 +19,9 @@ from pathlib import Path
 from typing import Optional
 
 from ..config import settings
+from ._gpu_lock import GPU_LOCK as _GPU_LOCK
 
 log = logging.getLogger(__name__)
-
-# One lock shared across all DemucsWrapper instances — only one GPU job at a time.
-_GPU_LOCK: asyncio.Lock = asyncio.Lock()
 
 # Retry delays in seconds for TemporaryError (exponential back-off).
 _RETRY_DELAYS = (5, 30, 120)
@@ -104,15 +102,12 @@ def _run_demucs_sync(
 ) -> None:
     """Run Demucs in a thread (blocking).
 
-    Demucs places output under ``out_dir/<model_name>/<stem>/track.wav``.
-    We rename to the flat layout expected by the pipeline:
-      - out_dir/vocals.wav
-      - out_dir/no_vocals.wav
-
     Audio is loaded via PyAV (``av``) to avoid torchcodec binary
     incompatibility with the system FFmpeg 6 on this machine.
     ``av`` is already installed as a dependency.
     """
+    import gc
+
     import numpy as np
     import torch
     from demucs.pretrained import get_model
@@ -120,14 +115,21 @@ def _run_demucs_sync(
     import av
     import scipy.io.wavfile as wavfile
 
+    use_cuda = device == "cuda" and torch.cuda.is_available()
+
     # Load model
     model = get_model(model_name)
     model.eval()
-    if device == "cuda" and torch.cuda.is_available():
+    if use_cuda:
         model.cuda()
         log.info("Demucs running on CUDA")
     else:
         log.info("Demucs running on CPU")
+
+    # Capture stem names BEFORE we delete the model later
+    stem_names = model.sources  # e.g. ['drums', 'bass', 'other', 'vocals']
+    vocal_idx = stem_names.index("vocals")
+    non_vocal_indices = [i for i, s in enumerate(stem_names) if s != "vocals"]
 
     # Load audio via PyAV (av) — avoids torchcodec binary compatibility issues
     with av.open(str(audio_path)) as container:
@@ -146,30 +148,36 @@ def _run_demucs_sync(
     # Demucs expects shape (batch, channels, samples)
     wav = wav.unsqueeze(0)  # (1, 2, samples)
 
-    if device == "cuda" and torch.cuda.is_available():
+    if use_cuda:
         wav = wav.cuda()
 
     with torch.no_grad():
         sources = apply_model(model, wav, device=device, progress=False)
 
-    # sources shape: (1, n_stems, 2, samples)
-    sources = sources.squeeze(0).cpu()
+    # Immediately delete GPU tensors so empty_cache() can actually free them.
+    # empty_cache() only frees blocks with no live Python references — so we
+    # must del before calling it, not after.
+    del model
+    del wav
+    if use_cuda:
+        gc.collect()
+        torch.cuda.empty_cache()
+        log.debug("VRAM released after Demucs separation")
 
-    stem_names = model.sources  # e.g. ['drums', 'bass', 'other', 'vocals']
-    vocal_idx = stem_names.index("vocals")
-    vocals = sources[vocal_idx]  # (2, samples)
-    non_vocal = sum(sources[i] for i, s in enumerate(stem_names) if s != "vocals")
+    # All remaining work is CPU-only
+    sources = sources.squeeze(0).cpu()
+    vocals = sources[vocal_idx].clone()  # (2, samples)
+    non_vocal = sum(sources[i] for i in non_vocal_indices).clone()
+    del sources
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    # Save vocals and instrumental as WAV using scipy (avoids torchcodec / FFmpeg incompatibility)
+    # Save as WAV using scipy (avoids torchcodec / FFmpeg incompatibility)
     vocal_data = vocals.numpy().T.astype(np.float32)  # (samples, channels)
     wavfile.write(str(out_dir / "vocals.wav"), sr, vocal_data)
-    no_vocal_data = sum(sources[i] for i, s in enumerate(stem_names) if s != "vocals").numpy().T.astype(np.float32)
+    no_vocal_data = non_vocal.numpy().T.astype(np.float32)
     wavfile.write(str(out_dir / "no_vocals.wav"), sr, no_vocal_data)
 
-    # Release GPU memory explicitly
-    if device == "cuda":
-        torch.cuda.empty_cache()
+    del vocals, non_vocal, vocal_data, no_vocal_data
 
     log.info("Demucs separation complete → %s", out_dir)
 

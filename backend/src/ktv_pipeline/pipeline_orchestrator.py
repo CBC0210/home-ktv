@@ -49,6 +49,36 @@ log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Inter-stage VRAM flush
+# ---------------------------------------------------------------------------
+
+
+def _inter_stage_vram_flush() -> None:
+    """Force Python GC and CUDA allocator release between heavy GPU stages.
+
+    Called via asyncio.to_thread() so it runs in a worker thread, matching
+    the thread context where PyTorch allocated its objects.  This gives the
+    CUDA allocator the best chance to actually free blocks before the next
+    model loads.
+    """
+    import gc
+
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            log.debug(
+                "Inter-stage VRAM flush: free=%dMB reserved=%dMB",
+                torch.cuda.mem_get_info()[0] // 1024 // 1024,
+                torch.cuda.memory_reserved() // 1024 // 1024,
+            )
+    except Exception:
+        pass  # flush is best-effort; never block the pipeline
+
+
+# ---------------------------------------------------------------------------
 # State machine
 # ---------------------------------------------------------------------------
 
@@ -260,6 +290,13 @@ class PipelineOrchestrator:
             return {"ok": False, "error": str(exc), "perm": True}
         except TotalTimeoutError:
             raise
+
+        # Flush any remaining VRAM between Demucs and WhisperX.
+        # Demucs deletes its own tensors inside _run_demucs_sync, but the
+        # asyncio.to_thread wrapper may keep the thread frame alive briefly.
+        # Calling gc + empty_cache here in the event-loop thread ensures the
+        # VRAM is freed before WhisperX tries to load its model.
+        await asyncio.to_thread(_inter_stage_vram_flush)
 
         # ── Stage 3: Fetch + align lyrics ───────────────────────────────
         lyrics_result: Optional[LyricsResult] = None

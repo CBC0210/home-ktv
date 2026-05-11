@@ -21,9 +21,15 @@ def _configure_cuda_env() -> None:
     ])
     existing = os.environ.get("LD_LIBRARY_PATH", "")
     os.environ["LD_LIBRARY_PATH"] = f"{extra}:{existing}" if existing else extra
-    # Avoid CUDA OOM fragmentation on small GPUs (GTX 1650 4GB)
+    # Reduce VRAM fragmentation on the GTX 1650 (4 GB).
+    # expandable_segments: lets the allocator grow/shrink blocks instead of
+    #   keeping fixed-size pools → less stranded memory between Demucs and WhisperX.
+    # garbage_collection_threshold:0.8 → CUDA GC kicks in at 80% pool usage,
+    #   reclaiming freed-but-cached blocks before OOM is triggered.
     if "PYTORCH_CUDA_ALLOC_CONF" not in os.environ:
-        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = (
+            "expandable_segments:True,garbage_collection_threshold:0.8"
+        )
 
 
 _configure_cuda_env()
