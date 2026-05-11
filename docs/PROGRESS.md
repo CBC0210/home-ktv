@@ -281,7 +281,33 @@ Sub-tasks:
 
 ## ⚠️ User Action Required
 
-(無)
+### M5-T2: 第一首歌端到端實測
+
+需要 CBC 親自操作，驗收完整 pipeline。步驟如下：
+
+**啟動服務：**
+```bash
+# Terminal 1 — Backend
+cd /home/cbc/home-ktv/backend
+LD_LIBRARY_PATH=/home/cbc/.local/lib/python3.12/site-packages/nvidia/cudnn/lib:/home/cbc/.local/lib/python3.12/site-packages/nvidia/nccl/lib:$LD_LIBRARY_PATH \
+  uv run uvicorn src.main:app --host 0.0.0.0 --port 8000
+
+# Terminal 2 — Frontend
+cd /home/cbc/home-ktv/frontend
+NEXT_PUBLIC_API_URL=http://localhost:8000 pnpm dev
+```
+
+**驗收步驟：**
+1. 瀏覽器開 `http://localhost:3000/rooms`，確認 home 房間存在
+2. 進入 `http://localhost:3000/r/home/player`（電視端）
+3. 另一個標籤開 `http://localhost:3000/r/home/remote`（手機端）
+4. Remote 輸入暱稱「測試用戶」加入房間
+5. 搜尋一首中文歌（建議：「五月天 倔強」）並加入隊列
+6. 確認 Player 顯示「下載中 → 分離人聲 → 抓取歌詞 → 對齊字幕 → 完成」進度
+7. 歌曲就緒後確認 Player 開始播放 + 字幕顯示
+8. Remote 測試 pause/play/seek/音量控制
+9. 完成後在 Telegram 回覆「M5-T2 ✅」
+
 
 ---
 
