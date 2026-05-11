@@ -25,12 +25,15 @@ export function useWebSocket(
   roomId: string,
   token: string | null,
   role: "player" | "remote" | "admin",
-  onEvent: (event: ServerEvent) => void
+  onEvent: (event: ServerEvent) => void,
+  onConnected?: () => void,
 ): { sendCommand: (cmd: ClientCommand) => void; connected: boolean } {
   const wsRef = useRef<WebSocket | null>(null);
   const connectedRef = useRef(false);
   const onEventRef = useRef(onEvent);
+  const onConnectedRef = useRef(onConnected);
   onEventRef.current = onEvent;
+  onConnectedRef.current = onConnected;
 
   const sendCommand = useCallback((cmd: ClientCommand) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -52,6 +55,7 @@ export function useWebSocket(
       ws.onopen = () => {
         connectedRef.current = true;
         retryDelay = 1000;
+        onConnectedRef.current?.();
       };
       ws.onmessage = (e) => {
         try {

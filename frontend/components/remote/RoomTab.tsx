@@ -2,6 +2,14 @@
 
 import type { Room, Guest, GuestSession } from "@/lib/types";
 import { useState } from "react";
+import { useKtvStore, type PlayerTheme } from "@/lib/stores";
+
+const THEMES: { id: PlayerTheme; label: string; preview: string }[] = [
+  { id: "default", label: "預設暗色", preview: "bg-gray-900" },
+  { id: "party", label: "派對", preview: "bg-gradient-to-r from-pink-800 to-purple-800" },
+  { id: "elegant", label: "典雅", preview: "bg-slate-900" },
+  { id: "retro", label: "復古", preview: "bg-amber-900" },
+];
 
 interface Props {
   room: Room;
@@ -12,6 +20,7 @@ interface Props {
 
 export default function RoomTab({ room, session, guests, onLeave }: Props) {
   const [copied, setCopied] = useState(false);
+  const { theme, setTheme } = useKtvStore();
 
   const roomUrl =
     typeof window !== "undefined"
@@ -85,6 +94,27 @@ export default function RoomTab({ room, session, guests, onLeave }: Props) {
           {guests.length === 0 && (
             <p className="text-gray-500 text-sm">暫無其他用戶</p>
           )}
+        </div>
+      </div>
+
+      {/* Theme switcher */}
+      <div className="bg-gray-800 rounded-xl p-4">
+        <p className="text-gray-400 text-sm mb-3">Player 主題</p>
+        <div className="grid grid-cols-2 gap-2">
+          {THEMES.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTheme(t.id)}
+              className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-all ${
+                theme === t.id
+                  ? "ring-2 ring-purple-500 bg-gray-700 text-white"
+                  : "bg-gray-700/50 text-gray-400 hover:text-white hover:bg-gray-700"
+              }`}
+            >
+              <span className={`w-4 h-4 rounded-sm flex-shrink-0 ${t.preview}`} />
+              {t.label}
+            </button>
+          ))}
         </div>
       </div>
 

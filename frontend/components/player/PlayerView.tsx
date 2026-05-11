@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useCallback, useState } from "react";
 import QRCode from "react-qr-code";
-import { useKtvStore } from "@/lib/stores";
+import { useKtvStore, THEME_STYLES } from "@/lib/stores";
 import { useWebSocket } from "@/lib/ws";
 import { getQueue, getRoom } from "@/lib/api";
 import type { ServerEvent } from "@/lib/types";
@@ -138,6 +138,7 @@ export default function PlayerView({ roomId }: Props) {
     guests,
     playback,
     processing,
+    theme,
     setRoom,
     setQueue,
     setCurrentSong,
@@ -146,6 +147,8 @@ export default function PlayerView({ roomId }: Props) {
     setProcessing,
     updatePosition,
   } = useKtvStore();
+
+  const themeStyle = THEME_STYLES[theme];
 
   useEffect(() => {
     setRemoteUrl(window.location.origin + `/r/${roomId}/remote`);
@@ -212,7 +215,14 @@ export default function PlayerView({ roomId }: Props) {
     [setQueue, setCurrentSong, updatePosition, setPlayback, setProcessing, setGuests]
   );
 
-  const { sendCommand } = useWebSocket(roomId, null, "player", handleEvent);
+  // sendRef allows the onConnected callback to call sendCommand without circular deps
+  const sendRef = useRef<((cmd: never) => void) | null>(null);
+  const onWsConnected = useCallback(() => {
+    sendRef.current?.({ type: "player.ready" } as never);
+  }, []);
+
+  const { sendCommand } = useWebSocket(roomId, null, "player", handleEvent, onWsConnected);
+  sendRef.current = sendCommand as never;
 
   // Broadcast position every second when playing
   useEffect(() => {
@@ -265,6 +275,15 @@ export default function PlayerView({ roomId }: Props) {
         hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           video.play().catch(() => {});
+          sendRef.current?.({ type: "player.playing", positionSec: 0 } as never);
+        });
+        hls.on(Hls.Events.ERROR, (_, data) => {
+          if (data.fatal) {
+            sendRef.current?.({
+              type: "player.error",
+              error: data.type + ": " + (data.details ?? "unknown"),
+            } as never);
+          }
         });
       } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = hlsSrc;
@@ -316,13 +335,11 @@ export default function PlayerView({ roomId }: Props) {
   // ── Standby screen ──────────────────────────────────────────────────────────
   if (!currentSong) {
     return (
-      <div className="relative min-h-screen bg-gray-950 flex flex-col overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-purple-950/60 via-gray-950 to-indigo-950/40 pointer-events-none" />
-
+      <div className={`relative min-h-screen flex flex-col overflow-hidden ${themeStyle.bg}`}>
         <header className="relative z-10 flex items-center justify-between px-8 py-5">
           <div className="flex items-center gap-3">
-            <span className="text-purple-400 text-2xl">🎤</span>
-            <span className="text-white font-semibold text-xl tracking-wide">
+            <span className={`text-2xl ${themeStyle.accentText}`}>🎤</span>
+            <span className={`font-semibold text-xl tracking-wide ${themeStyle.headerText}`}>
               {room?.name ?? "Home KTV"}
             </span>
           </div>
