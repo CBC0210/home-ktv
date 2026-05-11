@@ -5,11 +5,31 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict
 
 
+# ── Auth / Session ────────────────────────────────────────────────────────────
+
+class SessionOut(BaseModel):
+    """Returned after a guest joins / logs in — contains the JWT token."""
+    access_token: str
+    token_type: str = "bearer"
+    guest: "GuestOut"
+
+
+class GuestJoin(BaseModel):
+    """Used when a guest joins a room (password already validated client-side or here)."""
+    nickname: str
+    room_id: str
+    room_password: Optional[str] = None
+
+
+# ── Health ────────────────────────────────────────────────────────────────────
+
 class HealthResponse(BaseModel):
     status: str
     app: str = "ktv-backend"
     version: str = "0.1.0"
 
+
+# ── Room ─────────────────────────────────────────────────────────────────────
 
 class RoomBase(BaseModel):
     id: str
@@ -26,7 +46,20 @@ class RoomOut(RoomBase):
     is_default: bool
     created_at: datetime
     settings: Optional[dict] = None
+    has_password: bool = False  # True if room is password-protected (not the hash itself)
 
+
+class RoomIn(BaseModel):
+    """Internal — Room with computed has_password."""
+    id: str
+    name: str
+    is_default: bool
+    created_at: datetime
+    settings: Optional[dict] = None
+    has_password: bool = False
+
+
+# ── Guest ─────────────────────────────────────────────────────────────────────
 
 class GuestBase(BaseModel):
     nickname: str
@@ -47,6 +80,8 @@ class GuestOut(GuestBase):
     last_seen: datetime
 
 
+# ── Song ──────────────────────────────────────────────────────────────────────
+
 class SongOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -61,6 +96,8 @@ class SongOut(BaseModel):
     has_timing: bool = False
     lyrics_quality: Optional[str] = None
 
+
+# ── Queue ──────────────────────────────────────────────────────────────────────
 
 class QueueItemCreate(BaseModel):
     song_id: str
@@ -78,3 +115,7 @@ class QueueItemOut(BaseModel):
     status: str
     played_at: Optional[datetime] = None
     manually_moved: bool = False
+
+
+# Update forward ref
+SessionOut.model_rebuild()
