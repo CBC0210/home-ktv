@@ -181,6 +181,28 @@
 
 ---
 
+### M3 Frontend Scaffolding ✅ (2026-05-11)
+- `lib/types.ts`: Room, Song, Guest, QueueItem, PlaybackState, ServerEvent, ClientCommand, GuestSession
+- `lib/api.ts`: getRooms, searchSongs, addSong, getQueue, addToQueue, removeFromQueue, joinRoom, streamUrl, audioUrl, lyricsUrl, isYoutubeUrl
+- `lib/ws.ts`: useWebSocket hook — exponential backoff reconnect, token auth, sends/receives typed events
+- `lib/stores/index.ts`: Zustand KTV store — room, session, queue, playback, guests, processing
+- `components/shared/RoomCard.tsx`: room card with player/remote links
+- `components/player/PlayerView.tsx`: standby screen (QR code URL + queue preview) + playing screen (HLS video + info overlay)
+- `components/player/SubtitleLayer.tsx`: subtitle overlay placeholder (libass canvas slot)
+- `components/remote/RemoteView.tsx`: tab orchestrator with header + bottom nav
+- `components/remote/JoinForm.tsx`: guest join form (nickname + optional room password → localStorage session)
+- `components/remote/NowPlaying.tsx`: cover art, playback controls (play/pause/skip/replay), volume sliders, reactions
+- `components/remote/QueueList.tsx`: pending queue with remove action
+- `components/remote/SearchView.tsx`: search + YouTube URL paste-to-add, insert-next support
+- `components/remote/RoomTab.tsx`: room info, copy link, online guests list, leave
+- `app/rooms/page.tsx`: server-rendered room list (revalidate: 30s)
+- `app/r/[roomId]/player/page.tsx`: player route
+- `app/r/[roomId]/remote/page.tsx`: remote route
+- **pnpm build ✓** (6 routes, 0 errors, 0 type errors)
+- Commit: 84e5df6, branch `feature/M2-T1-fastapi-skeleton`
+
+---
+
 ## In Progress
 
 ### M2-T8: 整合測試：能 API 點歌、處理、播放 ✅ 使用者驗收
@@ -189,7 +211,7 @@ Sub-tasks:
 - [ ] End-to-end smoke test: create room → join → add song → verify pipeline triggered → song becomes ready
 - [ ] Verify WebSocket connection works with JWT auth
 - [ ] Verify stream endpoint returns audio for ready songs
-- [ ] Frontend scaffolding (Next.js pages for rooms, queue, player)
+- [x] Frontend scaffolding (Next.js pages for rooms, queue, player) ✅ DONE
 
 Context: M2-T8 is the final M2 task. After this, M2 is complete and we move to M3 (frontend UI).
 
@@ -197,7 +219,7 @@ Context: M2-T8 is the final M2 task. After this, M2 is complete and we move to M
 
 ## ⚠️ User Action Required
 
-- **Frontend**: CBC needs to scaffold the Next.js pages (rooms list, queue view, player view, remote control UI). Backend API is now complete.
+(無)
 
 ---
 
