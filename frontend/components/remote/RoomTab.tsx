@@ -1,11 +1,11 @@
 "use client";
 
-import type { Room, Guest, GuestSession } from "@/lib/types";
-import type { RoomStats } from "@/lib/api";
 import { useState, useEffect } from "react";
-import Image from "next/image";
 import { useKtvStore, type PlayerTheme } from "@/lib/stores";
-import { getRoomStats } from "@/lib/api";
+import { getRoomStats, getProcessingStats, type RoomStats, type ProcessingStats } from "@/lib/api";
+
+// Recharts lazy import
+import { PieChart, Pie, Cell, Tooltip as ReTooltip, BarChart, Bar, XAxis, YAxis, Cell as BarCell } from "recharts";
 
 const THEMES: { id: PlayerTheme; label: string; preview: string }[] = [
   { id: "default", label: "預設暗色", preview: "bg-gray-900" },
@@ -15,38 +15,180 @@ const THEMES: { id: PlayerTheme; label: string; preview: string }[] = [
 ];
 
 interface Props {
-  room: Room;
-  session: GuestSession;
-  guests: Guest[];
+  room: { id: string; name: string; has_password: boolean };
+  session: {
+    guest: { id: string; nickname: string; avatar_color: string | null; is_admin: boolean };
+    token: string;
+  };
+  guests: Array<{ id: string; nickname: string; avatar_color: string | null; is_admin: boolean }>;
   onLeave: () => void;
 }
 
-function formatDuration(sec: number | null): string {
-  if (!sec) return "0m";
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  if (h > 0) return `${h}小時${m}分`;
-  return `${m}分`;
-}
+// ── Sub-components ────────────────────────────────────────────────────────────
 
-function RatingStars({ rating }: { rating: number }) {
-  const full = Math.floor(rating);
+function StatCard({ label, value }: { label: string; value: string | number }) {
   return (
-    <span className="text-amber-400">
-      {"★".repeat(full)}{"☆".repeat(Math.max(0, 5 - full))}
-    </span>
+    <div className="bg-gray-800 rounded-xl p-3 text-center">
+      <p className="text-xl font-bold text-white">{value}</p>
+      <p className="text-xs text-gray-400 mt-0.5">{label}</p>
+    </div>
   );
 }
 
+// ── Processing Pie Chart ──────────────────────────────────────────────────────
+function ProcessingPieChart({ data }: { data: ProcessingStats }) {
+  const COLORS = ["#6b7280", "#f59e0b", "#10b981", "#ef4444"];
+
+  const chartData = [
+    { name: "待處理", value: data.pending, color: COLORS[0] },
+    { name: "處理中", value: data.processing, color: COLORS[1] },
+    { name: "已完成", value: data.ready, color: COLORS[2] },
+    { name: "失敗", value: data.failed_perm + data.failed_temp, color: COLORS[3] },
+  ].filter((d) => d.value > 0);
+
+  if (chartData.length === 0) {
+    return (
+      <div className="bg-gray-800 rounded-xl p-4">
+        <p className="text-gray-400 text-sm mb-3">處理狀態</p>
+        <p className="text-gray-500 text-sm text-center py-6">尚無歌曲</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-gray-800 rounded-xl p-4">
+      <p className="text-gray-400 text-sm mb-3">處理狀態</p>
+      <div className="flex items-center gap-4">
+        <PieChart width={100} height={100}>
+          <Pie
+            data={chartData}
+            cx={50}
+            cy={50}
+            innerRadius={28}
+            outerRadius={42}
+            dataKey="value"
+            strokeWidth={2}
+          >
+            {chartData.map((_, i) => (
+              <Cell key={`cell-${i}`} fill={COLORS[i]} />
+            ))}
+          </Pie>
+          <ReTooltip
+            formatter={(value) => [String(value), "歌曲數"]}
+            contentStyle={{ background: "#1f2937", border: "none", borderRadius: "8px", color: "#fff", fontSize: "12px" }}
+          />
+        </PieChart>
+        <div className="flex flex-col gap-1.5">
+          {chartData.map((d) => (
+            <div key={d.name} className="flex items-center gap-2 text-xs">
+              <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: d.color }} />
+              <span className="text-gray-400">{d.name}</span>
+              <span className="text-white font-medium ml-auto pl-2">{d.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Top Songs Bar Chart ──────────────────────────────────────────────────────
+function TopSongsChart({ songs }: { songs: RoomStats["top_songs"] }) {
+  if (!songs || songs.length === 0) {
+    return (
+      <div className="bg-gray-800 rounded-xl p-4">
+        <p className="text-gray-400 text-sm mb-3">熱門歌曲</p>
+        <p className="text-gray-500 text-sm text-center py-6">尚無播放記錄</p>
+      </div>
+    );
+  }
+
+  const chartData = songs.slice(0, 5).map((s) => ({
+    name: s.title.length > 12 ? s.title.slice(0, 12) + "…" : s.title,
+    play_count: s.play_count,
+  }));
+
+  const GRADIENT_COLORS = ["#a78bfa", "#8b5cf6", "#7c3aed", "#6d28d9", "#5b21b6"];
+
+  return (
+    <div className="bg-gray-800 rounded-xl p-4">
+      <p className="text-gray-400 text-sm mb-3">熱門歌曲（播放次數）</p>
+      <BarChart
+        layout="vertical"
+        width={260}
+        height={songs.slice(0, 5).length * 36 + 20}
+        data={chartData}
+        margin={{ left: 0, right: 8 }}
+      >
+        <XAxis type="number" hide />
+        <YAxis
+          type="category"
+          dataKey="name"
+          tick={{ fill: "#9ca3af", fontSize: 11 }}
+          width={100}
+          axisLine={false}
+          tickLine={false}
+        />
+        <ReTooltip
+          formatter={(value) => [`${value} 次`, "播放"]}
+          contentStyle={{ background: "#1f2937", border: "none", borderRadius: "8px", color: "#fff", fontSize: "12px" }}
+          cursor={{ fill: "rgba(255,255,255,0.05)" }}
+        />
+        <Bar dataKey="play_count" radius={[0, 4, 4, 0]} maxBarSize={18}>
+          {[0, 1, 2, 3, 4].map((i) => (
+            <BarCell key={`cell-${i}`} fill={GRADIENT_COLORS[i]} />
+          ))}
+        </Bar>
+      </BarChart>
+    </div>
+  );
+}
+
+// ── Total Plays Stats ─────────────────────────────────────────────────────────
+function TotalPlaysCard({ stats }: { stats: RoomStats }) {
+  const hours = Math.round((stats.total_play_duration_sec || 0) / 3600);
+  return (
+    <div className="bg-gray-800 rounded-xl p-4">
+      <p className="text-gray-400 text-sm mb-3">播放統計</p>
+      <div className="grid grid-cols-3 gap-2">
+        <StatCard label="總播放次數" value={stats.total_songs_played || 0} />
+        <StatCard label="不同歌曲" value={stats.unique_songs || 0} />
+        <StatCard label="總時長" value={`${hours}h`} />
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
 export default function RoomTab({ room, session, guests, onLeave }: Props) {
   const [copied, setCopied] = useState(false);
-  const [stats, setStats] = useState<RoomStats | null>(null);
   const { theme, setTheme } = useKtvStore();
+  const [stats, setStats] = useState<RoomStats | null>(null);
+  const [procStats, setProcStats] = useState<ProcessingStats | null>(null);
+  const [loadingStats, setLoadingStats] = useState(false);
 
   const roomUrl =
     typeof window !== "undefined"
       ? `${window.location.origin}/r/${room.id}/remote`
       : `/r/${room.id}/remote`;
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingStats(true);
+    Promise.all([getRoomStats(room.id), getProcessingStats(room.id)])
+      .then(([s, p]) => {
+        if (!cancelled) {
+          setStats(s);
+          setProcStats(p);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoadingStats(false);
+      });
+    return () => { cancelled = true; };
+  }, [room.id]);
 
   function copyLink() {
     navigator.clipboard.writeText(roomUrl).then(() => {
@@ -54,13 +196,6 @@ export default function RoomTab({ room, session, guests, onLeave }: Props) {
       setTimeout(() => setCopied(false), 2000);
     });
   }
-
-  // Load room stats
-  useEffect(() => {
-    getRoomStats(room.id)
-      .then(setStats)
-      .catch(() => {});
-  }, [room.id]);
 
   return (
     <div className="p-4 flex flex-col gap-5">
@@ -76,6 +211,27 @@ export default function RoomTab({ room, session, guests, onLeave }: Props) {
           {copied ? "✓ 已複製連結" : "複製房間連結"}
         </button>
       </div>
+
+      {/* Processing pie chart */}
+      {procStats !== null && <ProcessingPieChart data={procStats} />}
+
+      {/* Stats loading skeleton */}
+      {loadingStats && (
+        <div className="bg-gray-800 rounded-xl p-4">
+          <p className="text-gray-400 text-sm mb-2">載入統計中…</p>
+          <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+            <div className="h-full bg-purple-500 rounded-full animate-pulse w-1/3" />
+          </div>
+        </div>
+      )}
+
+      {/* Total plays */}
+      {stats !== null && !loadingStats && <TotalPlaysCard stats={stats} />}
+
+      {/* Top songs chart */}
+      {stats !== null && !loadingStats && (
+        <TopSongsChart songs={stats.top_songs ?? []} />
+      )}
 
       {/* Current user */}
       <div className="bg-gray-800 rounded-xl p-4">
@@ -124,65 +280,6 @@ export default function RoomTab({ room, session, guests, onLeave }: Props) {
           )}
         </div>
       </div>
-
-      {/* Stats */}
-      {stats && (
-        <div className="bg-gray-800 rounded-xl p-4">
-          <p className="text-gray-400 text-sm mb-3">播放統計</p>
-          <div className="grid grid-cols-3 gap-3 mb-4">
-            <div className="bg-gray-700/50 rounded-lg px-3 py-2 text-center">
-              <p className="text-white text-lg font-bold">{stats.total_songs_played}</p>
-              <p className="text-gray-500 text-xs">已唱</p>
-            </div>
-            <div className="bg-gray-700/50 rounded-lg px-3 py-2 text-center">
-              <p className="text-white text-lg font-bold">{stats.unique_songs}</p>
-              <p className="text-gray-500 text-xs">不重複</p>
-            </div>
-            <div className="bg-gray-700/50 rounded-lg px-3 py-2 text-center">
-              <p className="text-white text-lg font-bold">{formatDuration(stats.total_play_duration_sec)}</p>
-              <p className="text-gray-500 text-xs">總時長</p>
-            </div>
-          </div>
-
-          {stats.avg_rating != null && (
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-gray-400 text-sm">平均評分</span>
-              <RatingStars rating={stats.avg_rating} />
-              <span className="text-gray-300 text-sm">{stats.avg_rating.toFixed(1)}</span>
-            </div>
-          )}
-
-          {stats.top_songs.length > 0 && (
-            <div>
-              <p className="text-gray-400 text-xs mb-2">熱門歌曲</p>
-              <div className="flex flex-col gap-1">
-                {stats.top_songs.slice(0, 5).map((s, i) => (
-                  <div key={s.song_id} className="flex items-center gap-2 text-xs">
-                    <span className={`w-4 text-center font-bold ${i === 0 ? "text-amber-400" : "text-gray-600"}`}>
-                      {i + 1}
-                    </span>
-                    <div className="relative w-7 h-5 rounded overflow-hidden bg-gray-700 flex-shrink-0">
-                      {s.thumbnail_url ? (
-                        <Image
-                          src={s.thumbnail_url}
-                          alt={s.title}
-                          fill
-                          className="object-cover"
-                          unoptimized
-                        />
-                      ) : (
-                        <span className="text-xs text-center w-full">🎵</span>
-                      )}
-                    </div>
-                    <span className="text-gray-300 flex-1 truncate">{s.title}</span>
-                    <span className="text-gray-500">{s.play_count}次</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Theme switcher */}
       <div className="bg-gray-800 rounded-xl p-4">

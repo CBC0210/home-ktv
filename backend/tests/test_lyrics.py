@@ -147,7 +147,7 @@ class TestFetchNetease:
         with patch("ktv_pipeline.pipeline.lyrics._http_lock", AsyncMock()):
             with patch("ktv_pipeline.pipeline.lyrics.httpx.AsyncClient") as MockClient:
                 instance = MockClient.return_value.__aenter__.return_value
-                instance.get = AsyncMock(side_effect=lambda url, **kw: mock_get(url, **kw))
+                instance.get = AsyncMock(side_effect=mock_get)
 
                 result = await fetch_netease("晴天", "周杰伦")
 

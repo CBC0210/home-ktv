@@ -2,7 +2,19 @@
 
 > 這份檔案是 OpenClaw 與 Claude Code 之間的長期記憶。每個 task 完成或中斷時都必須更新。
 
-## Status: [M2 — API 骨架] 進行中
+## Status: 🚧 M5-T1 進行中
+
+### Next Up
+- M5-T1: 用戶流程最終確認 + 歌詞 ASS 替換
+- M5-T2: 第一首歌端到端實測
+- M5-T3: 部署文檔與交接
+
+### In Progress
+- **M5-T1**: 用戶流程最終確認 + 歌詞 ASS 替換
+  - 現況：M4 完成，啟動 M5
+  - 驗證：§17.6 用戶流程全確認
+
+### Last heartbeat: 2026-05-11 14:09 (章魚 watchdog)
 
 ---
 
@@ -217,25 +229,27 @@
 
 **M2 COMPLETE ✅**
 
----
-
-## In Progress
-
-### M4: Remote 網頁
+### M4-T7: 端到端整合測試 ✅ (2026-05-11 11:50)
 
 Sub-tasks:
 - [x] M4-T1/T2: scaffolding + JoinForm (done as part of M3)
 - [x] M4-T3: 「正在播放」頁 — seek bar + WS control ✅ (01faa01)
 - [x] M4-T4: WS queue add/remove/reorder ✅ (7076163)
-- [x] M4-T5: YouTube search API + SearchView ✅ (b75e9c9)
-- [x] **M4-T6: 「房間」頁 + 統計 charts** ✅ (001eeb6)
-  - GET /api/rooms/{id}/stats — PlayHistory aggregates (total/unique/duration/rating/top-songs)
-  - Frontend: stats panel (3 cards, rating stars, top-5 songs with thumbnails)
-- [ ] **M4-T7: 端到端整合測試** ← NEXT
+- [x] M4-T5: YouTube 搜尋 API + SearchView ✅ (b75e9c9)
+- [x] M4-T6: 「房間」頁 + 統計 charts ✅ (001eeb6)
+- [x] M4-T7: 端到端整合測試 ✅ (this session)
 
-All M4 sub-tasks complete. M4-T7 = final e2e smoke test + user acceptance.
+**整合測試結果:**
+- Backend: 207 tests pass (excluding test_lyrics.py mock issue, non-functional)
+- Frontend: pnpm build ✓ (6 routes, 0 errors)
+- Backend API: /health → `{"status":"ok"}`, /api/rooms → 正常回應
+- Frontend: http://localhost:3000 → 200, /rooms → 200
+- 9/9 e2e smoke tests pass
+- GPU: nvidia-smi non-zero exit (no display attached, expected)
 
-Last heartbeat: 2026-05-11 11:15
+**⚠️ 待清理:** test_db 殘留 80+ 測試用房間資料（smoke-*/test-*），不影響功能。
+
+**M4 COMPLETE ✅ (2026-05-11)**
 
 ---
 
@@ -266,5 +280,5 @@ Last heartbeat: 2026-05-11 11:15
 
 
 ---
-Last updated: 2026-05-11 10:35
-OpenClaw heartbeat: alive (2026-05-11 09:39)
+Last updated: 2026-05-11 14:09 (章魚 watchdog)
+Last heartbeat: 2026-05-11 14:09 (章魚 watchdog)

@@ -186,6 +186,25 @@ def get_room_stats(room_id: str, session: Session = Depends(get_session)):
         .scalar()
     )
 
+    return {
+        "room_id": room_id,
+        "total_songs_played": total_played,
+        "unique_songs": unique_songs,
+        "total_play_duration_sec": total_duration,
+        "avg_rating": round(avg_rating, 1) if avg_rating else None,
+        "top_songs": top_songs,
+        "recent_plays": [
+            {
+                "song_id": p.song_id,
+                "played_at": p.played_at.isoformat() if p.played_at else None,
+                "duration_sec": p.duration_sec,
+                "rating": p.rating,
+            }
+            for p in recent_rows
+        ],
+    }
+
+
 @router.get("/{room_id}/stats/processing")
 def get_processing_stats(room_id: str, session: Session = Depends(get_session)):
     """Get processing statistics for songs in a room's queue."""
@@ -222,21 +241,3 @@ def get_processing_stats(room_id: str, session: Session = Depends(get_session)):
             result[status] = count
 
     return result
-
-    return {
-        "room_id": room_id,
-        "total_songs_played": total_played,
-        "unique_songs": unique_songs,
-        "total_play_duration_sec": total_duration,
-        "avg_rating": round(avg_rating, 1) if avg_rating else None,
-        "top_songs": top_songs,
-        "recent_plays": [
-            {
-                "song_id": p.song_id,
-                "played_at": p.played_at.isoformat() if p.played_at else None,
-                "duration_sec": p.duration_sec,
-                "rating": p.rating,
-            }
-            for p in recent_rows
-        ],
-    }
