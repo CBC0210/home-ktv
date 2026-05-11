@@ -200,3 +200,109 @@ export function extractYoutubeId(input: string): string | null {
 export function isYoutubeUrl(input: string): boolean {
   return /youtube\.com|youtu\.be/.test(input);
 }
+// ── Admin API ─────────────────────────────────────────────────────────────────
+
+export function adminApiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = localStorage.getItem("admin_token");
+  return apiFetch<T>(path, {
+    ...init,
+    headers: {
+      ...(init?.headers && typeof init.headers === "object" && !Array.isArray(init.headers)
+        ? (init.headers as Record<string, string>)
+        : {}),
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+}
+
+export interface AdminRoomItem {
+  id: string;
+  name: string;
+  is_default: boolean;
+  has_password: boolean;
+  created_at: string | null;
+  settings: Record<string, unknown> | null;
+}
+
+export interface ErrorLogEntry {
+  id: number;
+  occurred_at: string | null;
+  category: string | null;
+  severity: string | null;
+  message: string;
+  context: Record<string, unknown> | null;
+  resolved_at: string | null;
+  resolution: string | null;
+}
+
+export interface CacheStats {
+  media: { bytes: number; human: string };
+  cache: { bytes: number; human: string };
+  logs: { bytes: number; human: string };
+  tmp: { bytes: number; human: string };
+  total: { bytes: number; human: string };
+}
+
+export interface SystemStatus {
+  gpu: { available: boolean; name?: string; memory_total_mb?: number; memory_used_mb?: number };
+  db_connected: boolean;
+  db_path: string;
+  pipeline: { pending_count: number };
+  songs: { total: number; ready: number; failed: number };
+}
+
+export const adminListRooms = () =>
+  adminApiFetch<AdminRoomItem[]>("/api/admin/rooms");
+
+export const adminCreateRoom = (data: { id: string; name: string; password?: string }) =>
+  adminApiFetch<AdminRoomItem>("/api/admin/rooms", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const adminDeleteRoom = (roomId: string) =>
+  adminApiFetch<{ status: string; deleted: string }>(`/api/admin/rooms/${roomId}`, {
+    method: "DELETE",
+  });
+
+export const adminChangeRoomPassword = (roomId: string, password: string | null) =>
+  adminApiFetch<{ status: string; room_id: string; has_password: boolean }>(
+    `/api/admin/rooms/${roomId}/password`,
+    { method: "PATCH", body: JSON.stringify({ password }) }
+  );
+
+export const adminListErrorLogs = (params?: { resolved?: boolean; limit?: number; offset?: number }) => {
+  const qs = new URLSearchParams();
+  if (params?.resolved !== undefined) qs.set("resolved", String(params.resolved));
+  if (params?.limit) qs.set("limit", String(params.limit));
+  if (params?.offset) qs.set("offset", String(params.offset));
+  const q = qs.toString();
+  return adminApiFetch<{ total: number; entries: ErrorLogEntry[] }>(
+    `/api/admin/error-logs${q ? `?${q}` : ""}`
+  );
+};
+
+export const adminResolveErrorLog = (logId: number, resolution?: string) =>
+  adminApiFetch<{ status: string; log_id: number; resolved_at: string }>(
+    `/api/admin/error-logs/${logId}/resolve`,
+    { method: "POST", body: JSON.stringify({ resolution }) }
+  );
+
+export const adminResolveAllErrorLogs = () =>
+  adminApiFetch<{ status: string; resolved_count: number }>(
+    "/api/admin/error-logs/resolve-all",
+    { method: "POST" }
+  );
+
+export const adminGetCacheStats = () =>
+  adminApiFetch<CacheStats>("/api/admin/cache-stats");
+
+export const adminClearCache = (what: "all" | "cache" | "tmp" = "all") =>
+  adminApiFetch<{ status: string; cleared: Array<{ dir: string; files_removed: number; bytes_freed: number }> }>(
+    "/api/admin/cache/clear",
+    { method: "POST", body: JSON.stringify({ what }) }
+  );
+
+export const adminGetSystemStatus = () =>
+  adminApiFetch<SystemStatus>("/api/admin/system-status");
