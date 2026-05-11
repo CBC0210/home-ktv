@@ -1,0 +1,23 @@
+# Cloudflare Tunnel configuration for Home KTV
+# Path: /etc/cloudflared/config.yml (sudo required)
+#
+# After editing:
+#   sudo systemctl restart cloudflared
+#
+# Verify:
+#   cloudflared tunnel info ktv
+
+tunnel: 2c326bd5-f60f-48bb-be39-9b543689ad79
+credentials-file: /home/cbc/.cloudflared/2c326bd5-f60f-48bb-be39-9b543689ad79.json
+
+ingress:
+  # Main KTV service — routes all traffic to local proxy
+  - hostname: ktv.bc-verse.com
+    service: http://localhost:8000
+    originRequest:
+      # WebSocket support
+      connectTimeout: 30s
+      noTLSVerify: false
+
+  # Catch-all required by cloudflared
+  - service: http_status:404

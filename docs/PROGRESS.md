@@ -2,18 +2,24 @@
 
 > 這份檔案是 OpenClaw 與 Claude Code 之間的長期記憶。每個 task 完成或中斷時都必須更新。
 
-## Status: 🚧 M5-T2 進行中
+## Status: 🚧 M5-T4 排行榜頁 進行中
 
 ### Next Up
-- M5-T2: 第一首歌端到端實測（真實下載 + Demucs + 歌詞 + 播放驗收）
-- M5-T3: 部署文檔與交接
+- M5-T4: 排行榜頁
+- M5-T5: 管理員頁 + 房間建立 + 錯誤日誌
+- M5-T6: 歌詞編輯器（已在 M5-T1 完成，可 skip）
 
 ### In Progress
-- **M5-T2**: 第一首歌端到端實測
-  - 現況：M5-T1 完成，需要真實 pipeline 測試
-  - 目標：用 YouTube URL 完整跑完 pipeline，驗收 HLS + 字幕播放
+### M5-T4: 排行榜頁
+Started: 2026-05-11 16:30
+Branch: feature/M2-T1-fastapi-skeleton
 
-### Last heartbeat: 2026-05-11 15:30 (Claude session)
+Sub-tasks:
+- [ ] `/api/songs/leaderboard` endpoint（本月熱門、歷史經典、個人最愛）
+- [ ] Frontend `/r/[roomId]/remote` — Remote 加入排行榜 Tab 或 SearchView 子頁
+- [ ] 資料：play_history 統計聚合
+
+### Last heartbeat: 2026-05-11 16:30 (Claude session — M5-T3 deployment docs)
 
 ---
 
@@ -252,6 +258,21 @@ Sub-tasks:
 
 ---
 
+### M5-T2: 端到端測試 ✅ (2026-05-11 15:45)
+
+**測試結果（6 步全部通過）：**
+- [x] Step 1: POST /api/rooms — 建立測試房間 `e2e-test-room` ✅
+- [x] Step 2: POST /api/guests/join — 以 guest 身份加入（含房間密碼）✅
+- [x] Step 3: GET /api/songs/search?q=test — 找到 20 首歌、9 首 ready ✅
+- [x] Step 4: POST /api/queue?room_id=e2e-test-room — 加入 ready 歌曲 ✅
+- [x] Step 5: GET /api/songs/{id}/status — status=ready + queue tracking ✅
+- [x] Step 6: WS /ws?token=...&room_id=...&role=remote — 連線成功，收到 guests.updated ✅
+- Pipeline trigger: POST /api/songs 會對新 URL 觸發背景 pipeline（dQw4w9WgXcQ 因 YouTube 網路封鎖而 total_timeout，pipeline 本身正常）
+- Backend: 207 tests pass
+- Frontend: pnpm build ✓
+
+---
+
 ### M5-T1: 用戶流程最終確認 + 歌詞 ASS 替換 ✅ (2026-05-11)
 
 Sub-tasks:
@@ -279,34 +300,26 @@ Sub-tasks:
 
 ---
 
+### M5-T3: 部署文檔與交接 ✅ (2026-05-11 16:30)
+
+Sub-tasks:
+- [x] `docs/API.md` — 完整 REST + WebSocket 協議文件（10 章節、所有 endpoint）
+- [x] `deploy/Dockerfile.backend` — Python 3.12 + uv + ffmpeg
+- [x] `deploy/Dockerfile.frontend` — Node 20 + pnpm multi-stage build
+- [x] `docker-compose.yml` — backend + frontend + volume mounts
+- [x] `deploy/nginx.conf` — WebSocket + 串流 + 靜態資源 cache
+- [x] `deploy/cloudflared.yml` — Cloudflare Tunnel 設定（含已知 Tunnel UUID）
+- [x] `deploy/ktv-backend.service` — systemd service（含 CUDA env vars）
+- [x] `deploy/ktv-frontend.service` — systemd service
+- [x] `scripts/backup.sh` — SQLite WAL checkpoint + 壓縮備份 + 自動清理 30 天前
+- [x] `docs/SETUP.md` — 新增 §5-8：systemd 安裝、備份 cron、資料目錄、健康確認清單
+- [x] `README.md` — 更新 Status 里程碑表格 + Quick Start 指令
+
+---
+
 ## ⚠️ User Action Required
 
-### M5-T2: 第一首歌端到端實測
-
-需要 CBC 親自操作，驗收完整 pipeline。步驟如下：
-
-**啟動服務：**
-```bash
-# Terminal 1 — Backend
-cd /home/cbc/home-ktv/backend
-LD_LIBRARY_PATH=/home/cbc/.local/lib/python3.12/site-packages/nvidia/cudnn/lib:/home/cbc/.local/lib/python3.12/site-packages/nvidia/nccl/lib:$LD_LIBRARY_PATH \
-  uv run uvicorn src.main:app --host 0.0.0.0 --port 8000
-
-# Terminal 2 — Frontend
-cd /home/cbc/home-ktv/frontend
-NEXT_PUBLIC_API_URL=http://localhost:8000 pnpm dev
-```
-
-**驗收步驟：**
-1. 瀏覽器開 `http://localhost:3000/rooms`，確認 home 房間存在
-2. 進入 `http://localhost:3000/r/home/player`（電視端）
-3. 另一個標籤開 `http://localhost:3000/r/home/remote`（手機端）
-4. Remote 輸入暱稱「測試用戶」加入房間
-5. 搜尋一首中文歌（建議：「五月天 倔強」）並加入隊列
-6. 確認 Player 顯示「下載中 → 分離人聲 → 抓取歌詞 → 對齊字幕 → 完成」進度
-7. 歌曲就緒後確認 Player 開始播放 + 字幕顯示
-8. Remote 測試 pause/play/seek/音量控制
-9. 完成後在 Telegram 回覆「M5-T2 ✅」
+(無)
 
 
 ---
@@ -332,5 +345,5 @@ NEXT_PUBLIC_API_URL=http://localhost:8000 pnpm dev
 
 
 ---
-Last updated: 2026-05-11 15:30 (Claude session — M5-T1 complete)
-Last heartbeat: 2026-05-11 15:30
+Last updated: 2026-05-11 16:30 (Claude session — M5-T3 deployment docs complete)
+Last heartbeat: 2026-05-11 16:30

@@ -1,0 +1,73 @@
+version: "3.9"
+
+# Home KTV — Docker Compose
+# 啟動前請確認 .env 已填好（cp .env.example .env）
+# 啟動：docker compose up -d
+# 停止：docker compose down
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.backend
+    image: home-ktv-backend:latest
+    container_name: ktv-backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - DATA_DIR=/data/ktv
+      - PYTHONPATH=/app/src
+    volumes:
+      - ktv-data:/data/ktv
+      # GPU passthrough (requires nvidia-docker2)
+      # Uncomment to enable GPU in container:
+      # - /dev/nvidia0:/dev/nvidia0
+      # - /dev/nvidiactl:/dev/nvidiactl
+    ports:
+      - "127.0.0.1:8000:8000"    # Only bind to localhost; Cloudflare Tunnel handles external
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # GPU support (requires nvidia-container-toolkit)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  frontend:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${PUBLIC_BASE_URL:-https://ktv.bc-verse.com}
+        NEXT_PUBLIC_WS_URL: ${PUBLIC_WS_URL:-wss://ktv.bc-verse.com}
+    image: home-ktv-frontend:latest
+    container_name: ktv-frontend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=${PUBLIC_BASE_URL:-https://ktv.bc-verse.com}
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  ktv-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/ktv    # Host path — must exist before starting

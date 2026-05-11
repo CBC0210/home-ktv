@@ -1,0 +1,40 @@
+[Unit]
+Description=Home KTV Backend (FastAPI)
+Documentation=https://github.com/cbc/home-ktv
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cbc
+Group=cbc
+WorkingDirectory=/home/cbc/home-ktv/backend
+
+# Ensure CUDA shared libraries are found at process start
+Environment="LD_LIBRARY_PATH=/home/cbc/.local/lib/python3.12/site-packages/nvidia/cudnn/lib:/home/cbc/.local/lib/python3.12/site-packages/nvidia/cusparselt/lib:/home/cbc/.local/lib/python3.12/site-packages/nvidia/nccl/lib"
+Environment="PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,garbage_collection_threshold:0.8"
+
+# Load .env file for all app settings
+EnvironmentFile=/home/cbc/home-ktv/.env
+
+ExecStart=/home/cbc/.local/bin/uv run uvicorn src.main:app \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --workers 1 \
+    --log-level info
+
+Restart=on-failure
+RestartSec=10s
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+# Security hardening
+PrivateTmp=true
+NoNewPrivileges=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ktv-backend
+
+[Install]
+WantedBy=multi-user.target

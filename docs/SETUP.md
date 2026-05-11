@@ -123,6 +123,117 @@ curl https://ktv.bc-verse.com
 
 ---
 
+## 生產部署（M5 完成後適用）
+
+### 5. Systemd 服務安裝
+
+#### 5.1 Backend
+
+```bash
+sudo cp /home/cbc/home-ktv/deploy/ktv-backend.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable ktv-backend
+sudo systemctl start ktv-backend
+sudo systemctl status ktv-backend
+```
+
+確認服務正常：
+```bash
+curl http://localhost:8000/health
+# → {"status":"ok","app":"ktv-backend","version":"0.1.0"}
+```
+
+#### 5.2 Frontend（可選，也可直接用 pnpm dev）
+
+```bash
+# 先 build
+cd /home/cbc/home-ktv/frontend
+pnpm build
+
+# 安裝服務
+sudo cp /home/cbc/home-ktv/deploy/ktv-frontend.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable ktv-frontend
+sudo systemctl start ktv-frontend
+```
+
+> 注意：`ktv-frontend.service` 的 ExecStartPre 會在每次重啟時執行 `pnpm build`，首次啟動較慢。
+> 若要加快，可把 build 單獨做好後改用 `pnpm start` 跳過 Pre。
+
+#### 5.3 Cloudflare Tunnel
+
+```bash
+# 複製設定檔（已有 tunnel UUID）
+sudo cp /home/cbc/home-ktv/deploy/cloudflared.yml /etc/cloudflared/config.yml
+
+# 啟動服務
+sudo systemctl enable cloudflared
+sudo systemctl start cloudflared
+
+# 測試穿透
+curl https://ktv.bc-verse.com/health
+```
+
+### 6. 備份設定
+
+#### 6.1 手動備份
+
+```bash
+bash /home/cbc/home-ktv/scripts/backup.sh
+```
+
+備份位置：`/home/cbc/home-ktv-backups/ktv-backup-YYYYMMDD_HHMMSS.tar.gz`
+備份內容：SQLite DB、`.env`、`cloudflared.yml`、最近 7 天的 log
+
+#### 6.2 自動備份（每天凌晨 2:00）
+
+```bash
+crontab -e
+```
+
+加入：
+```
+0 2 * * * /home/cbc/home-ktv/scripts/backup.sh >> /data/ktv/logs/backup.log 2>&1
+```
+
+### 7. 資料目錄初始化
+
+第一次部署時，確認資料目錄存在：
+
+```bash
+sudo mkdir -p /data/ktv/{cache,logs,tmp}
+sudo chown -R cbc:cbc /data/ktv
+```
+
+### 8. 系統健康確認清單
+
+部署後逐項確認：
+
+```bash
+# 1. Backend 回應
+curl https://ktv.bc-verse.com/health
+
+# 2. 房間列表
+curl https://ktv.bc-verse.com/api/rooms
+
+# 3. 前端頁面
+curl -s https://ktv.bc-verse.com/ | head -5
+
+# 4. GPU 狀態（不連顯示器時 nvidia-smi 可能會有非零退出碼，是正常的）
+nvidia-smi
+
+# 5. 服務狀態
+sudo systemctl status ktv-backend cloudflared
+
+# 6. Disk 空間
+df -h /data
+
+# 7. Backend log（最近 50 行）
+journalctl -u ktv-backend -n 50 --no-pager
+```
+
+---
+
 ## 發布前的最終設定（M6 階段）
 
 (M6 達成時補充)
