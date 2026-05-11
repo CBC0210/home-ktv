@@ -58,13 +58,51 @@ def _run_pipeline_sync(queue_item_id: int) -> None:
 
 @router.get("/search", response_model=list[SongOut])
 def search_songs(q: str = "", limit: int = 20, session: Session = Depends(get_session)):
-    """Search songs by title or artist."""
+    """Search songs by title or artist in local cache."""
     query = session.query(Song)
     if q:
         query = query.filter(
             (Song.title.ilike(f"%{q}%")) | (Song.artist.ilike(f"%{q}%"))
         )
     return query.order_by(Song.play_count.desc()).limit(limit).all()
+
+
+@router.get("/youtube-search")
+def youtube_search(q: str, limit: int = 10):
+    """Search YouTube via yt-dlp and return video metadata (no processing)."""
+    if not q.strip():
+        return []
+    try:
+        import yt_dlp
+
+        ydl_opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "extract_flat": "in_playlist",
+            "default_search": "ytsearch",
+            "noplaylist": True,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            result = ydl.extract_info(f"ytsearch{limit}:{q}", download=False)
+
+        if not result or "entries" not in result:
+            return []
+
+        return [
+            {
+                "id": entry.get("id"),
+                "title": entry.get("title"),
+                "channel": entry.get("channel") or entry.get("uploader"),
+                "duration_sec": entry.get("duration"),
+                "thumbnail_url": entry.get("thumbnail"),
+                "url": f"https://www.youtube.com/watch?v={entry.get('id')}",
+                "cached": False,  # will be updated by frontend using local search
+            }
+            for entry in result.get("entries", [])
+            if entry and entry.get("id")
+        ]
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"YouTube search unavailable: {exc}")
 
 
 @router.get("/{song_id}", response_model=SongOut)

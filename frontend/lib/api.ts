@@ -28,6 +28,20 @@ export const createRoom = (data: {
 // Songs
 export const searchSongs = (q: string) =>
   apiFetch<Song[]>(`/api/songs/search?q=${encodeURIComponent(q)}`);
+
+export interface YoutubeResult {
+  id: string;
+  title: string;
+  channel: string | null;
+  duration_sec: number | null;
+  thumbnail_url: string | null;
+  url: string;
+  cached: boolean;
+}
+export const youtubeSearch = (q: string, limit = 10) =>
+  apiFetch<YoutubeResult[]>(
+    `/api/songs/youtube-search?q=${encodeURIComponent(q)}&limit=${limit}`
+  );
 export const getSong = (id: string) => apiFetch<Song>(`/api/songs/${id}`);
 export const getSongStatus = (id: string) =>
   apiFetch<{ status: string; error?: string }>(`/api/songs/${id}/status`);
