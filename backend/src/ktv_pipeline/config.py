@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     whisperx_model: str = "small"
     demucs_model: str = "htdemucs"
     song_total_timeout_sec: int = 900
+    pipeline_max_retries: int = 3
+    pipeline_heartbeat_sec: int = 30
     prefetch_count: int = 2
     log_level: str = "INFO"
     log_dir: Path = Path("/data/ktv/logs")

@@ -82,6 +82,11 @@ class GuestOut(GuestBase):
 
 # ── Song ──────────────────────────────────────────────────────────────────────
 
+class SongCreate(BaseModel):
+    youtube_url: str
+    room_id: str
+
+
 class SongOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -90,6 +95,8 @@ class SongOut(BaseModel):
     artist: Optional[str] = None
     duration_sec: Optional[int] = None
     thumbnail_url: Optional[str] = None
+    status: str = "pending"
+    error_message: Optional[str] = None
     processed_at: datetime
     last_played_at: Optional[datetime] = None
     play_count: int = 0

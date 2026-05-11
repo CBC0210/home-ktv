@@ -56,6 +56,7 @@ class Song(Base):
     files: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     lyrics_source: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     lyrics_quality: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     has_timing: Mapped[bool] = mapped_column(Boolean, default=False)
     extra_metadata: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 

@@ -495,6 +495,7 @@ class PipelineOrchestrator:
         with get_db_session() as db:
             song = db.query(Song).filter(Song.id == song_id).first()
             if song:
+                song.status = "ready"
                 song.processed_at = _utcnow()
 
     async def _mark_failed_perm(self, song_id: str, reason: str) -> None:
@@ -502,6 +503,8 @@ class PipelineOrchestrator:
         with get_db_session() as db:
             song = db.query(Song).filter(Song.id == song_id).first()
             if song:
+                song.status = "failed_perm"
+                song.error_message = reason
                 song.processed_at = _utcnow()
 
     # ------------------------------------------------------------------
