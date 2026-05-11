@@ -2,25 +2,13 @@
 
 > 這份檔案是 OpenClaw 與 Claude Code 之間的長期記憶。每個 task 完成或中斷時都必須更新。
 
-## Status: 🚧 M5-T5 管理員頁 進行中
+## Status: 🚧 M5-T5 完成
 
 ### Next Up
-- M5-T5: 管理員頁 + 房間建立 + 錯誤日誌
 - M5-T6: 歌詞編輯器（已在 M5-T1 完成，可 skip）
 
 ### In Progress
-### M5-T5: 管理員頁 + 房間建立 + 錯誤日誌
-Started: 2026-05-11 17:00
-Branch: feature/M2-T1-fastapi-skeleton
-
-Sub-tasks:
-- [ ] `/admin` 頁面（需 ADMIN_PASSWORD 驗證）
-- [ ] 建立新房間 + 設密碼
-- [ ] 錯誤日誌檢視（error_log table）+ 標記已解決
-- [ ] 緩存管理（磁碟用量、清除按鈕）
-- [ ] 系統狀態（GPU、pending pipeline count）
-
-### Last heartbeat: 2026-05-11 16:49 (no active session - watchdog wake-up triggered) (Claude session — M5-T4 complete)
+（無）
 
 ---
 
@@ -329,6 +317,28 @@ Sub-tasks:
 - Commit: 1291986
 
 ---
+
+
+### M5-T5: 管理員頁 + 房間建立 + 錯誤日誌 ✅ (2026-05-11 17:45)
+
+Sub-tasks:
+- [x] `/admin` 頁面（密碼驗證，localStorage admin_token）
+- [x] 建立新房間（id/name/password）+ 刪除房間
+- [x] 修改房間密碼（設密碼 / 移除密碼）
+- [x] 錯誤日誌檢視（error_log table）+ 標記已解決 + 批量解決
+- [x] 緩存管理（磁碟用量顯示 + cache/tmp/all 清除按鈕）
+- [x] 系統狀態（GPU、pending pipeline count、歌曲統計、DB 連線）
+
+Backend:
+- `api/admin.py`: admin router — /admin/rooms, /admin/error-logs, /admin/cache-stats, /admin/cache/clear, /admin/system-status
+- 所有 endpoints 需 admin JWT（require_admin dependency）
+
+Frontend:
+- `app/admin/page.tsx`: 4 分頁（房間 / 錯誤日誌 / 緩存 / 系統）
+- `lib/api.ts`: adminApiFetch + 所有 admin API functions + types
+
+pnpm build ✓ (6 routes, 0 errors)
+Commit: 30e6c19, branch `feature/M2-T1-fastapi-skeleton`
 
 ## ⚠️ User Action Required
 
