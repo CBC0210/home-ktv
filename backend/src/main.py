@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ktv_pipeline.config import settings
 from ktv_pipeline.database import init_db, check_db_connection, get_gpu_status
-from api import api_router
+from api import api_router, ws_router
 
 
 @asynccontextmanager
@@ -28,6 +28,7 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
+app.include_router(ws_router, tags=["websocket"])
 
 
 @app.get("/")

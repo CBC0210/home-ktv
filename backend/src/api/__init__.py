@@ -8,3 +8,6 @@ api_router.include_router(rooms.router)
 api_router.include_router(songs.router)
 api_router.include_router(guests.router)
 api_router.include_router(queue.router)
+
+# WebSocket endpoint registered at /ws (root-level, not /api/ws)
+ws_router = __import__("api.ws", fromlist=["router"]).router
