@@ -2,24 +2,25 @@
 
 > 這份檔案是 OpenClaw 與 Claude Code 之間的長期記憶。每個 task 完成或中斷時都必須更新。
 
-## Status: 🚧 M5-T4 排行榜頁 進行中
+## Status: 🚧 M5-T5 管理員頁 進行中
 
 ### Next Up
-- M5-T4: 排行榜頁
 - M5-T5: 管理員頁 + 房間建立 + 錯誤日誌
 - M5-T6: 歌詞編輯器（已在 M5-T1 完成，可 skip）
 
 ### In Progress
-### M5-T4: 排行榜頁
-Started: 2026-05-11 16:30
+### M5-T5: 管理員頁 + 房間建立 + 錯誤日誌
+Started: 2026-05-11 17:00
 Branch: feature/M2-T1-fastapi-skeleton
 
 Sub-tasks:
-- [ ] `/api/songs/leaderboard` endpoint（本月熱門、歷史經典、個人最愛）
-- [ ] Frontend `/r/[roomId]/remote` — Remote 加入排行榜 Tab 或 SearchView 子頁
-- [ ] 資料：play_history 統計聚合
+- [ ] `/admin` 頁面（需 ADMIN_PASSWORD 驗證）
+- [ ] 建立新房間 + 設密碼
+- [ ] 錯誤日誌檢視（error_log table）+ 標記已解決
+- [ ] 緩存管理（磁碟用量、清除按鈕）
+- [ ] 系統狀態（GPU、pending pipeline count）
 
-### Last heartbeat: 2026-05-11 16:30 (Claude session — M5-T3 deployment docs)
+### Last heartbeat: 2026-05-11 16:49 (no active session - watchdog wake-up triggered) (Claude session — M5-T4 complete)
 
 ---
 
@@ -314,6 +315,18 @@ Sub-tasks:
 - [x] `scripts/backup.sh` — SQLite WAL checkpoint + 壓縮備份 + 自動清理 30 天前
 - [x] `docs/SETUP.md` — 新增 §5-8：systemd 安裝、備份 cron、資料目錄、健康確認清單
 - [x] `README.md` — 更新 Status 里程碑表格 + Quick Start 指令
+
+### M5-T4: 排行榜頁 ✅ (2026-05-11)
+
+Sub-tasks:
+- [x] `GET /api/songs/leaderboard?category=all_time|monthly_hot|personal&limit=N`
+- [x] all_time: songs.play_count 排序；monthly_hot: play_history 本月聚合；personal: 需 JWT
+- [x] `get_optional_guest_dep`：公開分類免驗證，personal 需登入
+- [x] `LeaderboardView.tsx`：三分類選擇器、名次獎牌、加入/插播按鈕
+- [x] `SearchView.tsx`：加入排行榜子標籤
+- [x] `api.ts`：`getLeaderboard()`、`LeaderboardItem`、`LeaderboardCategory` types
+- [x] 16 個測試全部通過；pnpm build ✓
+- Commit: 1291986
 
 ---
 
