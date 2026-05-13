@@ -29,7 +29,7 @@ def _song_cache_dir(song_id: str) -> Path:
 
 
 def _song_ass_path(song_id: str) -> Path:
-    return settings.data_dir / "cache" / "lrc" / song_id / "vocal.ass"
+    return settings.data_dir / "media" / song_id / "lyrics.ass"
 
 
 # ── Range request helpers ───────────────────────────────────────────────────
