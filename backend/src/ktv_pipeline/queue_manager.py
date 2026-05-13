@@ -36,7 +36,7 @@ class QueueManager:
         return (
             self.session.query(QueueItem)
             .filter_by(room_id=room_id)
-            .filter(QueueItem.status.in_(["pending", "processing", "ready"]))
+            .filter(QueueItem.status.in_(["playing", "pending", "processing", "ready"]))
             .order_by(QueueItem.position)
             .all()
         )

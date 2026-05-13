@@ -64,6 +64,7 @@ interface KtvStore {
   setProcessing: (p: { stage: string; percent: number } | null) => void;
   updatePosition: (positionSec: number) => void;
   setTheme: (theme: PlayerTheme) => void;
+  setIsPlaying: (isPlaying: boolean) => void;
 }
 
 const defaultPlayback: PlaybackState = {
@@ -99,4 +100,6 @@ export const useKtvStore = create<KtvStore>((set) => ({
   updatePosition: (positionSec) =>
     set((s) => ({ playback: { ...s.playback, position_sec: positionSec } })),
   setTheme: (theme) => set({ theme }),
+  setIsPlaying: (isPlaying) =>
+    set((s) => ({ playback: { ...s.playback, is_playing: isPlaying } })),
 }));

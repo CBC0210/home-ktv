@@ -35,99 +35,12 @@ function useClock() {
   return time;
 }
 
-/**
- * DualAudio manages two AudioContext sources (vocals + instrumental) mixed
- * through individual GainNodes. Designed for use with a muted <video> element
- * that provides the visual track.
- */
-class DualAudioMixer {
-  private ctx: AudioContext;
-  private vocalEl: HTMLAudioElement;
-  private instrEl: HTMLAudioElement;
-  private vocalGain: GainNode;
-  private instrGain: GainNode;
-  private masterGain: GainNode;
-  private started = false;
-
-  constructor() {
-    this.ctx = new AudioContext();
-    this.vocalEl = new Audio();
-    this.instrEl = new Audio();
-    this.vocalEl.crossOrigin = "anonymous";
-    this.instrEl.crossOrigin = "anonymous";
-
-    const vocalSrc = this.ctx.createMediaElementSource(this.vocalEl);
-    const instrSrc = this.ctx.createMediaElementSource(this.instrEl);
-
-    this.vocalGain = this.ctx.createGain();
-    this.instrGain = this.ctx.createGain();
-    this.masterGain = this.ctx.createGain();
-
-    vocalSrc.connect(this.vocalGain);
-    instrSrc.connect(this.instrGain);
-    this.vocalGain.connect(this.masterGain);
-    this.instrGain.connect(this.masterGain);
-    this.masterGain.connect(this.ctx.destination);
-  }
-
-  load(vocalUrl: string, instrUrl: string) {
-    this.vocalEl.src = vocalUrl;
-    this.instrEl.src = instrUrl;
-    this.started = false;
-  }
-
-  async play(atPosition?: number) {
-    if (this.ctx.state === "suspended") {
-      await this.ctx.resume();
-    }
-    if (atPosition !== undefined) {
-      this.vocalEl.currentTime = atPosition;
-      this.instrEl.currentTime = atPosition;
-    }
-    await Promise.allSettled([this.vocalEl.play(), this.instrEl.play()]);
-    this.started = true;
-  }
-
-  pause() {
-    this.vocalEl.pause();
-    this.instrEl.pause();
-  }
-
-  seek(positionSec: number) {
-    this.vocalEl.currentTime = positionSec;
-    this.instrEl.currentTime = positionSec;
-  }
-
-  setVolumes(main: number, vocal: number) {
-    this.masterGain.gain.value = main;
-    // vocal_volume=0 → only instrumental; vocal_volume=1 → full vocals
-    this.vocalGain.gain.value = vocal;
-    this.instrGain.gain.value = 1; // instrumental always at full
-  }
-
-  get currentTime() {
-    return this.instrEl.currentTime;
-  }
-
-  get isPlaying() {
-    return !this.instrEl.paused && this.started;
-  }
-
-  destroy() {
-    this.vocalEl.pause();
-    this.instrEl.pause();
-    this.vocalEl.src = "";
-    this.instrEl.src = "";
-    this.ctx.close().catch(() => {});
-  }
-}
-
 export default function PlayerView({ roomId }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const mixerRef = useRef<DualAudioMixer | null>(null);
-  const positionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const vocalRef = useRef<HTMLAudioElement>(null);
+  const instrRef = useRef<HTMLAudioElement>(null);
   const [remoteUrl, setRemoteUrl] = useState<string>("");
-  // Increment to force SubtitleLayer remount when lyrics are replaced
+  const [audioBlocked, setAudioBlocked] = useState(false);
   const [subtitleRevision, setSubtitleRevision] = useState(0);
   const clock = useClock();
 
@@ -147,18 +60,47 @@ export default function PlayerView({ roomId }: Props) {
     setGuests,
     setProcessing,
     updatePosition,
+    setIsPlaying,
   } = useKtvStore();
 
   const themeStyle = THEME_STYLES[theme];
+
+  // Stable refs to avoid stale closures in event listeners
+  const setIsPlayingRef = useRef(setIsPlaying);
+  setIsPlayingRef.current = setIsPlaying;
+  const playbackRef = useRef(playback);
+  playbackRef.current = playback;
 
   useEffect(() => {
     setRemoteUrl(window.location.origin + `/r/${roomId}/remote`);
   }, [roomId]);
 
+  // ── Audio volume helpers ────────────────────────────────────────────────────
+  const syncVolumes = useCallback((main: number, vocal: number) => {
+    const v = vocalRef.current;
+    const i = instrRef.current;
+    if (v) v.volume = Math.max(0, Math.min(1, main * vocal));
+    if (i) i.volume = Math.max(0, Math.min(1, main));
+  }, []);
+
+  // Try to start the audio elements (may be blocked by autoplay policy)
+  const tryPlayAudio = useCallback(async (atPosition?: number) => {
+    const vocal = vocalRef.current;
+    const instr = instrRef.current;
+    if (!vocal || !instr) return;
+    if (atPosition !== undefined) {
+      vocal.currentTime = atPosition;
+      instr.currentTime = atPosition;
+    }
+    const results = await Promise.allSettled([vocal.play(), instr.play()]);
+    const blocked = results.some((r) => r.status === "rejected");
+    setAudioBlocked(blocked);
+  }, []);
+
+  // ── WS event handler ────────────────────────────────────────────────────────
   const handleEvent = useCallback(
     (event: ServerEvent) => {
       const video = videoRef.current;
-      const mixer = mixerRef.current;
 
       switch (event.type) {
         case "queue.updated":
@@ -172,6 +114,7 @@ export default function PlayerView({ roomId }: Props) {
           break;
         case "song.ended":
           setCurrentSong(null, null);
+          setIsPlayingRef.current(false);
           break;
         case "playback.state":
           setPlayback(event.state);
@@ -183,44 +126,48 @@ export default function PlayerView({ roomId }: Props) {
           setGuests(event.guests);
           break;
 
-        // Playback control commands forwarded from Remote
-        case "playback.play":
+        case "playback.play": {
+          const pos = video?.currentTime ?? 0;
           video?.play().catch(() => {});
-          mixer?.play().catch(() => {});
-          setPlayback({ ...playback, is_playing: true });
+          void tryPlayAudio(pos);
+          setIsPlayingRef.current(true);
           break;
+        }
         case "playback.pause":
           video?.pause();
-          mixer?.pause();
-          setPlayback({ ...playback, is_playing: false });
+          vocalRef.current?.pause();
+          instrRef.current?.pause();
+          setIsPlayingRef.current(false);
           break;
         case "playback.seek":
           if (video) video.currentTime = event.positionSec;
-          mixer?.seek(event.positionSec);
+          if (vocalRef.current) vocalRef.current.currentTime = event.positionSec;
+          if (instrRef.current) instrRef.current.currentTime = event.positionSec;
           updatePosition(event.positionSec);
           break;
         case "playback.setVolume":
           setPlayback({
-            ...playback,
-            main_volume: event.main ?? playback.main_volume,
-            vocal_volume: event.vocal ?? playback.vocal_volume,
+            ...playbackRef.current,
+            main_volume: event.main ?? playbackRef.current.main_volume,
+            vocal_volume: event.vocal ?? playbackRef.current.vocal_volume,
           });
           break;
-        case "playback.skip":
         case "playback.replay":
-          // Queue management not yet implemented in player; server handles via queue API
+          if (video) video.currentTime = 0;
+          if (vocalRef.current) vocalRef.current.currentTime = 0;
+          if (instrRef.current) instrRef.current.currentTime = 0;
+          video?.play().catch(() => {});
+          void tryPlayAudio(0);
+          setIsPlayingRef.current(true);
           break;
         case "lyrics.updated":
-          // Reload SubtitleLayer so it fetches the updated .ass file
           setSubtitleRevision((r) => r + 1);
           break;
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [setQueue, setCurrentSong, updatePosition, setPlayback, setProcessing, setGuests]
+    [setQueue, setCurrentSong, updatePosition, setPlayback, setProcessing, setGuests, tryPlayAudio]
   );
 
-  // sendRef allows the onConnected callback to call sendCommand without circular deps
   const sendRef = useRef<((cmd: never) => void) | null>(null);
   const onWsConnected = useCallback(() => {
     sendRef.current?.({ type: "player.ready" } as never);
@@ -229,116 +176,94 @@ export default function PlayerView({ roomId }: Props) {
   const { sendCommand } = useWebSocket(roomId, null, "player", handleEvent, onWsConnected);
   sendRef.current = sendCommand as never;
 
-  // Broadcast position every second when playing
+  // ── Position broadcast timer ─────────────────────────────────────────────
   useEffect(() => {
-    if (positionTimerRef.current) clearInterval(positionTimerRef.current);
-    if (playback.is_playing && currentSong) {
-      positionTimerRef.current = setInterval(() => {
-        const pos = videoRef.current?.currentTime ?? 0;
-        updatePosition(pos);
-        sendCommand({ type: "player.playing", positionSec: pos } as never);
-      }, 1000);
-    }
-    return () => {
-      if (positionTimerRef.current) clearInterval(positionTimerRef.current);
-    };
-  }, [playback.is_playing, currentSong, sendCommand, updatePosition]);
+    if (!playback.is_playing || !currentSong) return;
+    const id = setInterval(() => {
+      const pos = videoRef.current?.currentTime ?? 0;
+      updatePosition(pos);
+      sendRef.current?.({ type: "player.playing", positionSec: pos } as never);
+    }, 1000);
+    return () => clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playback.is_playing, currentSong, updatePosition]);
 
-  // Initial data load
+  // ── Initial data load ─────────────────────────────────────────────────────
   useEffect(() => {
     getQueue(roomId).then(setQueue).catch(() => {});
     getRoom(roomId).then(setRoom).catch(() => {});
   }, [roomId, setQueue, setRoom]);
 
-  // HLS + dual audio setup when song changes
+  // ── Song change: load video + audio ──────────────────────────────────────
   useEffect(() => {
     const video = videoRef.current;
+    const vocal = vocalRef.current;
+    const instr = instrRef.current;
     if (!video) return;
 
     // Tear down previous
     video.src = "";
-    mixerRef.current?.destroy();
-    mixerRef.current = null;
+    if (vocal) { vocal.pause(); vocal.src = ""; }
+    if (instr) { instr.pause(); instr.src = ""; }
+    setAudioBlocked(false);
+    setIsPlayingRef.current(false);
 
-    if (!currentSong || currentSong.status !== "ready") {
-      video.src = "";
-      return;
-    }
+    if (!currentSong || currentSong.status !== "ready") return;
 
     const base = process.env.NEXT_PUBLIC_API_URL ?? "";
-    const videoSrc = `${base}/songs/${currentSong.id}/video.mp4`;
-    const vocalSrc = `${base}/songs/${currentSong.id}/audio/vocals.wav`;
-    const instrSrc = `${base}/songs/${currentSong.id}/audio/no_vocals.wav`;
+    video.src = `${base}/songs/${currentSong.id}/video.mp4`;
+    if (vocal) vocal.src = `${base}/songs/${currentSong.id}/audio/vocals.wav`;
+    if (instr) instr.src = `${base}/songs/${currentSong.id}/audio/no_vocals.wav`;
 
-    // Load video track directly (MP4 with range-request support for seeking)
-    video.src = videoSrc;
+    syncVolumes(playbackRef.current.main_volume, playbackRef.current.vocal_volume);
+
     video.load();
-    video.addEventListener("canplay", () => {
-      video.play().catch(() => {});
-      sendRef.current?.({ type: "player.playing", positionSec: 0 } as never);
+    video.addEventListener("playing", () => {
+      // Video started — mark playing and start audio
+      setIsPlayingRef.current(true);
+      void tryPlayAudio(video.currentTime);
+      sendRef.current?.({ type: "player.playing", positionSec: video.currentTime } as never);
     }, { once: true });
     video.addEventListener("ended", () => {
-      // Notify server — it will mark done and advance to next song
       sendRef.current?.({ type: "player.ended" } as never);
     }, { once: true });
     video.addEventListener("error", () => {
       sendRef.current?.({
         type: "player.error",
-        error: `Video load error: ${video.error?.message ?? "unknown"}`,
+        error: `Video error: ${video.error?.message ?? "unknown"}`,
       } as never);
     }, { once: true });
 
-    // Load dual audio tracks
-    const mixer = new DualAudioMixer();
-    mixerRef.current = mixer;
-    mixer.load(vocalSrc, instrSrc);
-    mixer.setVolumes(playback.main_volume, playback.vocal_volume);
-    mixer.play(0).catch(() => {
-      // Autoplay blocked — will start when user interacts
+    video.play().catch(() => {
+      // Autoplay blocked for video — user must interact
     });
 
     return () => {
       video.src = "";
-      mixerRef.current?.destroy();
-      mixerRef.current = null;
+      if (vocal) { vocal.pause(); vocal.src = ""; }
+      if (instr) { instr.pause(); instr.src = ""; }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentSong]);
 
-  // Keep volumes in sync whenever playback.main_volume / vocal_volume changes
+  // ── Keep audio volumes in sync ───────────────────────────────────────────
   useEffect(() => {
-    mixerRef.current?.setVolumes(playback.main_volume, playback.vocal_volume);
-  }, [playback.main_volume, playback.vocal_volume]);
-
-  // Sync play/pause state → video + mixer
-  useEffect(() => {
-    const video = videoRef.current;
-    const mixer = mixerRef.current;
-    if (!video) return;
-    if (playback.is_playing) {
-      video.play().catch(() => {});
-      mixer?.play().catch(() => {});
-    } else {
-      video.pause();
-      mixer?.pause();
-    }
-  }, [playback.is_playing]);
+    syncVolumes(playback.main_volume, playback.vocal_volume);
+  }, [playback.main_volume, playback.vocal_volume, syncVolumes]);
 
   const nextItem = queue.find(
     (q) => q.id !== currentQueueItem?.id && q.status !== "playing"
   );
 
-  // ── Standby screen ──────────────────────────────────────────────────────────
+  // ── Standby screen ─────────────────────────────────────────────────────────
   if (!currentSong) {
     return (
       <div className={`relative min-h-screen flex flex-col overflow-hidden ${themeStyle.bg}`}>
-        {/* Ambient glow */}
         <div className="absolute inset-0 pointer-events-none overflow-hidden">
           <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-violet-700/15 rounded-full blur-[120px] animate-pulse-glow" />
           <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-purple-800/10 rounded-full blur-[80px] animate-pulse-glow" style={{ animationDelay: "2s" }} />
         </div>
 
-        {/* Header */}
         <header className="relative z-10 flex items-center justify-between px-10 py-6">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center shadow-lg shadow-violet-900/50">
@@ -362,9 +287,7 @@ export default function PlayerView({ roomId }: Props) {
           </div>
         </header>
 
-        {/* Main content */}
         <div className="relative z-10 flex flex-1 items-center justify-center px-10 gap-20">
-          {/* QR code section */}
           <div className="flex flex-col items-center gap-5">
             <div className="bg-white rounded-3xl p-5 shadow-2xl shadow-black/60 ring-1 ring-white/20">
               {remoteUrl ? (
@@ -381,7 +304,6 @@ export default function PlayerView({ roomId }: Props) {
             </div>
           </div>
 
-          {/* Queue or idle message */}
           <div className="flex flex-col gap-4 min-w-72 max-w-sm">
             {queue.length === 0 ? (
               <div className="text-center py-12">
@@ -403,13 +325,16 @@ export default function PlayerView({ roomId }: Props) {
                       <span className="text-white text-sm truncate flex-1 font-medium">
                         {item.song?.title ?? item.song_id}
                       </span>
-                      {item.status !== "ready" && item.status !== "pending" && (
-                        <span className="text-amber-400 text-xs flex-shrink-0">
-                          {STAGE_LABELS[item.status] ?? "處理中"}
-                        </span>
+                      {item.status === "playing" && (
+                        <span className="text-violet-400 text-xs flex-shrink-0">▶ 播放中</span>
                       )}
                       {item.status === "ready" && (
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
+                      )}
+                      {!["playing", "ready", "pending"].includes(item.status) && (
+                        <span className="text-amber-400 text-xs flex-shrink-0">
+                          {STAGE_LABELS[item.status] ?? "處理中"}
+                        </span>
                       )}
                     </div>
                   ))}
@@ -424,7 +349,6 @@ export default function PlayerView({ roomId }: Props) {
           </div>
         </div>
 
-        {/* Processing overlay */}
         {processing && (
           <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20 bg-black/80 backdrop-blur-xl border border-white/10 rounded-2xl px-8 py-4 text-center min-w-64">
             <p className="text-white font-medium text-sm">
@@ -439,13 +363,21 @@ export default function PlayerView({ roomId }: Props) {
             <p className="text-white/40 text-xs mt-1.5">{processing.percent}%</p>
           </div>
         )}
+
+        {/* Hidden audio elements — always mounted so refs are stable */}
+        <audio ref={vocalRef} preload="auto" className="hidden" />
+        <audio ref={instrRef} preload="auto" className="hidden" />
       </div>
     );
   }
 
-  // ── Playing screen ──────────────────────────────────────────────────────────
+  // ── Playing screen ─────────────────────────────────────────────────────────
   return (
     <div className="relative w-screen h-screen bg-black overflow-hidden">
+      {/* Hidden audio elements */}
+      <audio ref={vocalRef} preload="auto" className="hidden" />
+      <audio ref={instrRef} preload="auto" className="hidden" />
+
       <video
         ref={videoRef}
         className="absolute inset-0 w-full h-full object-contain"
@@ -455,10 +387,9 @@ export default function PlayerView({ roomId }: Props) {
 
       <SubtitleLayer key={subtitleRevision} song={currentSong} positionSec={playback.position_sec} />
 
+      {/* Song info */}
       <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-sm rounded-xl px-4 py-2.5 max-w-sm">
-        <p className="text-white font-semibold text-sm truncate">
-          {currentSong.title}
-        </p>
+        <p className="text-white font-semibold text-sm truncate">{currentSong.title}</p>
         {currentSong.artist && (
           <p className="text-gray-300 text-xs mt-0.5">{currentSong.artist}</p>
         )}
@@ -469,27 +400,39 @@ export default function PlayerView({ roomId }: Props) {
         )}
       </div>
 
+      {/* Next song */}
       {nextItem && (
         <div className="absolute bottom-6 right-6 bg-black/60 backdrop-blur-sm rounded-xl px-4 py-2.5 max-w-xs">
-          <p className="text-gray-400 text-xs uppercase tracking-wider mb-0.5">
-            下一首
-          </p>
+          <p className="text-gray-400 text-xs uppercase tracking-wider mb-0.5">下一首</p>
           <p className="text-white text-sm truncate">
             {nextItem.song?.title ?? nextItem.song_id}
           </p>
           {nextItem.guest?.nickname && (
-            <p className="text-gray-400 text-xs mt-0.5">
-              {nextItem.guest.nickname} 點的
-            </p>
+            <p className="text-gray-400 text-xs mt-0.5">{nextItem.guest.nickname} 點的</p>
           )}
         </div>
       )}
 
+      {/* Processing overlay */}
       {processing && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-gray-800/90 backdrop-blur rounded-xl px-6 py-3 text-center">
           <p className="text-white text-sm">
             {STAGE_LABELS[processing.stage] ?? processing.stage} — {processing.percent}%
           </p>
+        </div>
+      )}
+
+      {/* Audio unlock overlay — shown when autoplay is blocked */}
+      {audioBlocked && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center cursor-pointer"
+          onClick={() => void tryPlayAudio(videoRef.current?.currentTime ?? 0)}
+        >
+          <div className="bg-black/70 backdrop-blur-md rounded-3xl px-10 py-8 text-center border border-white/10">
+            <div className="text-5xl mb-3">🔊</div>
+            <p className="text-white text-xl font-semibold">點擊啟用聲音</p>
+            <p className="text-white/50 text-sm mt-1">瀏覽器需要互動才能播放音訊</p>
+          </div>
         </div>
       )}
     </div>

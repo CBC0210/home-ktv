@@ -78,6 +78,7 @@ export default function RemoteView({ roomId }: Props) {
     setGuests,
     setProcessing,
     updatePosition,
+    setIsPlaying,
   } = useKtvStore();
 
   useEffect(() => {
@@ -102,8 +103,16 @@ export default function RemoteView({ roomId }: Props) {
 
   useEffect(() => {
     if (!session) return;
-    getQueue(roomId).then(setQueue).catch(() => {});
-  }, [roomId, session, setQueue]);
+    getQueue(roomId).then((q) => {
+      setQueue(q);
+      // Detect currently-playing song from queue so "正在播放" works on late join
+      const playing = q.find((item) => item.status === "playing");
+      if (playing?.song) {
+        setCurrentSong(playing.song, playing);
+        setIsPlaying(true);
+      }
+    }).catch(() => {});
+  }, [roomId, session, setQueue, setCurrentSong, setIsPlaying]);
 
   useEffect(() => {
     if (!session) return;
@@ -118,15 +127,21 @@ export default function RemoteView({ roomId }: Props) {
   const handleEvent = useCallback(
     (event: ServerEvent) => {
       if (event.type === "queue.updated") setQueue(event.queue);
-      else if (event.type === "song.started") setCurrentSong(event.song, event.queueItem);
+      else if (event.type === "song.started") {
+        setCurrentSong(event.song, event.queueItem);
+        setIsPlaying(true);
+      }
       else if (event.type === "song.progress") updatePosition(event.positionSec);
-      else if (event.type === "song.ended") setCurrentSong(null, null);
+      else if (event.type === "song.ended") {
+        setCurrentSong(null, null);
+        setIsPlaying(false);
+      }
       else if (event.type === "playback.state") setPlayback(event.state);
       else if (event.type === "guests.updated") setGuests(event.guests);
       else if (event.type === "song.processing")
         setProcessing({ stage: event.stage, percent: event.percent });
     },
-    [setQueue, setCurrentSong, updatePosition, setPlayback, setGuests, setProcessing]
+    [setQueue, setCurrentSong, updatePosition, setPlayback, setGuests, setProcessing, setIsPlaying]
   );
 
   const { sendCommand } = useWebSocket(roomId, session?.token ?? null, "remote", handleEvent);

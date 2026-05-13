@@ -27,6 +27,7 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState<string | null>(null);
   const [addedId, setAddedId] = useState<string | null>(null);
+  const [addedUrl, setAddedUrl] = useState(false); // feedback for direct URL add
   const [error, setError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -89,12 +90,19 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
   }
 
   async function handleAdd(url: string, position: "end" | "next" = "end") {
+    const isUrlOnly = results.length === 0; // direct URL submit, no result rows
     setAdding(url);
     setError(null);
     try {
       await addSong({ youtube_url: url, room_id: roomId, position });
-      setAddedId(url);
-      setTimeout(() => setAddedId(null), 2500);
+      if (isUrlOnly) {
+        setAddedUrl(true);
+        setQuery("");
+        setTimeout(() => setAddedUrl(false), 2500);
+      } else {
+        setAddedId(url);
+        setTimeout(() => setAddedId(null), 2500);
+      }
       onAdded?.();
     } catch {
       setError("加入失敗，請重試");
@@ -149,15 +157,24 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
               </div>
               <button
                 type="submit"
-                disabled={loading || !query.trim()}
-                className="bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white px-4 rounded-2xl transition-colors font-medium text-sm min-w-14"
+                disabled={loading || !!adding || !query.trim()}
+                className={`px-4 rounded-2xl transition-all font-medium text-sm min-w-14 h-full ${
+                  addedUrl
+                    ? "bg-emerald-600 text-white"
+                    : "bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white"
+                }`}
               >
-                {loading ? (
+                {adding && results.length === 0 ? (
                   <svg className="animate-spin w-4 h-4 mx-auto" viewBox="0 0 24 24" fill="none">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
                   </svg>
-                ) : "搜尋"}
+                ) : addedUrl ? "✓ 已加入" : loading ? (
+                  <svg className="animate-spin w-4 h-4 mx-auto" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                  </svg>
+                ) : isYoutubeUrl(query) ? "加入" : "搜尋"}
               </button>
             </div>
             {error && (
