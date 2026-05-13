@@ -124,7 +124,6 @@ class DualAudioMixer {
 
 export default function PlayerView({ roomId }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const hlsRef = useRef<import("hls.js").default | null>(null);
   const mixerRef = useRef<DualAudioMixer | null>(null);
   const positionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [remoteUrl, setRemoteUrl] = useState<string>("");
@@ -257,8 +256,7 @@ export default function PlayerView({ roomId }: Props) {
     if (!video) return;
 
     // Tear down previous
-    hlsRef.current?.destroy();
-    hlsRef.current = null;
+    video.src = "";
     mixerRef.current?.destroy();
     mixerRef.current = null;
 
@@ -268,34 +266,23 @@ export default function PlayerView({ roomId }: Props) {
     }
 
     const base = process.env.NEXT_PUBLIC_API_URL ?? "";
-    const hlsSrc = `${base}/songs/${currentSong.id}/stream.m3u8`;
+    const videoSrc = `${base}/songs/${currentSong.id}/video.mp4`;
     const vocalSrc = `${base}/songs/${currentSong.id}/audio/vocals.wav`;
     const instrSrc = `${base}/songs/${currentSong.id}/audio/no_vocals.wav`;
 
-    // Load video track via hls.js (muted — audio handled by mixer)
-    import("hls.js").then(({ default: Hls }) => {
-      if (Hls.isSupported()) {
-        const hls = new Hls({ enableWorker: false });
-        hlsRef.current = hls;
-        hls.loadSource(hlsSrc);
-        hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          video.play().catch(() => {});
-          sendRef.current?.({ type: "player.playing", positionSec: 0 } as never);
-        });
-        hls.on(Hls.Events.ERROR, (_, data) => {
-          if (data.fatal) {
-            sendRef.current?.({
-              type: "player.error",
-              error: data.type + ": " + (data.details ?? "unknown"),
-            } as never);
-          }
-        });
-      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-        video.src = hlsSrc;
-        video.play().catch(() => {});
-      }
-    });
+    // Load video track directly (MP4 with range-request support for seeking)
+    video.src = videoSrc;
+    video.load();
+    video.addEventListener("canplay", () => {
+      video.play().catch(() => {});
+      sendRef.current?.({ type: "player.playing", positionSec: 0 } as never);
+    }, { once: true });
+    video.addEventListener("error", () => {
+      sendRef.current?.({
+        type: "player.error",
+        error: `Video load error: ${video.error?.message ?? "unknown"}`,
+      } as never);
+    }, { once: true });
 
     // Load dual audio tracks
     const mixer = new DualAudioMixer();
@@ -307,8 +294,7 @@ export default function PlayerView({ roomId }: Props) {
     });
 
     return () => {
-      hlsRef.current?.destroy();
-      hlsRef.current = null;
+      video.src = "";
       mixerRef.current?.destroy();
       mixerRef.current = null;
     };

@@ -5,7 +5,7 @@ import asyncio
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -28,8 +28,16 @@ def _song_cache_dir(song_id: str) -> Path:
     return settings.data_dir / "cache" / "demucs" / song_id
 
 
+def _song_media_dir(song_id: str) -> Path:
+    return settings.data_dir / "media" / song_id
+
+
 def _song_ass_path(song_id: str) -> Path:
     return settings.data_dir / "media" / song_id / "lyrics.ass"
+
+
+def _song_video_path(song_id: str) -> Path:
+    return settings.data_dir / "media" / song_id / "video.mp4"
 
 
 # ── Range request helpers ───────────────────────────────────────────────────
@@ -62,11 +70,15 @@ def _parse_range(range_header: str, file_size: int) -> tuple[int, int]:
 # ── Routes ───────────────────────────────────────────────────────────────────
 
 @router.get("/{song_id}/stream.m3u8")
-async def serve_hls_manifest(song_id: str, session: Session = Depends(get_session)):
-    """Serve an HLS master playlist (.m3u8) for the song.
-    
-    The manifest references the vocal and no_vocals AAC/TS segments.
-    If segments don't exist yet, returns 404.
+async def serve_hls_manifest(
+    song_id: str,
+    request: Request,
+    session: Session = Depends(get_session),
+):
+    """Serve an HLS playlist (.m3u8) for the song video track.
+
+    Points to the video.mp4 file via absolute URL so hls.js / Safari can resolve it
+    regardless of the page origin.
     """
     song = session.query(Song).filter_by(id=song_id).first()
     if not song:
@@ -74,49 +86,80 @@ async def serve_hls_manifest(song_id: str, session: Session = Depends(get_sessio
     if song.status != "ready":
         raise HTTPException(status_code=202, detail=f"Song status is '{song.status}', not ready")
 
-    cache_dir = _song_cache_dir(song_id)
+    video_path = _song_video_path(song_id)
+    if not video_path.exists():
+        raise HTTPException(status_code=404, detail="Video file not found")
 
-    # Find segment files
-    vocals = cache_dir / "vocals.wav"
-    no_vocals = cache_dir / "no_vocals.wav"
+    # Build absolute URL for the segment so hls.js doesn't mis-resolve relative paths
+    base = str(request.base_url).rstrip("/")
+    video_url = f"{base}/songs/{song_id}/video.mp4"
 
-    if not vocals.exists() and not no_vocals.exists():
-        raise HTTPException(status_code=404, detail="No audio files found for this song")
-
-    # Build simple HLS manifest referencing raw audio (raw WAV served as binary)
-    # For production, we'd use ffmpeg to generate proper HLS segments.
-    # Here we serve the raw audio with a simple HLS wrapper pointing to the files.
     lines = [
         "#EXTM3U",
         "#EXT-X-VERSION:3",
-        f"#EXT-X-TARGETDURATION:3600",
-        f"#EXT-X-MEDIA-SEQUENCE:0",
-        f"#EXT-X-PLAYLIST-TYPE:VOD",
-        f"#EXTINF:3600.0,",
-        f"./audio/{song_id}/vocals.wav",
+        "#EXT-X-TARGETDURATION:3600",
+        "#EXT-X-MEDIA-SEQUENCE:0",
+        "#EXT-X-PLAYLIST-TYPE:VOD",
+        "#EXTINF:3600.0,",
+        video_url,
         "#EXT-X-ENDLIST",
     ]
 
-    # In a full implementation, we'd generate a proper multi-bitrate manifest.
-    # For now, stream the raw audio directly.
     return Response(
         content="\n".join(lines),
         media_type="application/vnd.apple.mpegurl",
-        headers={"Content-Disposition": f'attachment; filename="{song_id}.m3u8"'},
     )
+
+
+@router.get("/{song_id}/video.mp4")
+async def serve_video_file(
+    song_id: str,
+    request: Request,
+    session: Session = Depends(get_session),
+):
+    """Stream the video.mp4 with HTTP Range support (required for browser seeking)."""
+    song = session.query(Song).filter_by(id=song_id).first()
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+
+    video_path = _song_video_path(song_id)
+    if not video_path.exists():
+        raise HTTPException(status_code=404, detail="Video file not found")
+
+    file_size = video_path.stat().st_size
+    range_header = request.headers.get("range")
+
+    if range_header:
+        start, end = _parse_range(range_header, file_size)
+        return StreamingResponse(
+            _stream_file_range(video_path, start, end),
+            media_type="video/mp4",
+            status_code=206,
+            headers={
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(end - start + 1),
+            },
+        )
+    else:
+        return StreamingResponse(
+            video_path.open("rb"),
+            media_type="video/mp4",
+            headers={
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(file_size),
+            },
+        )
 
 
 @router.get("/{song_id}/audio/{filename}")
 async def serve_audio_file(
     song_id: str,
     filename: str,
-    range: Optional[str] = None,
+    request: Request,
     session: Session = Depends(get_session),
 ):
-    """Stream an audio file (vocals.wav / no_vocals.wav) with range-request support.
-    
-    Designed for HLS clients that request segments via range headers.
-    """
+    """Stream an audio file (vocals.wav / no_vocals.wav) with range-request support."""
     song = session.query(Song).filter_by(id=song_id).first()
     if not song:
         raise HTTPException(status_code=404, detail="Song not found")
@@ -133,9 +176,10 @@ async def serve_audio_file(
         raise HTTPException(status_code=404, detail=f"File '{filename}' not found")
 
     file_size = audio_path.stat().st_size
+    range_header = request.headers.get("range")
 
-    if range:
-        start, end = _parse_range(range, file_size)
+    if range_header:
+        start, end = _parse_range(range_header, file_size)
         return StreamingResponse(
             _stream_file_range(audio_path, start, end),
             media_type="audio/wav",
