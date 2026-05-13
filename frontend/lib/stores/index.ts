@@ -59,7 +59,7 @@ interface KtvStore {
   setSession: (session: GuestSession | null) => void;
   setQueue: (queue: QueueItem[]) => void;
   setCurrentSong: (song: Song | null, item: QueueItem | null) => void;
-  setPlayback: (state: PlaybackState) => void;
+  setPlayback: (state: Partial<PlaybackState>) => void;
   setGuests: (guests: Guest[]) => void;
   setProcessing: (p: { stage: string; percent: number } | null) => void;
   updatePosition: (positionSec: number) => void;
@@ -94,7 +94,7 @@ export const useKtvStore = create<KtvStore>((set) => ({
   setQueue: (queue) => set({ queue }),
   setCurrentSong: (currentSong, currentQueueItem) =>
     set({ currentSong, currentQueueItem }),
-  setPlayback: (playback) => set({ playback }),
+  setPlayback: (patch) => set((s) => ({ playback: { ...s.playback, ...patch } })),
   setGuests: (guests) => set({ guests }),
   setProcessing: (processing) => set({ processing }),
   updatePosition: (positionSec) =>

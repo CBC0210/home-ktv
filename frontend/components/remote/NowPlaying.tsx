@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 import type { Song, PlaybackState, ClientCommand, QueueItem } from "@/lib/types";
 import { getLyricsAss } from "@/lib/api";
 
@@ -64,7 +64,13 @@ export default function NowPlaying({
   sendCommand,
 }: Props) {
   const progressBarRef = useRef<HTMLDivElement>(null);
+  const [mainVol, setMainVol] = useState(playback.main_volume);
+  const [vocalVol, setVocalVol] = useState(playback.vocal_volume);
   const [lyricsEditorOpen, setLyricsEditorOpen] = useState(false);
+
+  // Sync volume local state when server echoes back changes (e.g., another remote adjusted it)
+  useEffect(() => { setMainVol(playback.main_volume); }, [playback.main_volume]);
+  useEffect(() => { setVocalVol(playback.vocal_volume); }, [playback.vocal_volume]);
   const [assContent, setAssContent] = useState("");
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const [lyricsSaving, setLyricsSaving] = useState(false);
@@ -257,10 +263,12 @@ export default function NowPlaying({
               min={0}
               max={1}
               step={0.05}
-              value={playback.main_volume}
-              onChange={(e) =>
-                sendCommand({ type: "playback.setVolume", main: parseFloat(e.target.value) })
-              }
+              value={mainVol}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                setMainVol(v);
+                sendCommand({ type: "playback.setVolume", main: v });
+              }}
               className="flex-1"
             />
             <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-white/40 flex-shrink-0">
@@ -276,12 +284,14 @@ export default function NowPlaying({
               min={0}
               max={1}
               step={0.05}
-              value={playback.vocal_volume}
-              onChange={(e) =>
-                sendCommand({ type: "playback.setVolume", vocal: parseFloat(e.target.value) })
-              }
+              value={vocalVol}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                setVocalVol(v);
+                sendCommand({ type: "playback.setVolume", vocal: v });
+              }}
               className="flex-1"
-              style={{ background: `linear-gradient(to right, #7c3aed ${playback.vocal_volume * 100}%, rgba(255,255,255,0.15) ${playback.vocal_volume * 100}%)` }}
+              style={{ background: `linear-gradient(to right, #7c3aed ${vocalVol * 100}%, rgba(255,255,255,0.15) ${vocalVol * 100}%)` }}
             />
             <span className="text-white/30 text-xs w-6 text-right flex-shrink-0">
               人聲

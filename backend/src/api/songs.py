@@ -50,9 +50,27 @@ async def _run_pipeline_task(queue_item_id: int, room_id: str) -> None:
         total_timeout_sec=s.song_total_timeout_sec,
     )
     orch = PipelineOrchestrator(config=config)
-    result = await orch.run_from_queue(queue_item_id)
 
-    # Broadcast queue update (item status changed to ready / failed)
+    # Broadcast immediately so remotes see "pending" / "processing" status
+    await _broadcast_queue_update(room_id)
+
+    # Periodic broadcast every 5 s so remotes see stage transitions during processing
+    async def _periodic() -> None:
+        for _ in range(300):  # up to 25 min
+            await asyncio.sleep(5)
+            await _broadcast_queue_update(room_id)
+
+    periodic = asyncio.create_task(_periodic())
+    try:
+        result = await orch.run_from_queue(queue_item_id)
+    finally:
+        periodic.cancel()
+        try:
+            await periodic
+        except asyncio.CancelledError:
+            pass
+
+    # Final broadcast (item is now "ready" or "failed_perm")
     await _broadcast_queue_update(room_id)
 
     if result.get("ok"):
@@ -326,17 +344,16 @@ def add_song(
     # Add to queue
     mgr = QueueManager(session)
     try:
-        item = mgr.add_song(room_id=room_id, song_id=yt_id, guest_id=guest_id, position="end")
+        item = mgr.add_song(room_id=room_id, song_id=yt_id, guest_id=guest_id, position=data.position or "end")
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
     if song.status == "ready":
-        # Song already processed — auto-start if nothing is currently playing.
-        # _start_next_song broadcasts queue.updated itself, no need for a second task.
+        # Song already processed — auto-start broadcasts queue.updated itself.
         from api.ws import _start_next_song
         background_tasks.add_task(_start_next_song, room_id)
     else:
-        # Trigger pipeline; auto-play fires after completion
+        # Trigger pipeline; periodic broadcasts + final broadcast happen inside the task.
         background_tasks.add_task(_run_pipeline_task, item.id, room_id)
 
     session.refresh(song)

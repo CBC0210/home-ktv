@@ -172,13 +172,23 @@ async def dispatch_message(
 
         elif msg_type == "playback.play":
             await manager.send_to_role(room_id, ClientRole.PLAYER, {"type": "playback.play"})
+            # Echo state back so all remotes update their play/pause button
+            await manager.send_to_role(room_id, ClientRole.REMOTE, {
+                "type": "playback.state", "state": {"is_playing": True}
+            })
         elif msg_type == "playback.pause":
             await manager.send_to_role(room_id, ClientRole.PLAYER, {"type": "playback.pause"})
+            await manager.send_to_role(room_id, ClientRole.REMOTE, {
+                "type": "playback.state", "state": {"is_playing": False}
+            })
         elif msg_type == "playback.skip":
             # Server-side: mark current song done and start next
             await _handle_song_advance(room_id)
         elif msg_type == "playback.replay":
             await manager.send_to_role(room_id, ClientRole.PLAYER, {"type": "playback.replay"})
+            await manager.send_to_role(room_id, ClientRole.REMOTE, {
+                "type": "playback.state", "state": {"is_playing": True}
+            })
         elif msg_type == "playback.seek":
             position = msg.get("positionSec", 0)
             await manager.send_to_role(room_id, ClientRole.PLAYER, {"type": "playback.seek", "positionSec": position})
@@ -190,6 +200,8 @@ async def dispatch_message(
             if "vocal" in msg:
                 fwd["vocal"] = float(msg["vocal"])
             await manager.send_to_role(room_id, ClientRole.PLAYER, fwd)
+            # Echo to all remotes so their volume sliders stay in sync
+            await manager.send_to_role(room_id, ClientRole.REMOTE, fwd)
 
         elif msg_type == "queue.add":
             await _handle_queue_add(room_id, guest_id, msg)

@@ -137,6 +137,12 @@ export default function RemoteView({ roomId }: Props) {
         setIsPlaying(false);
       }
       else if (event.type === "playback.state") setPlayback(event.state);
+      else if (event.type === "playback.setVolume") {
+        const patch: { main_volume?: number; vocal_volume?: number } = {};
+        if (typeof event.main === "number") patch.main_volume = event.main;
+        if (typeof event.vocal === "number") patch.vocal_volume = event.vocal;
+        if (Object.keys(patch).length) setPlayback(patch);
+      }
       else if (event.type === "guests.updated") setGuests(event.guests);
       else if (event.type === "song.processing")
         setProcessing({ stage: event.stage, percent: event.percent });

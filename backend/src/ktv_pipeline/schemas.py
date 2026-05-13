@@ -85,6 +85,7 @@ class GuestOut(GuestBase):
 class SongCreate(BaseModel):
     youtube_url: str
     room_id: str
+    position: Optional[str] = "end"
 
 
 class SongOut(BaseModel):
@@ -102,9 +103,32 @@ class SongOut(BaseModel):
     play_count: int = 0
     has_timing: bool = False
     lyrics_quality: Optional[str] = None
+    lyrics_source: Optional[str] = None
 
 
 # ── Queue ──────────────────────────────────────────────────────────────────────
+
+class SongInQueue(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    title: str
+    artist: Optional[str] = None
+    duration_sec: Optional[int] = None
+    thumbnail_url: Optional[str] = None
+    status: str
+    has_timing: bool = False
+    lyrics_source: Optional[str] = None
+
+
+class GuestInQueue(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    nickname: str
+    avatar_color: Optional[str] = None
+    is_admin: bool = False
+
 
 class QueueItemCreate(BaseModel):
     song_id: str
@@ -122,6 +146,8 @@ class QueueItemOut(BaseModel):
     status: str
     played_at: Optional[datetime] = None
     manually_moved: bool = False
+    song: Optional[SongInQueue] = None
+    guest: Optional[GuestInQueue] = None
 
 
 # Update forward ref
