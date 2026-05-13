@@ -2,10 +2,10 @@
 
 > 這份檔案是 OpenClaw 與 Claude Code 之間的長期記憶。每個 task 完成或中斷時都必須更新。
 
-## Status: ✅ 專案完成 — 全部里程碑 + UI 修正交付（2026-05-13）
+## Status: ✅ 播放器核心功能修復（2026-05-13）
 
-Last updated: 2026-05-13 18:00
-Last heartbeat: 2026-05-13 18:00
+Last updated: 2026-05-13 10:45
+Last heartbeat: 2026-05-13 10:45
 
 ### Next Up
 - （無）
@@ -16,6 +16,16 @@ Last heartbeat: 2026-05-13 18:00
 ---
 
 ## Done
+
+- [x] **播放器核心功能修復** ✅ (2026-05-13)
+  - **Bug 1 — Player WS 無法連線**：`token: str = Query(...)` 必填，但 Player 是電視不帶 JWT。修復：`token` 改為 Optional，player role 無需 token，透過 `room_id` query param 連線。
+  - **Bug 2 — Pipeline 背景任務崩潰**：`PipelineOrchestrator.Config` 不存在（應為 `PipelineConfig`），每次新增歌曲時 pipeline 立即崩潰。修復：改名 + 改為 async 背景任務。
+  - **Bug 3 — 無自動播放邏輯**：pipeline 完成後或 ready 歌曲加入隊列後，從未廣播 `song.started`。修復：`_start_next_song()` helper，在下列時機觸發：(a) ready 歌曲加入隊列、(b) pipeline 完成、(c) 已有 pending+song.ready 的 existing item。
+  - **Bug 4 — Skip/曲末無切換邏輯**：`playback.skip` 只轉發給 Player 但 Player 不處理；沒有 `player.ended` 事件。修復：`_handle_song_advance()` 在 ws.py，同時處理 `playback.skip`（遙控器）和 `player.ended`（播放自然結束）。PlayerView.tsx 新增 `onended` handler。
+  - **Bug 5 — Queue 隱藏 ready 項目**：`get_queue()` 只返回 `pending/processing`，pipeline 完成後隊列消失。修復：filter 加入 `"ready"`。
+  - **Bug 6 — 影片路徑不符**：streaming 從 `media/{id}/video.mp4` 讀取，但 yt-dlp 下載到 `cache/{id}/video.mp4`。修復：`_song_video_path()` 先查 media 再 fallback 到 cache。
+  - **Bug 7 — DB 連線池耗盡**：pool_size=1 導致兩個並行 async 任務等待 30 秒後 timeout。修復：pool_size=5, max_overflow=10。
+  - **端到端驗證**：`dQw4w9WgXcQ` 加入 home 隊列 → 2 秒後 DB status 由 ready → playing ✓；Player WS 無 token 連線成功 ✓；`/songs/dQw4w9WgXcQ/video.mp4` range request 200 ✓；`/songs/dQw4w9WgXcQ/audio/vocals.wav` 200 ✓；213 tests pass ✓
 
 - [x] **UI 全面翻新 + API 對接修正** ✅ (2026-05-13)
   - **根本原因修復**：`postcss.config.mjs` 從未建立，導致 Tailwind v4 utilities 完全未生成，頁面一直是純文字黑底

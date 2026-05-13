@@ -21,8 +21,8 @@ def get_engine():
         _engine = create_engine(
             f"sqlite+pysqlite:///{settings.db_path}",
             connect_args={"check_same_thread": False},
-            pool_size=1,
-            max_overflow=0,
+            pool_size=5,
+            max_overflow=10,
         )
     return _engine
 

@@ -28,11 +28,15 @@ class QueueManager:
         self.session = session
 
     def get_queue(self, room_id: str) -> List[QueueItem]:
-        """Return the current queue for a room, ordered by position."""
+        """Return the current queue for a room, ordered by position.
+
+        Includes pending (waiting for pipeline), processing (pipeline running),
+        and ready (processed, waiting to play) items. Excludes playing/done/failed.
+        """
         return (
             self.session.query(QueueItem)
             .filter_by(room_id=room_id)
-            .filter(QueueItem.status.in_(["pending", "processing"]))
+            .filter(QueueItem.status.in_(["pending", "processing", "ready"]))
             .order_by(QueueItem.position)
             .all()
         )
@@ -76,12 +80,14 @@ class QueueManager:
             new_pos = int(position)
             self._shift_positions(room_id, new_pos, shift=+1)
 
+        # If song is already processed, start it as "ready" not "pending"
+        initial_status = "ready" if (song and song.status == "ready") else "pending"
         item = QueueItem(
             room_id=room_id,
             song_id=song_id,
             guest_id=guest_id,
             position=new_pos,
-            status="pending",
+            status=initial_status,
         )
         self.session.add(item)
         self.session.commit()

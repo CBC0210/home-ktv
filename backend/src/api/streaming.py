@@ -37,7 +37,18 @@ def _song_ass_path(song_id: str) -> Path:
 
 
 def _song_video_path(song_id: str) -> Path:
-    return settings.data_dir / "media" / song_id / "video.mp4"
+    """Return the video path, preferring the canonical media dir.
+
+    yt-dlp downloads to cache/{song_id}/video.mp4, but the final destination
+    per CLAUDE.md §16 is media/{song_id}/video.mp4.  Support both so that
+    songs processed via the pipeline (cache path) and manually placed files
+    (media path) both work.
+    """
+    media_path = settings.data_dir / "media" / song_id / "video.mp4"
+    if media_path.exists():
+        return media_path
+    # Fallback: yt-dlp download cache
+    return settings.data_dir / "cache" / song_id / "video.mp4"
 
 
 # ── Range request helpers ───────────────────────────────────────────────────
@@ -86,11 +97,8 @@ async def serve_hls_manifest(
     if song.status != "ready":
         raise HTTPException(status_code=202, detail=f"Song status is '{song.status}', not ready")
 
-    video_path = _song_video_path(song_id)
-    if not video_path.exists():
-        raise HTTPException(status_code=404, detail="Video file not found")
-
-    # Build absolute URL for the segment so hls.js doesn't mis-resolve relative paths
+    # Build absolute URL for the segment — don't require file on disk here;
+    # the video.mp4 endpoint returns 404 if the file is missing at that point.
     base = str(request.base_url).rstrip("/")
     video_url = f"{base}/songs/{song_id}/video.mp4"
 

@@ -277,6 +277,10 @@ export default function PlayerView({ roomId }: Props) {
       video.play().catch(() => {});
       sendRef.current?.({ type: "player.playing", positionSec: 0 } as never);
     }, { once: true });
+    video.addEventListener("ended", () => {
+      // Notify server — it will mark done and advance to next song
+      sendRef.current?.({ type: "player.ended" } as never);
+    }, { once: true });
     video.addEventListener("error", () => {
       sendRef.current?.({
         type: "player.error",

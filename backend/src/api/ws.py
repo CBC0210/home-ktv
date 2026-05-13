@@ -1,6 +1,6 @@
 """WebSocket endpoint — connection, authentication, message dispatch."""
 import uuid
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, HTTPException
 
 from ktv_pipeline.ws_manager import manager, ClientRole
@@ -38,36 +38,49 @@ def authenticate_websocket_token(token: str) -> dict:
 @router.websocket("/ws")
 async def ws_endpoint(
     websocket: WebSocket,
-    token: str = Query(...),
+    token: Optional[str] = Query(None),
+    room_id: Optional[str] = Query(None),
+    role: str = Query("remote"),
 ):
     """WebSocket endpoint. Auth via ?token=<jwt>.
-    
+
+    Player role (TV display) may connect without a token — it is a trusted
+    local display device. All other roles require a valid guest JWT.
     After auth, the connection is registered in the manager.
-    Incoming messages are handled in the dispatch loop.
     """
-    # Authenticate
-    try:
-        payload = authenticate_websocket_token(token)
-    except WebSocketDisconnect:
-        await websocket.close(code=4001, reason="Invalid or expired session")
-        return
+    role_str = role
 
-    guest_id: str = payload["sub"]
-    room_id: str = payload["room_id"]
+    if token:
+        try:
+            payload = authenticate_websocket_token(token)
+        except WebSocketDisconnect:
+            await websocket.close(code=4001, reason="Invalid or expired session")
+            return
+        guest_id: str = payload["sub"]
+        room_id_resolved: str = payload["room_id"]
+    else:
+        # Unauthenticated — only allowed for the player role (TV screen)
+        if role_str != "player":
+            await websocket.close(code=4001, reason="Token required for non-player roles")
+            return
+        if not room_id:
+            await websocket.close(code=4004, reason="room_id required for player")
+            return
+        room_id_resolved = room_id
+        guest_id = f"__player__{room_id_resolved}"
 
-    # Determine client role from query params (player / remote / admin)
-    role_str = websocket.query_params.get("role", "remote")
+    # Determine client role enum
     try:
-        role = ClientRole(role_str)
+        client_role = ClientRole(role_str)
     except ValueError:
-        role = ClientRole.REMOTE
+        client_role = ClientRole.REMOTE
 
     client_id = str(uuid.uuid4())
 
-    # Verify room still exists
+    # Verify room exists
     with get_db_session() as session:
-        room = session.query(Room).filter_by(id=room_id).first()
-        if not room:
+        room_obj = session.query(Room).filter_by(id=room_id_resolved).first()
+        if not room_obj:
             await websocket.close(code=4004, reason="Room not found")
             return
 
@@ -75,33 +88,38 @@ async def ws_endpoint(
     await manager.connect(
         websocket,
         client_id=client_id,
-        role=role,
-        room_id=room_id,
+        role=client_role,
+        room_id=room_id_resolved,
         guest_id=guest_id,
     )
 
     try:
-        # Get guest nickname for broadcasts
-        with get_db_session() as session:
-            guest = session.query(Guest).filter_by(id=guest_id).first()
-            nickname = guest.nickname if guest else "Unknown"
+        # Resolve nickname (players get a static label; guests look up DB)
+        if token:
+            with get_db_session() as session:
+                guest = session.query(Guest).filter_by(id=guest_id).first()
+                nickname = guest.nickname if guest else "Unknown"
+        else:
+            nickname = "Player"
 
-        # Notify room of new guest (send full list to all, including new client)
-        guests_info = await _get_room_guests_info(room_id)
-        await manager.broadcast_guests_updated(room_id, guests_info)
+        # Notify room of new guest (only for real guests, not the player device)
+        if token:
+            guests_info = await _get_room_guests_info(room_id_resolved)
+            await manager.broadcast_guests_updated(room_id_resolved, guests_info)
 
         # Dispatch loop
         while True:
             raw = await websocket.receive_text()
-            await dispatch_message(client_id, room_id, guest_id, nickname, raw, role)
+            await dispatch_message(client_id, room_id_resolved, guest_id, nickname, raw, client_role)
 
     except WebSocketDisconnect:
         pass
     finally:
         await manager.disconnect(client_id)
-        # Notify remaining room members of the departure
-        remaining = await _get_room_guests_info(room_id)
-        await manager.broadcast_guests_updated(room_id, remaining)
+        # Notify remaining room members of the departure (only for real guests)
+        if token:
+            remaining = await _get_room_guests_info(room_id_resolved)
+            await manager.broadcast_guests_updated(room_id_resolved, remaining)
 
 
 async def dispatch_message(
@@ -140,6 +158,9 @@ async def dispatch_message(
                 "type": "playback.state",
                 "state": {"buffering": True},
             })
+        elif msg_type == "player.ended":
+            # Natural end of song — advance to next
+            await _handle_song_advance(room_id)
         elif msg_type == "player.error":
             await manager.broadcast_system_error(room_id, msg.get("error", "Unknown player error"))
 
@@ -154,7 +175,8 @@ async def dispatch_message(
         elif msg_type == "playback.pause":
             await manager.send_to_role(room_id, ClientRole.PLAYER, {"type": "playback.pause"})
         elif msg_type == "playback.skip":
-            await manager.send_to_role(room_id, ClientRole.PLAYER, {"type": "playback.skip"})
+            # Server-side: mark current song done and start next
+            await _handle_song_advance(room_id)
         elif msg_type == "playback.replay":
             await manager.send_to_role(room_id, ClientRole.PLAYER, {"type": "playback.replay"})
         elif msg_type == "playback.seek":
@@ -256,6 +278,91 @@ async def _handle_queue_reorder(room_id: str, msg: dict) -> None:
             await manager.broadcast_queue_updated(room_id, [_qi_to_dict(qi, song_map.get(qi.song_id), guest_map.get(qi.guest_id)) for qi in queue])
     except Exception as exc:
         await manager.broadcast_system_error(room_id, f"queue.reorder failed: {exc}")
+
+
+async def _handle_song_advance(room_id: str) -> None:
+    """Mark the currently-playing queue item as done, then start the next one."""
+    from ktv_pipeline.queue_manager import QueueManager
+
+    current_item_id = None
+    with get_db_session() as session:
+        mgr = QueueManager(session)
+        playing = mgr.get_currently_playing(room_id)
+        if playing:
+            current_item_id = playing.id
+            mgr.mark_done(playing.id)
+
+    if current_item_id:
+        await manager.broadcast_song_ended(room_id, current_item_id)
+
+    await _start_next_song(room_id)
+
+
+async def _start_next_song(room_id: str) -> None:
+    """Find the next ready queue item and broadcast song.started."""
+    from ktv_pipeline.queue_manager import QueueManager
+    from ktv_pipeline.models import Song, Guest, QueueItem
+
+    with get_db_session() as session:
+        mgr = QueueManager(session)
+
+        # First, promote any 'pending' items whose song is already processed
+        pending_items = (
+            session.query(QueueItem)
+            .filter_by(room_id=room_id, status="pending")
+            .all()
+        )
+        for qi in pending_items:
+            s = session.query(Song).filter_by(id=qi.song_id).first()
+            if s and s.status == "ready":
+                qi.status = "ready"
+        session.commit()
+
+        next_item = (
+            session.query(QueueItem)
+            .filter_by(room_id=room_id, status="ready")
+            .order_by(QueueItem.position)
+            .first()
+        )
+        if not next_item:
+            # Broadcast empty queue so clients update their UI
+            queue = mgr.get_queue(room_id)
+            song_map = {s.id: s for s in session.query(Song).all()}
+            guest_map = {g.id: g for g in session.query(Guest).all()}
+            await manager.broadcast_queue_updated(
+                room_id,
+                [_qi_to_dict(qi, song_map.get(qi.song_id), guest_map.get(qi.guest_id)) for qi in queue],
+            )
+            return
+
+        item = mgr.mark_playing(next_item.id)
+        if not item:
+            return
+
+        song = session.query(Song).filter_by(id=item.song_id).first()
+        guest = session.query(Guest).filter_by(id=item.guest_id).first()
+
+        song_dict = {
+            "id": song.id,
+            "title": song.title,
+            "artist": song.artist,
+            "duration_sec": song.duration_sec,
+            "thumbnail_url": song.thumbnail_url,
+            "status": song.status,
+            "has_timing": song.has_timing,
+            "lyrics_source": song.lyrics_source,
+            "error_message": song.error_message,
+        } if song else {}
+
+        qi_dict = _qi_to_dict(item, song, guest)
+
+        queue = mgr.get_queue(room_id)
+        song_map = {s.id: s for s in session.query(Song).all()}
+        guest_map = {g.id: g for g in session.query(Guest).all()}
+        queue_dicts = [_qi_to_dict(qi, song_map.get(qi.song_id), guest_map.get(qi.guest_id)) for qi in queue]
+
+    await manager.broadcast_song_started(room_id, song_dict, qi_dict)
+    await manager.broadcast_queue_updated(room_id, queue_dicts)
 
 
 async def _handle_lyrics_edit(room_id: str, msg: dict) -> None:

@@ -38,23 +38,42 @@ def extract_youtube_id(url_or_id: str) -> str:
     raise HTTPException(status_code=400, detail=f"Invalid YouTube ID: {url_or_id}")
 
 
-def _run_pipeline_sync(queue_item_id: int) -> None:
-    """Sync wrapper — runs the async pipeline in a new event loop (for background tasks)."""
-    import asyncio
-    import sys, os
-    # Ensure ktv_pipeline is importable
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../src"))
-    from ktv_pipeline.pipeline_orchestrator import PipelineOrchestrator
+async def _run_pipeline_task(queue_item_id: int, room_id: str) -> None:
+    """Async pipeline background task — runs pipeline then triggers auto-play."""
+    from ktv_pipeline.pipeline_orchestrator import PipelineOrchestrator, PipelineConfig
     from ktv_pipeline.config import settings as s
     from ktv_pipeline.database import init_db
     init_db()
-    config = PipelineOrchestrator.Config(
+    config = PipelineConfig(
         max_retries=s.pipeline_max_retries,
         heartbeat_interval_sec=s.pipeline_heartbeat_sec,
         total_timeout_sec=s.song_total_timeout_sec,
     )
-    orch = PipelineOrchestrator(config)
-    asyncio.run(orch.run_from_queue(queue_item_id))
+    orch = PipelineOrchestrator(config=config)
+    result = await orch.run_from_queue(queue_item_id)
+
+    # Broadcast queue update (item status changed to ready / failed)
+    await _broadcast_queue_update(room_id)
+
+    if result.get("ok"):
+        # Auto-start if nothing is currently playing
+        from api.ws import _start_next_song
+        await _start_next_song(room_id)
+
+
+async def _broadcast_queue_update(room_id: str) -> None:
+    """Reload and broadcast the current queue for a room."""
+    from ktv_pipeline.ws_manager import manager
+    from ktv_pipeline.queue_manager import QueueManager
+    from ktv_pipeline.models import Song, Guest
+    from api.ws import _qi_to_dict
+    with get_db_session() as session:
+        mgr = QueueManager(session)
+        queue = mgr.get_queue(room_id)
+        song_map = {s.id: s for s in session.query(Song).all()}
+        guest_map = {g.id: g for g in session.query(Guest).all()}
+        queue_dicts = [_qi_to_dict(qi, song_map.get(qi.song_id), guest_map.get(qi.guest_id)) for qi in queue]
+    await manager.broadcast_queue_updated(room_id, queue_dicts)
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -288,6 +307,10 @@ def add_song(
     )
     if existing_item:
         session.refresh(song)
+        # Song already in queue — still try to auto-start if processed and idle
+        if song.status == "ready":
+            from api.ws import _start_next_song
+            background_tasks.add_task(_start_next_song, room_id)
         return song
 
     # Add to queue
@@ -297,9 +320,14 @@ def add_song(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
-    # Trigger pipeline in background if song not ready
-    if song.status != "ready":
-        background_tasks.add_task(_run_pipeline_sync, item.id)
+    if song.status == "ready":
+        # Song already processed — auto-start if nothing is currently playing.
+        # _start_next_song broadcasts queue.updated itself, no need for a second task.
+        from api.ws import _start_next_song
+        background_tasks.add_task(_start_next_song, room_id)
+    else:
+        # Trigger pipeline; auto-play fires after completion
+        background_tasks.add_task(_run_pipeline_task, item.id, room_id)
 
     session.refresh(song)
     return song

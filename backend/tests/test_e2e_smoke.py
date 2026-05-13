@@ -94,10 +94,10 @@ class TestE2ESmokeFlow:
 
         pipeline_called_with = []
 
-        def mock_pipeline(queue_item_id: int):
+        async def mock_pipeline(queue_item_id: int, room_id: str):
             pipeline_called_with.append(queue_item_id)
 
-        with patch("api.songs._run_pipeline_sync", side_effect=mock_pipeline):
+        with patch("api.songs._run_pipeline_task", side_effect=mock_pipeline):
             resp = client.post(
                 "/api/songs",
                 json={"youtube_url": f"https://www.youtube.com/watch?v={yt_id}", "room_id": room_id},
@@ -161,7 +161,7 @@ class TestE2ESmokeFlow:
         url = f"https://www.youtube.com/watch?v={yt_id}"
         auth = {"Authorization": f"Bearer {token}"}
 
-        with patch("api.songs._run_pipeline_sync"):
+        with patch("api.songs._run_pipeline_task"):
             r1 = client.post("/api/songs", json={"youtube_url": url, "room_id": room_id}, headers=auth)
             r2 = client.post("/api/songs", json={"youtube_url": url, "room_id": room_id}, headers=auth)
 
