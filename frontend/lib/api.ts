@@ -2,11 +2,25 @@ import type { Room, Song, QueueItem, Guest } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
+// Module-level guest auth token, set after joinRoom succeeds
+let _guestToken: string | null = null;
+export const setGuestToken = (token: string | null) => { _guestToken = token; };
+export const getGuestToken = () => _guestToken;
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const initHeaders: Record<string, string> =
+    init?.headers && typeof init.headers === "object" && !Array.isArray(init.headers)
+      ? (init.headers as Record<string, string>)
+      : {};
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...initHeaders,
+  };
+  if (_guestToken) headers["Authorization"] = `Bearer ${_guestToken}`;
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     credentials: "include",
     ...init,
+    headers,
   });
   if (!res.ok) throw new Error(`API ${path} → ${res.status}`);
   return res.json() as Promise<T>;

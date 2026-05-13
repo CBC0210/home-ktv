@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useKtvStore } from "@/lib/stores";
 import { useWebSocket } from "@/lib/ws";
-import { getRoom, getQueue, getOnlineGuests } from "@/lib/api";
+import { getRoom, getQueue, getOnlineGuests, setGuestToken } from "@/lib/api";
 import type { GuestSession, ServerEvent, ClientCommand } from "@/lib/types";
 import JoinForm from "./JoinForm";
 import NowPlaying from "./NowPlaying";
@@ -84,7 +84,9 @@ export default function RemoteView({ roomId }: Props) {
     const stored = localStorage.getItem(`ktv_session_${roomId}`);
     if (stored) {
       try {
-        setSession(JSON.parse(stored) as GuestSession);
+        const s = JSON.parse(stored) as GuestSession;
+        setSession(s);
+        setGuestToken(s.token);
       } catch {
         localStorage.removeItem(`ktv_session_${roomId}`);
       }
@@ -110,6 +112,7 @@ export default function RemoteView({ roomId }: Props) {
 
   useEffect(() => {
     storeSetSession(session);
+    setGuestToken(session?.token ?? null);
   }, [session, storeSetSession]);
 
   const handleEvent = useCallback(
