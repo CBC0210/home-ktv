@@ -475,6 +475,10 @@ class PipelineOrchestrator:
         with get_db_session() as db:
             song = db.query(Song).filter(Song.id == song_id).first()
             if song:
+                song.title = dl_result.title
+                song.artist = dl_result.artist
+                song.duration_sec = dl_result.duration_sec
+                song.thumbnail_url = dl_result.thumbnail_url
                 song.files = files
                 song.lyrics_source = lyrics_result.source
                 song.lyrics_quality = lyrics_result.quality

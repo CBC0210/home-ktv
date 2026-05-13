@@ -194,7 +194,7 @@ export default function RemoteView({ roomId }: Props) {
           />
         )}
         {tab === "search" && (
-          <SearchView roomId={roomId} token={session.token} onAdded={() => setTab("queue")} />
+          <SearchView roomId={roomId} token={session.token} />
         )}
         {tab === "room" && room && (
           <RoomTab room={room} session={session} guests={guests} onLeave={handleLeave} />

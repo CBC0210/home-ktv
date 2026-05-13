@@ -148,13 +148,30 @@ class QueueManager:
         return item
 
     def mark_done(self, item_id: int) -> None:
-        """Mark a queue item as done (playback finished)."""
+        """Mark a queue item as done and record play history."""
         item = self.session.query(QueueItem).filter_by(id=item_id).first()
-        if item:
-            from datetime import datetime, timezone
-            item.status = "done"
-            item.played_at = datetime.now(timezone.utc)
-            self.session.commit()
+        if not item:
+            return
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        item.status = "done"
+        item.played_at = now
+
+        song = self.session.query(Song).filter_by(id=item.song_id).first()
+        history = PlayHistory(
+            song_id=item.song_id,
+            guest_id=item.guest_id,
+            room_id=item.room_id,
+            played_at=now,
+            duration_sec=song.duration_sec if song else None,
+        )
+        self.session.add(history)
+
+        if song:
+            song.play_count = (song.play_count or 0) + 1
+            song.last_played_at = now
+
+        self.session.commit()
 
     def get_currently_playing(self, room_id: str) -> Optional[QueueItem]:
         return self.session.query(QueueItem).filter_by(

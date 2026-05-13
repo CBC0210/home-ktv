@@ -144,26 +144,36 @@ def get_leaderboard(
     limit = max(1, min(limit, 50))
 
     if category == "all_time":
-        rows = (
-            session.query(Song)
-            .filter(Song.play_count > 0)
-            .order_by(Song.play_count.desc())
+        agg = (
+            session.query(
+                PlayHistory.song_id,
+                func.count(PlayHistory.id).label("period_count"),
+            )
+            .group_by(PlayHistory.song_id)
+            .order_by(func.count(PlayHistory.id).desc())
             .limit(limit)
             .all()
         )
-        return [
-            {
+        if not agg:
+            return []
+        song_ids = [r.song_id for r in agg]
+        songs_map = {s.id: s for s in session.query(Song).filter(Song.id.in_(song_ids)).all()}
+        result = []
+        for i, row in enumerate(agg):
+            s = songs_map.get(row.song_id)
+            if not s:
+                continue
+            result.append({
                 "rank": i + 1,
                 "song_id": s.id,
                 "title": s.title,
                 "artist": s.artist,
                 "thumbnail_url": s.thumbnail_url,
                 "duration_sec": s.duration_sec,
-                "play_count": s.play_count,
+                "play_count": row.period_count,
                 "last_played_at": s.last_played_at.isoformat() if s.last_played_at else None,
-            }
-            for i, s in enumerate(rows)
-        ]
+            })
+        return result
 
     elif category == "monthly_hot":
         now = datetime.now(timezone.utc)
