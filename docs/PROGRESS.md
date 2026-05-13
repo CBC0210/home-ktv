@@ -2,17 +2,41 @@
 
 > 這份檔案是 OpenClaw 與 Claude Code 之間的長期記憶。每個 task 完成或中斷時都必須更新。
 
-## Status: 🚧 M5-T5 完成
+## Status: ✅ 專案完成 — 全部里程碑交付（2026-05-13）
+
+Last updated: 2026-05-13 11:03
+Last heartbeat: 2026-05-13 11:03
 
 ### Next Up
-- M5-T6: 歌詞編輯器（已在 M5-T1 完成，可 skip）
+- （無）
 
 ### In Progress
-（無）
+- （無）
 
 ---
 
 ## Done
+
+- [x] **M6: 部署收尾** ✅ (2026-05-13)
+  - cloudflared: active (running), 4 QUIC connections ✓
+  - ktv-backend: active (running) on port 8000, enabled ✓
+  - ktv-frontend: active (running) on port 3002, enabled ✓
+  - Tunnel routing: `/api/*`, `/songs/*`, `/ws`, `/health`, `/version` → 8000; catch-all → 3002 ✓
+  - End-to-end smoke: /health ✓, /version ✓, /r/home/remote 200 ✓, /rooms 200 ✓, /api/rooms 200 ✓
+  - `deploy/cloudflared.yml` synced to match live config ✓
+
+- [x] **E2E 完整流程測試**（2026-05-13）
+  - `lyrics_available: True` 確認 ✓
+  - `/data/ktv/media/dQw4w9WgXcQ/lyrics.ass` 存在，ASS 格式有效 ✓
+  - YouTube Subtitles Phase 0 整合確認（Phase 0 在 lyrics.py fetch_lyrics() 中）✓
+  - Cloudflare Tunnel 路由修復：`/api/*`, `/songs/*`, `/ws`, `/health`, `/version` → port 8000；其他 → port 3002
+  - KTV Frontend 啟動於 port 3002（port 3000/3001 被 fishpond 服務佔用）
+  - ktv-frontend systemd service 建立並 enabled
+  - `https://ktv.bc-verse.com/r/home/remote` 返回 200 "Home KTV" ✓
+  - `https://ktv.bc-verse.com/health` 返回 backend JSON ✓
+  - `https://ktv.bc-verse.com/api/rooms` 返回 200 ✓
+  - `/songs/dQw4w9WgXcQ/lyrics.ass` 返回有效 ASS 內容 ✓
+  - `/songs/dQw4w9WgXcQ/stream.m3u8` 返回有效 HLS manifest ✓
 
 - [x] **M0-T1**: 建立 GitHub repo（ CBC 操作）
 - [x] **M0-T2**: 初始化專案目錄（2026-05-10）
