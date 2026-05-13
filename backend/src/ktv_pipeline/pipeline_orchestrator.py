@@ -394,7 +394,7 @@ class PipelineOrchestrator:
         log.info("[%s] Stage: fetch_lyrics", song_id)
         await self._update_state(song_id, SongState.FETCHING_LYRICS)
 
-        lyrics_result = await fetch_lyrics(dl_result.title, dl_result.artist or "")
+        lyrics_result = await fetch_lyrics(dl_result.title, dl_result.artist or "", youtube_id=song_id)
 
         aligned_lrc: Optional[str] = None
         if lyrics_result.lyrics_type == "synced" and lyrics_result.lrc:

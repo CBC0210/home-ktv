@@ -1,20 +1,19 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getRooms } from "@/lib/api";
 import RoomCard from "@/components/shared/RoomCard";
 import type { Room } from "@/lib/types";
 
-export const revalidate = 30;
+export default function RoomsPage() {
+  const [rooms, setRooms] = useState<Room[]>([]);
 
-async function fetchRooms(): Promise<Room[]> {
-  try {
-    return await getRooms();
-  } catch {
-    return [];
-  }
-}
-
-export default async function RoomsPage() {
-  const rooms = await fetchRooms();
+  useEffect(() => {
+    getRooms()
+      .then(setRooms)
+      .catch(() => setRooms([]));
+  }, []);
 
   return (
     <main className="min-h-screen bg-gray-950 p-6">

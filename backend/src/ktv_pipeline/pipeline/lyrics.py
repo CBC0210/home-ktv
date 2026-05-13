@@ -1,5 +1,8 @@
 """Lyrics fetching — ADR-005 fallback chain.
 
+Phase 0 (YouTube native subtitles, highest quality):
+  0. YouTube subtitles — extracted via yt_dlp from the video itself
+
 Phase 1 (synced / timed lyrics):
   1. AMLL TTML DB   — word-level AMLL (uses NetEase song ID → AMLL lookup)
   2. NetEase        — line-level LRC from 163 API
@@ -29,7 +32,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
+import tempfile
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -537,6 +542,178 @@ async def _fetch_genius(title: str, artist: str) -> Optional[LyricsResult]:
 
 
 # ---------------------------------------------------------------------------
+# Phase 0: YouTube native subtitles
+# ---------------------------------------------------------------------------
+
+# Preferred subtitle language order (manual first, then auto-generated)
+_YT_SUB_LANGS = ["zh", "zh-Hant", "zh-Hans", "zh-TW", "zh-CN", "zh-HK", "en"]
+
+
+def _vtt_to_lrc(vtt_content: str) -> Optional[str]:
+    """Convert WebVTT subtitle content to LRC format.
+
+    Handles both manual (line-level) and auto-generated (word-level) VTT.
+    Strips word-level <tag> annotations, keeping only the visible text.
+    Deduplicates consecutive identical lines produced by YouTube's rolling captions.
+    """
+    lines = vtt_content.splitlines()
+    cues: list[tuple[str, str]] = []  # (start_lrc_tag, text)
+
+    i = 0
+    # Skip WEBVTT header lines until first blank line separator
+    while i < len(lines) and lines[i].strip():
+        i += 1
+
+    while i < len(lines):
+        line = lines[i].strip()
+        # Skip cue identifier lines (non-empty, no "-->")
+        if line and "-->" not in line:
+            i += 1
+            continue
+        if "-->" in line:
+            # Parse start timestamp: HH:MM:SS.mmm or MM:SS.mmm
+            time_part = line.split("-->")[0].strip()
+            time_parts = time_part.split(":")
+            try:
+                if len(time_parts) == 3:
+                    h, m, s = time_parts
+                    total_sec = int(h) * 3600 + int(m) * 60 + float(s)
+                else:
+                    m, s = time_parts
+                    total_sec = int(m) * 60 + float(s)
+            except (ValueError, IndexError):
+                i += 1
+                continue
+
+            minutes = int(total_sec // 60)
+            seconds = total_sec % 60
+            lrc_tag = f"[{minutes:02d}:{seconds:05.2f}]"
+
+            # Collect cue text lines
+            i += 1
+            text_lines = []
+            while i < len(lines) and lines[i].strip():
+                text_lines.append(lines[i].strip())
+                i += 1
+            raw_text = " ".join(text_lines)
+            # Strip all VTT inline tags: <00:00:01.000>, <c>, </c>, <b>, etc.
+            clean = re.sub(r"<[^>]+>", "", raw_text).strip()
+            if clean:
+                cues.append((lrc_tag, clean))
+        else:
+            i += 1
+
+    if not cues:
+        return None
+
+    # Deduplicate rolling-caption duplicates: YouTube repeats the same text
+    # across multiple cues as words are appended.  Keep only the last cue
+    # in each run of identical text to avoid duplicate LRC lines.
+    deduped: list[tuple[str, str]] = []
+    for tag, text in cues:
+        if deduped and deduped[-1][1] == text:
+            deduped[-1] = (deduped[-1][0], text)  # keep first tag, skip duplicate
+        else:
+            deduped.append((tag, text))
+
+    return "\n".join(f"{tag}{text}" for tag, text in deduped)
+
+
+def _pick_best_subtitle(subs: dict, auto_subs: dict) -> Optional[tuple[str, bool]]:
+    """Return (lang_key, is_auto) for the best available subtitle track.
+
+    Prefers manual subtitles over auto-generated, and Chinese over English.
+    Returns None if no subtitles are available.
+    """
+    for lang in _YT_SUB_LANGS:
+        if lang in subs:
+            return (lang, False)
+    for lang in _YT_SUB_LANGS:
+        if lang in auto_subs:
+            return (lang, True)
+    # Fallback: first available manual, then first auto
+    if subs:
+        return (next(iter(subs)), False)
+    if auto_subs:
+        return (next(iter(auto_subs)), True)
+    return None
+
+
+def _download_youtube_subs_sync(youtube_id: str, tmpdir: str) -> Optional[str]:
+    """Synchronous yt_dlp subtitle download.  Run in a thread via asyncio.to_thread."""
+    try:
+        import yt_dlp  # type: ignore
+    except ImportError:
+        log.warning("yt_dlp not installed — skipping YouTube subtitle extraction")
+        return None
+
+    url = f"https://www.youtube.com/watch?v={youtube_id}"
+    ydl_opts = {
+        "skip_download": True,
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+        "subtitleslangs": _YT_SUB_LANGS,
+        "subtitlesformat": "vtt",
+        "outtmpl": os.path.join(tmpdir, "%(id)s.%(ext)s"),
+        "quiet": True,
+        "no_warnings": True,
+        "socket_timeout": 15,
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            subs = info.get("subtitles", {}) if info else {}
+            auto_subs = info.get("automatic_captions", {}) if info else {}
+            pick = _pick_best_subtitle(subs, auto_subs)
+            if not pick:
+                return None
+            lang, is_auto = pick
+            # Now download just the chosen subtitle track
+            ydl_opts2 = dict(ydl_opts)
+            ydl_opts2["subtitleslangs"] = [lang]
+            ydl_opts2["writeautomaticsub"] = is_auto
+            ydl_opts2["writesubtitles"] = not is_auto
+        with yt_dlp.YoutubeDL(ydl_opts2) as ydl2:
+            ydl2.download([url])
+    except Exception as exc:
+        log.warning("yt_dlp subtitle download failed for %s: %s", youtube_id, exc)
+        return None
+
+    # Find the downloaded .vtt file
+    for fname in os.listdir(tmpdir):
+        if fname.endswith(".vtt"):
+            try:
+                return open(os.path.join(tmpdir, fname), encoding="utf-8").read()
+            except OSError:
+                return None
+    return None
+
+
+async def fetch_youtube_subtitles(youtube_id: str) -> Optional[LyricsResult]:
+    """Phase 0: extract subtitles directly from the YouTube video.
+
+    Uses yt_dlp in a thread pool (sync) so it doesn't block the event loop.
+    Returns None if no subtitles are available or extraction fails.
+    """
+    log.info("Trying YouTube subtitles for video %s", youtube_id)
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            vtt_content = await asyncio.to_thread(
+                _download_youtube_subs_sync, youtube_id, tmpdir
+            )
+            if not vtt_content:
+                return None
+            lrc = _vtt_to_lrc(vtt_content)
+            if lrc and _has_timing_markers(lrc):
+                log.info("YouTube subtitles found for %s", youtube_id)
+                return _build_result(lrc, source="youtube_subtitle", quality="official_line")
+    except Exception as exc:
+        log.warning("YouTube subtitle extraction failed for %s: %s", youtube_id, exc)
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Manager — orchestrates the fallback chain
 # ---------------------------------------------------------------------------
 
@@ -556,8 +733,22 @@ _PLAINTEXT_SOURCES = [
 ]
 
 
-async def fetch_lyrics(title: str, artist: str) -> LyricsResult:
+async def fetch_lyrics(
+    title: str,
+    artist: str,
+    youtube_id: Optional[str] = None,
+) -> LyricsResult:
     """Main entry point — try all sources in ADR-005 order.
+
+    Parameters
+    ----------
+    title:
+        Song title from video metadata.
+    artist:
+        Artist name (may be empty).
+    youtube_id:
+        YouTube video ID.  When provided, YouTube's own subtitles are tried
+        first (Phase 0) before any external lyric API.
 
     Returns ``LyricsResult`` with:
       - ``lyrics_type``: "synced" | "plain"
@@ -566,6 +757,16 @@ async def fetch_lyrics(title: str, artist: str) -> LyricsResult:
       - ``quality``: "official_word" | "official_line" | "plaintext" | "none"
     """
     log.info("Fetching lyrics for '%s' by '%s'", title, artist)
+
+    # Phase 0: YouTube native subtitles (highest priority)
+    if youtube_id:
+        try:
+            result = await fetch_youtube_subtitles(youtube_id)
+            if result is not None and result.lrc.strip():
+                log.info("Lyrics found via youtube_subtitle")
+                return result
+        except Exception as exc:
+            log.warning("youtube_subtitle unexpected error, trying next source: %s", exc)
 
     # Phase 1: synced / timed lyrics
     for source_name, fetcher in _SYNCED_SOURCES:
