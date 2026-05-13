@@ -31,28 +31,16 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const runSearch = useCallback(async (q: string) => {
-    if (!q.trim()) {
-      setResults([]);
-      return;
-    }
+    if (!q.trim()) { setResults([]); return; }
     setLoading(true);
     setError(null);
     try {
-      // Run YouTube search + local cache check in parallel
       const [ytResults, cachedSongs] = await Promise.all([
         youtubeSearch(q).catch(() => [] as YoutubeResult[]),
         searchSongs(q).catch(() => []),
       ]);
-
       const cachedIds = new Set(cachedSongs.map((s) => s.id));
-
-      // Merge: mark cached results with the ⚡ flag
-      const merged: YoutubeResult[] = ytResults.map((r) => ({
-        ...r,
-        cached: cachedIds.has(r.id),
-      }));
-
-      // Prepend any cached results that didn't appear in YT search
+      const merged: YoutubeResult[] = ytResults.map((r) => ({ ...r, cached: cachedIds.has(r.id) }));
       const ytIds = new Set(ytResults.map((r) => r.id));
       for (const s of cachedSongs) {
         if (!ytIds.has(s.id)) {
@@ -67,7 +55,6 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
           });
         }
       }
-
       setResults(merged);
     } catch {
       setError("搜尋失敗，請重試");
@@ -79,8 +66,6 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const val = e.target.value;
     setQuery(val);
-
-    // Debounce: auto-search 600ms after typing stops
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (val.trim() && !isYoutubeUrl(val)) {
       debounceRef.current = setTimeout(() => void runSearch(val), 600);
@@ -90,11 +75,8 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (isYoutubeUrl(query)) {
-      void handleAdd(query, "end");
-    } else {
-      void runSearch(query);
-    }
+    if (isYoutubeUrl(query)) void handleAdd(query, "end");
+    else void runSearch(query);
   }
 
   function handlePaste(e: React.ClipboardEvent<HTMLInputElement>) {
@@ -107,12 +89,11 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
   }
 
   async function handleAdd(url: string, position: "end" | "next" = "end") {
-    const key = url;
-    setAdding(key);
+    setAdding(url);
     setError(null);
     try {
       await addSong({ youtube_url: url, room_id: roomId, position });
-      setAddedId(key);
+      setAddedId(url);
       setTimeout(() => setAddedId(null), 2500);
       onAdded?.();
     } catch {
@@ -124,140 +105,159 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Sub-tab selector */}
-      <div className="flex gap-0 border-b border-gray-800 sticky top-0 bg-gray-950 z-10">
-        <button
-          onClick={() => setSubTab("search")}
-          className={`flex-1 py-3 text-sm font-medium transition-colors border-b-2 ${
-            subTab === "search"
-              ? "border-purple-500 text-purple-400"
-              : "border-transparent text-gray-500 hover:text-gray-300"
-          }`}
-        >
-          🔍 搜尋
-        </button>
-        <button
-          onClick={() => setSubTab("leaderboard")}
-          className={`flex-1 py-3 text-sm font-medium transition-colors border-b-2 ${
-            subTab === "leaderboard"
-              ? "border-purple-500 text-purple-400"
-              : "border-transparent text-gray-500 hover:text-gray-300"
-          }`}
-        >
-          🏆 排行榜
-        </button>
+      {/* Sub-tabs */}
+      <div className="flex border-b border-white/8 sticky top-0 bg-[#0a0a0a]/95 backdrop-blur-md z-10">
+        {(["search", "leaderboard"] as SubTab[]).map((t) => (
+          <button
+            key={t}
+            onClick={() => setSubTab(t)}
+            className={`flex-1 py-3.5 text-sm font-medium transition-colors relative ${
+              subTab === t ? "text-violet-400" : "text-white/40 hover:text-white/70"
+            }`}
+          >
+            {t === "search" ? "搜尋" : "排行榜"}
+            {subTab === t && (
+              <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-violet-400 rounded-full" />
+            )}
+          </button>
+        ))}
       </div>
 
-      {/* Leaderboard sub-tab */}
       {subTab === "leaderboard" && (
         <LeaderboardView roomId={roomId} token={token} onAdded={onAdded} />
       )}
 
-      {/* Search sub-tab */}
       {subTab === "search" && (
-      <>
-      {/* Search bar */}
-      <form onSubmit={onSubmit} className="p-4 flex gap-2 sticky top-0 bg-gray-950 z-10">
-        <input
-          type="text"
-          value={query}
-          onChange={handleChange}
-          onPaste={handlePaste}
-          placeholder="搜尋歌曲 或 貼上 YouTube 連結"
-          autoComplete="off"
-          autoCorrect="off"
-          className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 text-sm"
-        />
-        <button
-          type="submit"
-          disabled={loading || !query.trim()}
-          className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white px-4 rounded-xl transition-colors font-medium min-w-14"
-        >
-          {loading ? "…" : "搜尋"}
-        </button>
-      </form>
-
-      {error && <p className="px-4 text-red-400 text-sm pb-2">{error}</p>}
-
-      {/* Results */}
-      <div className="flex-1 overflow-y-auto divide-y divide-gray-800/60">
-        {results.length === 0 && !loading && (
-          <div className="flex flex-col items-center justify-center py-16 text-center px-8 gap-3">
-            <span className="text-4xl">🎵</span>
-            <p className="text-gray-400">搜尋歌曲或貼上 YouTube 連結</p>
-            <p className="text-gray-600 text-xs">支援關鍵字、歌名、演唱者</p>
-          </div>
-        )}
-
-        {loading && results.length === 0 && (
-          <div className="flex justify-center py-12">
-            <span className="text-gray-500">搜尋中…</span>
-          </div>
-        )}
-
-        {results.map((item) => (
-          <div key={item.id} className="flex items-center gap-3 px-4 py-3">
-            {/* Thumbnail */}
-            <div className="relative w-14 h-10 rounded-lg overflow-hidden bg-gray-800 flex-shrink-0">
-              {item.thumbnail_url ? (
-                <Image
-                  src={item.thumbnail_url}
-                  alt={item.title}
-                  fill
-                  className="object-cover"
-                  unoptimized
+        <>
+          {/* Search bar */}
+          <form onSubmit={onSubmit} className="p-4 sticky top-[49px] bg-[#0a0a0a]/95 backdrop-blur-md z-10">
+            <div className="flex gap-2">
+              <div className="flex-1 relative">
+                <svg viewBox="0 0 24 24" fill="currentColor" className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 pointer-events-none">
+                  <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
+                </svg>
+                <input
+                  type="text"
+                  value={query}
+                  onChange={handleChange}
+                  onPaste={handlePaste}
+                  placeholder="搜尋歌曲或貼上 YouTube 連結"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  className="w-full bg-white/8 border border-white/10 rounded-2xl pl-10 pr-4 py-3 text-white placeholder-white/25 focus:outline-none focus:border-violet-500/50 focus:bg-white/10 transition-all text-sm"
                 />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-lg">🎵</div>
-              )}
-            </div>
-
-            {/* Info */}
-            <div className="flex-1 min-w-0">
-              <p className="text-white text-sm truncate leading-tight">{item.title}</p>
-              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                {item.channel && (
-                  <span className="text-gray-500 text-xs truncate max-w-[120px]">
-                    {item.channel}
-                  </span>
-                )}
-                {item.duration_sec != null && (
-                  <span className="text-gray-600 text-xs">
-                    {formatDuration(item.duration_sec)}
-                  </span>
-                )}
-                {item.cached && (
-                  <span className="text-green-400 text-xs font-medium">⚡ 立即</span>
-                )}
               </div>
+              <button
+                type="submit"
+                disabled={loading || !query.trim()}
+                className="bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white px-4 rounded-2xl transition-colors font-medium text-sm min-w-14"
+              >
+                {loading ? (
+                  <svg className="animate-spin w-4 h-4 mx-auto" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                  </svg>
+                ) : "搜尋"}
+              </button>
             </div>
+            {error && (
+              <p className="text-red-400 text-xs mt-2 pl-1">{error}</p>
+            )}
+          </form>
 
-            {/* Actions */}
-            <div className="flex gap-1 flex-shrink-0">
-              <button
-                onClick={() => handleAdd(item.url, "next")}
-                disabled={adding === item.url}
-                title="插播（下一首）"
-                className="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-2 py-1.5 rounded-lg transition-colors"
-              >
-                插播
-              </button>
-              <button
-                onClick={() => handleAdd(item.url, "end")}
-                disabled={adding === item.url}
-                className={`text-sm px-3 py-1.5 rounded-lg transition-colors font-medium min-w-10 ${
-                  addedId === item.url
-                    ? "bg-green-600 text-white"
-                    : "bg-purple-600 hover:bg-purple-500 text-white disabled:opacity-50"
-                }`}
-              >
-                {adding === item.url ? "…" : addedId === item.url ? "✓" : "+"}
-              </button>
+          {/* Results */}
+          <div className="flex-1 overflow-y-auto">
+            {results.length === 0 && !loading && (
+              <div className="flex flex-col items-center justify-center py-20 text-center px-8 gap-4">
+                <div className="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-9 h-9 text-white/25">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-white/50 font-medium">搜尋歌曲</p>
+                  <p className="text-white/25 text-sm mt-1">支援關鍵字、歌名、演唱者</p>
+                  <p className="text-white/20 text-xs mt-0.5">或貼上 YouTube 連結直接加入</p>
+                </div>
+              </div>
+            )}
+
+            {loading && results.length === 0 && (
+              <div className="flex flex-col items-center py-16 gap-3">
+                <div className="w-8 h-8 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-white/30 text-sm">搜尋中…</span>
+              </div>
+            )}
+
+            <div className="divide-y divide-white/5">
+              {results.map((item) => (
+                <div key={item.id} className="flex items-center gap-3 px-4 py-3 hover:bg-white/4 transition-colors">
+                  {/* Thumbnail */}
+                  <div className="relative w-16 h-11 rounded-xl overflow-hidden bg-white/8 flex-shrink-0">
+                    {item.thumbnail_url ? (
+                      <Image src={item.thumbnail_url} alt={item.title} fill className="object-cover" unoptimized />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-white/20">
+                          <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+                        </svg>
+                      </div>
+                    )}
+                    {item.cached && (
+                      <div className="absolute inset-0 bg-emerald-500/20 flex items-end justify-end p-0.5">
+                        <span className="text-emerald-400 text-[9px] font-bold bg-black/60 rounded px-1 leading-4">⚡</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-sm truncate font-medium leading-tight">{item.title}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      {item.channel && (
+                        <span className="text-white/40 text-xs truncate max-w-[110px]">{item.channel}</span>
+                      )}
+                      {item.duration_sec != null && (
+                        <span className="text-white/25 text-xs flex-shrink-0">{formatDuration(item.duration_sec)}</span>
+                      )}
+                      {item.cached && (
+                        <span className="text-emerald-400 text-xs font-medium flex-shrink-0">立即播放</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex gap-1.5 flex-shrink-0">
+                    <button
+                      onClick={() => handleAdd(item.url, "next")}
+                      disabled={adding === item.url}
+                      title="插播"
+                      className="text-xs bg-white/8 hover:bg-white/15 text-white/60 hover:text-white px-2.5 py-1.5 rounded-xl transition-colors disabled:opacity-40"
+                    >
+                      插播
+                    </button>
+                    <button
+                      onClick={() => handleAdd(item.url, "end")}
+                      disabled={adding === item.url}
+                      className={`text-sm w-10 h-8 rounded-xl transition-all font-bold flex items-center justify-center ${
+                        addedId === item.url
+                          ? "bg-emerald-600 text-white"
+                          : "bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-40"
+                      }`}
+                    >
+                      {adding === item.url ? (
+                        <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                        </svg>
+                      ) : addedId === item.url ? "✓" : "+"}
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
-        ))}
-      </div>
-      </>
+        </>
       )}
     </div>
   );

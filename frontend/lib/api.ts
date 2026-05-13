@@ -50,14 +50,14 @@ export const addSong = (data: {
   room_id: string;
   position?: "end" | "next";
 }) =>
-  apiFetch<QueueItem>("/api/songs/", {
+  apiFetch<Song>("/api/songs", {
     method: "POST",
     body: JSON.stringify(data),
   });
 
 // Queue
 export const getQueue = (roomId: string) =>
-  apiFetch<QueueItem[]>(`/api/queue?room_id=${roomId}`);
+  apiFetch<QueueItem[]>(`/api/queue/room/${roomId}`);
 export const addToQueue = (data: {
   song_id: string;
   room_id: string;
@@ -70,7 +70,7 @@ export const addToQueue = (data: {
 export const removeFromQueue = (itemId: number) =>
   apiFetch<void>(`/api/queue/${itemId}`, { method: "DELETE" });
 export const reorderQueue = (roomId: string, itemIds: number[]) =>
-  apiFetch<void>(`/api/rooms/${roomId}/reorder`, {
+  apiFetch<void>(`/api/queue/room/${roomId}/reorder`, {
     method: "PATCH",
     body: JSON.stringify({ item_ids: itemIds }),
   });
@@ -85,10 +85,10 @@ export const joinRoom = (data: {
   nickname: string;
   password?: string;
 }) =>
-  apiFetch<{ guest: Guest; token: string }>("/api/guests/join", {
+  apiFetch<{ guest: Guest; access_token: string; token_type: string }>("/api/guests/join", {
     method: "POST",
     body: JSON.stringify(data),
-  });
+  }).then(r => ({ guest: r.guest, token: r.access_token }));
 export const getMe = () => apiFetch<Guest>("/api/guests/me");
 export const getOnlineGuests = (roomId: string) =>
   apiFetch<Guest[]>(`/api/guests/online/${roomId}`);

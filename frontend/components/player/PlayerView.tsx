@@ -342,79 +342,111 @@ export default function PlayerView({ roomId }: Props) {
   if (!currentSong) {
     return (
       <div className={`relative min-h-screen flex flex-col overflow-hidden ${themeStyle.bg}`}>
-        <header className="relative z-10 flex items-center justify-between px-8 py-5">
+        {/* Ambient glow */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden">
+          <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-violet-700/15 rounded-full blur-[120px] animate-pulse-glow" />
+          <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-purple-800/10 rounded-full blur-[80px] animate-pulse-glow" style={{ animationDelay: "2s" }} />
+        </div>
+
+        {/* Header */}
+        <header className="relative z-10 flex items-center justify-between px-10 py-6">
           <div className="flex items-center gap-3">
-            <span className={`text-2xl ${themeStyle.accentText}`}>🎤</span>
-            <span className={`font-semibold text-xl tracking-wide ${themeStyle.headerText}`}>
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center shadow-lg shadow-violet-900/50">
+              <svg viewBox="0 0 24 24" fill="white" className="w-5 h-5">
+                <path d="M12 3a9 9 0 110 18A9 9 0 0112 3zm0 4a5 5 0 100 10A5 5 0 0012 7zm0 2a3 3 0 110 6 3 3 0 010-6z"/>
+                <circle cx="12" cy="12" r="1.5" fill="white"/>
+              </svg>
+            </div>
+            <span className={`font-bold text-2xl tracking-tight ${themeStyle.headerText}`}>
               {room?.name ?? "Home KTV"}
             </span>
           </div>
           <div className="flex items-center gap-6">
             {guests.length > 0 && (
-              <span className="text-gray-400 text-sm">{guests.length} 人在線</span>
+              <div className="flex items-center gap-2 bg-white/8 backdrop-blur rounded-full px-3 py-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-white/70 text-sm">{guests.length} 人在線</span>
+              </div>
             )}
-            <span className="text-gray-300 text-lg font-mono tabular-nums">
-              {clock}
-            </span>
+            <span className="text-white/60 text-xl font-mono tabular-nums">{clock}</span>
           </div>
         </header>
 
-        <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-10 px-8 pb-16">
-          <div className="flex flex-col items-center gap-4">
-            <div className="bg-white rounded-3xl p-5 shadow-2xl shadow-purple-900/40">
+        {/* Main content */}
+        <div className="relative z-10 flex flex-1 items-center justify-center px-10 gap-20">
+          {/* QR code section */}
+          <div className="flex flex-col items-center gap-5">
+            <div className="bg-white rounded-3xl p-5 shadow-2xl shadow-black/60 ring-1 ring-white/20">
               {remoteUrl ? (
-                <QRCode value={remoteUrl} size={180} bgColor="#ffffff" fgColor="#111827" />
+                <QRCode value={remoteUrl} size={200} bgColor="#ffffff" fgColor="#0f0f0f" />
               ) : (
-                <div className="w-44 h-44 bg-gray-100 animate-pulse rounded-xl" />
+                <div className="w-[200px] h-[200px] bg-gray-100 animate-pulse rounded-2xl" />
               )}
             </div>
-            <p className="text-gray-400 text-sm">掃 QR Code 用手機點歌</p>
-            {remoteUrl && (
-              <p className="text-gray-600 text-xs font-mono">{remoteUrl}</p>
-            )}
+            <div className="text-center">
+              <p className="text-white/70 text-base font-medium">掃 QR Code 用手機點歌</p>
+              {remoteUrl && (
+                <p className="text-white/30 text-xs font-mono mt-1">{remoteUrl}</p>
+              )}
+            </div>
           </div>
 
-          <p className="text-gray-500 text-lg">等待點歌中…</p>
-
-          {queue.length > 0 && (
-            <div className="bg-gray-800/70 backdrop-blur-sm border border-gray-700/50 rounded-2xl px-6 py-4 w-full max-w-sm">
-              <p className="text-gray-400 text-xs uppercase tracking-wider mb-3">
-                隊列 ({queue.length})
-              </p>
-              {queue.slice(0, 4).map((item) => (
-                <div key={item.id} className="flex items-center gap-3 py-1.5">
-                  <div className="w-1.5 h-1.5 rounded-full bg-purple-400 flex-shrink-0" />
-                  <span className="text-white text-sm truncate flex-1">
-                    {item.song?.title ?? item.song_id}
-                  </span>
-                  {item.status !== "ready" && item.status !== "pending" && (
-                    <span className="text-yellow-400 text-xs flex-shrink-0">
-                      {STAGE_LABELS[item.status] ?? item.status}
-                    </span>
+          {/* Queue or idle message */}
+          <div className="flex flex-col gap-4 min-w-72 max-w-sm">
+            {queue.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-white/30 text-2xl font-light">等待點歌中…</p>
+                <p className="text-white/20 text-sm mt-2">掃碼後搜尋喜歡的歌曲</p>
+              </div>
+            ) : (
+              <>
+                <p className="text-white/40 text-xs uppercase tracking-widest font-medium">
+                  待播隊列 · {queue.length} 首
+                </p>
+                <div className="flex flex-col gap-1">
+                  {queue.slice(0, 5).map((item, i) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center gap-3 py-2.5 px-4 rounded-2xl bg-white/5 border border-white/6 backdrop-blur"
+                    >
+                      <span className="text-white/20 text-xs w-4 font-mono flex-shrink-0">{i + 1}</span>
+                      <span className="text-white text-sm truncate flex-1 font-medium">
+                        {item.song?.title ?? item.song_id}
+                      </span>
+                      {item.status !== "ready" && item.status !== "pending" && (
+                        <span className="text-amber-400 text-xs flex-shrink-0">
+                          {STAGE_LABELS[item.status] ?? "處理中"}
+                        </span>
+                      )}
+                      {item.status === "ready" && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
+                      )}
+                    </div>
+                  ))}
+                  {queue.length > 5 && (
+                    <p className="text-white/25 text-xs text-center pt-1">
+                      還有 {queue.length - 5} 首…
+                    </p>
                   )}
                 </div>
-              ))}
-              {queue.length > 4 && (
-                <p className="text-gray-500 text-xs mt-2 text-right">
-                  + {queue.length - 4} 首
-                </p>
-              )}
-            </div>
-          )}
+              </>
+            )}
+          </div>
         </div>
 
+        {/* Processing overlay */}
         {processing && (
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 bg-gray-800/95 backdrop-blur border border-gray-700 rounded-2xl px-8 py-4 text-center min-w-56">
+          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20 bg-black/80 backdrop-blur-xl border border-white/10 rounded-2xl px-8 py-4 text-center min-w-64">
             <p className="text-white font-medium text-sm">
               {STAGE_LABELS[processing.stage] ?? processing.stage}
             </p>
-            <div className="w-full h-1.5 bg-gray-700 rounded-full mt-2 overflow-hidden">
+            <div className="w-full h-1 bg-white/10 rounded-full mt-2.5 overflow-hidden">
               <div
-                className="h-full bg-purple-500 rounded-full transition-all duration-300"
+                className="h-full bg-gradient-to-r from-violet-500 to-purple-400 rounded-full transition-all duration-300"
                 style={{ width: `${processing.percent}%` }}
               />
             </div>
-            <p className="text-gray-400 text-xs mt-1">{processing.percent}%</p>
+            <p className="text-white/40 text-xs mt-1.5">{processing.percent}%</p>
           </div>
         )}
       </div>

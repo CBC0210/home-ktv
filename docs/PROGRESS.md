@@ -2,10 +2,10 @@
 
 > 這份檔案是 OpenClaw 與 Claude Code 之間的長期記憶。每個 task 完成或中斷時都必須更新。
 
-## Status: ✅ 專案完成 — 全部里程碑交付（2026-05-13）
+## Status: ✅ 專案完成 — 全部里程碑 + UI 修正交付（2026-05-13）
 
-Last updated: 2026-05-13 11:03
-Last heartbeat: 2026-05-13 11:03
+Last updated: 2026-05-13 18:00
+Last heartbeat: 2026-05-13 18:00
 
 ### Next Up
 - （無）
@@ -16,6 +16,22 @@ Last heartbeat: 2026-05-13 11:03
 ---
 
 ## Done
+
+- [x] **UI 全面翻新 + API 對接修正** ✅ (2026-05-13)
+  - **根本原因修復**：`postcss.config.mjs` 從未建立，導致 Tailwind v4 utilities 完全未生成，頁面一直是純文字黑底
+  - **API 對接修正**（4 個 bug）：
+    - `getQueue` 路徑錯誤（`?room_id=` → `/room/{id}`）→ 隊列永遠空白
+    - `joinRoom` token key 名稱不符（`.token` → `.access_token`）→ WebSocket 無法認證
+    - `reorderQueue` 路徑錯誤（rooms → queue router）
+    - `addSong` trailing slash → POST redirect 問題
+  - **UI 重設計**（Spotify 暗色風）：
+    - `JoinForm`：深色背景 + 紫色光暈 + 浮動 logo + 毛玻璃卡片
+    - `NowPlaying`：全頁模糊封面背景、大封面圖、白色圓形播放鍵、自訂 range slider
+    - `RemoteView`：SVG 圖示底部 tab、隊列數字 badge、頭像圓圈
+    - `SearchView`：搜尋圖示、spinner、hover 效果
+    - `QueueList`：處理中 overlay spinner、刪除 hover 顯示
+    - `PlayerView` 待機：光暈動畫、QR+隊列並排布局
+    - `globals.css`：自訂 range slider、細版滾軸、glow 動畫
 
 - [x] **M6: 部署收尾** ✅ (2026-05-13)
   - cloudflared: active (running), 4 QUIC connections ✓

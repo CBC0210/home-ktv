@@ -1,11 +1,12 @@
-"use client";
-
-import { useParams } from "next/navigation";
 import PlayerView from "@/components/player/PlayerView";
 
-export default function PlayerPage() {
-  const params = useParams<{ roomId: string }>();
-  return <PlayerView roomId={params.roomId} />;
+interface Props {
+  params: Promise<{ roomId: string }>;
+}
+
+export default async function PlayerPage({ params }: Props) {
+  const { roomId } = await params;
+  return <PlayerView roomId={roomId} />;
 }
 
 export function generateStaticParams() {

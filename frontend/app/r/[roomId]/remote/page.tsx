@@ -1,11 +1,12 @@
-"use client";
-
-import { useParams } from "next/navigation";
 import RemoteView from "@/components/remote/RemoteView";
 
-export default function RemotePage() {
-  const params = useParams<{ roomId: string }>();
-  return <RemoteView roomId={params.roomId} />;
+interface Props {
+  params: Promise<{ roomId: string }>;
+}
+
+export default async function RemotePage({ params }: Props) {
+  const { roomId } = await params;
+  return <RemoteView roomId={roomId} />;
 }
 
 export function generateStaticParams() {
