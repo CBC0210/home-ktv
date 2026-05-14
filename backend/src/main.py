@@ -1,18 +1,35 @@
 """FastAPI app 入口。"""
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ktv_pipeline.config import settings
-from ktv_pipeline.database import init_db, check_db_connection, get_gpu_status
+from ktv_pipeline.database import init_db, check_db_connection, get_gpu_status, get_db_session
 from api import api_router, ws_router, streaming_router
+
+log = logging.getLogger(__name__)
+
+
+def _recover_stuck_queue_items() -> None:
+    """Reset queue items stuck in mid-pipeline states from a previous crash."""
+    from ktv_pipeline.models import QueueItem
+    stuck = ["processing", "downloading", "separating", "fetching_lyrics", "aligning", "packaging"]
+    with get_db_session() as session:
+        n = session.query(QueueItem).filter(
+            QueueItem.status.in_(stuck)
+        ).update({"status": "pending"}, synchronize_session=False)
+        session.commit()
+        if n:
+            log.warning("Startup recovery: reset %d stuck queue items to pending", n)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     init_db()
+    _recover_stuck_queue_items()
     yield
     # Shutdown — nothing persistent to clean up for now
 

@@ -311,12 +311,19 @@ async def _handle_song_advance(room_id: str) -> None:
 
 
 async def _start_next_song(room_id: str) -> None:
-    """Find the next ready queue item and broadcast song.started."""
+    """Find the next ready queue item and broadcast song.started.
+
+    No-ops if a song is already playing — never interrupts current playback.
+    """
     from ktv_pipeline.queue_manager import QueueManager
     from ktv_pipeline.models import Song, Guest, QueueItem
 
     with get_db_session() as session:
         mgr = QueueManager(session)
+
+        # Guard: never interrupt a song that is already playing
+        if mgr.get_currently_playing(room_id):
+            return
 
         # First, promote any 'pending' items whose song is already processed
         pending_items = (

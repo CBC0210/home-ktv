@@ -38,6 +38,12 @@ def extract_youtube_id(url_or_id: str) -> str:
     raise HTTPException(status_code=400, detail=f"Invalid YouTube ID: {url_or_id}")
 
 
+async def _try_start_if_idle(room_id: str) -> None:
+    """Start next song only if nothing is currently playing (called after queue changes)."""
+    from api.ws import _start_next_song
+    await _start_next_song(room_id)
+
+
 async def _run_pipeline_task(queue_item_id: int, room_id: str) -> None:
     """Async pipeline background task — runs pipeline then triggers auto-play."""
     from ktv_pipeline.pipeline_orchestrator import PipelineOrchestrator, PipelineConfig
@@ -326,19 +332,17 @@ def add_song(
         session.commit()
         session.refresh(song)
 
-    # Check if already in queue (pending/processing) — reuse rather than duplicate
+    # Check if already in queue (any active status) — reuse rather than duplicate
     existing_item = (
         session.query(QueueItem)
         .filter_by(room_id=room_id, song_id=yt_id)
-        .filter(QueueItem.status.in_(["pending", "processing", "playing"]))
+        .filter(QueueItem.status.in_(["pending", "processing", "ready", "playing"]))
         .first()
     )
     if existing_item:
         session.refresh(song)
-        # Song already in queue — still try to auto-start if processed and idle
-        if song.status == "ready":
-            from api.ws import _start_next_song
-            background_tasks.add_task(_start_next_song, room_id)
+        # Song already in queue — still try to auto-start if nothing is playing yet
+        background_tasks.add_task(_try_start_if_idle, room_id)
         return song
 
     # Add to queue
@@ -349,9 +353,8 @@ def add_song(
         raise HTTPException(status_code=409, detail=str(exc))
 
     if song.status == "ready":
-        # Song already processed — auto-start broadcasts queue.updated itself.
-        from api.ws import _start_next_song
-        background_tasks.add_task(_start_next_song, room_id)
+        # Song already processed — try to auto-start if nothing is playing.
+        background_tasks.add_task(_try_start_if_idle, room_id)
     else:
         # Trigger pipeline; periodic broadcasts + final broadcast happen inside the task.
         background_tasks.add_task(_run_pipeline_task, item.id, room_id)

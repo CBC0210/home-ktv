@@ -57,11 +57,13 @@ class QueueManager:
         if not song:
             raise ValueError(f"Song {song_id} not found")
 
-        existing = self.session.query(QueueItem).filter_by(
-            room_id=room_id, song_id=song_id, status="pending"
+        existing = self.session.query(QueueItem).filter(
+            QueueItem.room_id == room_id,
+            QueueItem.song_id == song_id,
+            QueueItem.status.in_(["pending", "processing", "ready", "playing"]),
         ).first()
         if existing:
-            raise ValueError(f"Song {song_id} already in queue (id={existing.id})")
+            raise ValueError(f"Song {song_id} already in queue (status={existing.status}, id={existing.id})")
 
         if position == "end":
             max_pos = self._get_max_position(room_id)
