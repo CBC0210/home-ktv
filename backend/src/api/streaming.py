@@ -1,7 +1,9 @@
 """HLS / raw audio streaming endpoint — serves processed song files with range-request support."""
+import logging
 import os
 import re
 import asyncio
+import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -14,6 +16,48 @@ from ktv_pipeline.config import settings
 from ktv_pipeline.database import get_db_session
 from ktv_pipeline.models import Song
 from ktv_pipeline.deps import get_current_guest
+
+log = logging.getLogger(__name__)
+
+# Track in-progress Opus conversions so we don't spawn duplicates
+_opus_converting: set[str] = set()
+
+
+async def _ensure_opus(wav_path: Path) -> Optional[Path]:
+    """Return the .opus path for a WAV file, converting if needed.
+
+    Returns None while conversion is in progress or if ffmpeg is unavailable.
+    Conversion is non-blocking — runs in a thread pool.
+    """
+    opus_path = wav_path.with_suffix(".opus")
+    if opus_path.exists():
+        return opus_path
+
+    key = str(wav_path)
+    if key in _opus_converting:
+        return None  # Conversion in progress; caller falls back to WAV
+
+    _opus_converting.add(key)
+
+    def _convert() -> bool:
+        try:
+            result = subprocess.run(
+                ["ffmpeg", "-y", "-i", str(wav_path),
+                 "-c:a", "libopus", "-b:a", "128k", "-vbr", "on",
+                 str(opus_path)],
+                capture_output=True, timeout=300,
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    loop = asyncio.get_event_loop()
+    ok = await loop.run_in_executor(None, _convert)
+    _opus_converting.discard(key)
+    if ok:
+        log.info("Converted %s → %s", wav_path.name, opus_path.name)
+        return opus_path
+    return None
 
 
 router = APIRouter(prefix="/songs", tags=["streaming"])
@@ -167,21 +211,34 @@ async def serve_audio_file(
     request: Request,
     session: Session = Depends(get_session),
 ):
-    """Stream an audio file (vocals.wav / no_vocals.wav) with range-request support."""
+    """Stream an audio file (vocals.wav / no_vocals.wav) with range-request support.
+
+    Serves the Opus-encoded version when available (much smaller than WAV).
+    Triggers background Opus conversion on first request so subsequent plays are faster.
+    """
     song = session.query(Song).filter_by(id=song_id).first()
     if not song:
         raise HTTPException(status_code=404, detail="Song not found")
     if song.status != "ready":
         raise HTTPException(status_code=202, detail=f"Song status is '{song.status}', not ready")
 
-    # Validate filename (only allow safe filenames)
     if filename not in ("vocals.wav", "no_vocals.wav", "audio.m4a"):
         raise HTTPException(status_code=403, detail="Invalid filename")
 
-    audio_path = _song_cache_dir(song_id) / filename
-
-    if not audio_path.exists():
+    wav_path = _song_cache_dir(song_id) / filename
+    if not wav_path.exists():
         raise HTTPException(status_code=404, detail=f"File '{filename}' not found")
+
+    # Prefer Opus (much smaller, fast-start); trigger conversion if not yet done
+    opus_path = wav_path.with_suffix(".opus")
+    if opus_path.exists():
+        audio_path = opus_path
+        media_type = "audio/ogg; codecs=opus"
+    else:
+        # Start background conversion (first play will use WAV; subsequent plays Opus)
+        asyncio.create_task(_ensure_opus(wav_path))
+        audio_path = wav_path
+        media_type = "audio/wav"
 
     file_size = audio_path.stat().st_size
     range_header = request.headers.get("range")
@@ -190,7 +247,7 @@ async def serve_audio_file(
         start, end = _parse_range(range_header, file_size)
         return StreamingResponse(
             _stream_file_range(audio_path, start, end),
-            media_type="audio/wav",
+            media_type=media_type,
             status_code=206,
             headers={
                 "Content-Range": f"bytes {start}-{end}/{file_size}",
@@ -201,7 +258,7 @@ async def serve_audio_file(
     else:
         return StreamingResponse(
             audio_path.open("rb"),
-            media_type="audio/wav",
+            media_type=media_type,
             headers={
                 "Accept-Ranges": "bytes",
                 "Content-Length": str(file_size),

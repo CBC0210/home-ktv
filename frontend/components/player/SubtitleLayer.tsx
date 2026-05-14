@@ -6,21 +6,14 @@ import type { Song } from "@/lib/types";
 
 interface Props {
   song: Song;
-  positionSec: number;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
 }
 
-/**
- * Subtitle rendering layer.
- *
- * - song.has_timing = true  → load lyrics.ass via libass-wasm (karaoke effect)
- * - song.has_timing = false + lyrics_source ≠ 'none' → show plain text hint
- * - lyrics_source = 'none'  → no lyrics notice
- */
-export default function SubtitleLayer({ song, positionSec }: Props) {
+export default function SubtitleLayer({ song, videoRef }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const octopusRef = useRef<SubtitlesOctopus | null>(null);
 
-  // Initialize libass renderer when a song with timing is loaded
+  // Initialize libass renderer
   useEffect(() => {
     if (!song.has_timing || !containerRef.current) return;
 
@@ -37,32 +30,43 @@ export default function SubtitleLayer({ song, positionSec }: Props) {
         subUrl: assUrl,
         workerUrl: "/libass/subtitles-octopus-worker.js",
         legacyWorkerUrl: "/libass/subtitles-octopus-worker-legacy.js",
-        targetFps: 24,
-        prescaleFactor: 0.8,
-        renderAhead: 0.3,
+        targetFps: 30,
+        prescaleFactor: 1.0,
+        renderAhead: 0.5,
         availableFonts: {},
         fallbackFont: "Arial",
         container,
       });
 
       octopusRef.current = instance;
-    }).catch(() => {
-      // libass failed (mobile / missing WASM) — fall through to plain text display
-    });
+
+      // Sync to current video position immediately after load
+      const video = videoRef.current;
+      if (video) {
+        instance.setCurrentTime(video.currentTime);
+      }
+    }).catch(() => {});
 
     return () => {
       destroyed = true;
       octopusRef.current?.dispose();
       octopusRef.current = null;
     };
-  }, [song.id, song.has_timing]);
+  }, [song.id, song.has_timing]);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Sync playback position with the subtitle renderer
+  // Drive subtitle position from video timeupdate (~4x/sec) for smooth karaoke
   useEffect(() => {
-    octopusRef.current?.setCurrentTime(positionSec);
-  }, [positionSec]);
+    const video = videoRef.current;
+    if (!video) return;
 
-  // Song with timed subtitles — render canvas inside container
+    const onTimeUpdate = () => {
+      octopusRef.current?.setCurrentTime(video.currentTime);
+    };
+
+    video.addEventListener("timeupdate", onTimeUpdate);
+    return () => video.removeEventListener("timeupdate", onTimeUpdate);
+  }, [videoRef]);
+
   if (song.has_timing) {
     return (
       <div
@@ -73,7 +77,6 @@ export default function SubtitleLayer({ song, positionSec }: Props) {
     );
   }
 
-  // Plain-text lyrics fallback
   if (song.lyrics_source && song.lyrics_source !== "none") {
     return (
       <div className="absolute bottom-24 left-0 right-0 flex justify-center pointer-events-none px-8">
@@ -89,7 +92,6 @@ export default function SubtitleLayer({ song, positionSec }: Props) {
     );
   }
 
-  // No lyrics at all
   return (
     <div className="absolute bottom-20 left-0 right-0 flex justify-center pointer-events-none">
       <div className="bg-black/50 backdrop-blur-sm rounded-xl px-5 py-2">

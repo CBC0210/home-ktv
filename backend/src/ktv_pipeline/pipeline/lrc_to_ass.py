@@ -47,20 +47,28 @@ class AssConfig:
     play_res_y: int = 1080
     font_name: str = "黑体"
 
-    # Main (current-line) style
-    font_size: int = 72
+    # Main (current-line) style — large, lower-center
+    font_size: int = 88
     primary_color: str = "&H0000CCFF"   # golden yellow — post-highlight (sung)
     secondary_color: str = "&H00FFFFFF"  # white — pre-highlight (not yet sung)
     outline_color: str = "&H00000000"   # black
     back_color: str = "&H00000000"
     bold: bool = True
-    outline: float = 3.0
-    shadow: float = 1.0
-    margin_v: int = 120                  # px from bottom
+    outline: float = 3.5
+    shadow: float = 1.5
+    margin_v: int = 250                  # px from bottom — lower-center area
 
-    # Preview (next-line) style
-    font_size_preview: int = 56
-    preview_color: str = "&H90FFFFFF"   # 56%-opaque white
+    # Preview1 (next line) style
+    font_size_preview: int = 68
+    preview_color: str = "&H80FFFFFF"   # 50%-opaque white
+
+    # Preview2 (line after next) style
+    font_size_preview2: int = 56
+    preview2_color: str = "&HB0FFFFFF"  # 31%-opaque white, more dimmed
+
+    # Vertical gap between lines (px added to margin_v for each preview level)
+    preview_gap: int = 115
+    preview2_gap: int = 95
 
     # Fade-in per subtitle event
     fade_in_ms: int = 100
@@ -349,6 +357,8 @@ def _auto_detect_word_level(tokens: List[_Token]) -> bool:
 
 def _render_header(cfg: AssConfig) -> str:
     bold_flag = "-1" if cfg.bold else "0"
+    p1_v = cfg.margin_v + cfg.preview_gap
+    p2_v = p1_v + cfg.preview2_gap
     return (
         f"[Script Info]\n"
         f"ScriptType: v4.00+\n"
@@ -360,7 +370,8 @@ def _render_header(cfg: AssConfig) -> str:
         f"[V4+ Styles]\n"
         f"Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
         f"Style: Default,{cfg.font_name},{cfg.font_size},{cfg.primary_color},{cfg.secondary_color},{cfg.outline_color},{cfg.back_color},{bold_flag},0,0,0,100,100,0,0,1,{cfg.outline},{cfg.shadow},2,40,40,{cfg.margin_v},1\n"
-        f"Style: Preview,{cfg.font_name},{cfg.font_size_preview},{cfg.preview_color},{cfg.preview_color},{cfg.outline_color},{cfg.back_color},0,0,0,0,100,100,0,0,1,2,0,2,40,40,{cfg.margin_v + 90},1\n"
+        f"Style: Preview,{cfg.font_name},{cfg.font_size_preview},{cfg.preview_color},{cfg.preview_color},{cfg.outline_color},{cfg.back_color},0,0,0,0,100,100,0,0,1,2,0,2,40,40,{p1_v},1\n"
+        f"Style: Preview2,{cfg.font_name},{cfg.font_size_preview2},{cfg.preview2_color},{cfg.preview2_color},{cfg.outline_color},{cfg.back_color},0,0,0,0,100,100,0,0,1,2,0,2,40,40,{p2_v},1\n"
         f"\n"
         f"[Events]\n"
         f"Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
@@ -384,6 +395,12 @@ def _render_events(lines: List[_Line], cfg: AssConfig) -> str:
             preview_text = lines[i + 1].full_text
             parts.append(
                 f"Dialogue: 0,{t_start},{t_end},Preview,,0,0,0,,{fade}{preview_text}"
+            )
+
+        if i + 2 < len(lines):
+            preview2_text = lines[i + 2].full_text
+            parts.append(
+                f"Dialogue: 0,{t_start},{t_end},Preview2,,0,0,0,,{fade}{preview2_text}"
             )
 
     return "\n".join(parts) + "\n"

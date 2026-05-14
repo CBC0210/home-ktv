@@ -188,11 +188,18 @@ export default function PlayerView({ roomId }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playback.is_playing, currentSong, updatePosition]);
 
-  // ── Initial data load ─────────────────────────────────────────────────────
+  // ── Initial data load — also restore currently-playing song on page load ──
   useEffect(() => {
-    getQueue(roomId).then(setQueue).catch(() => {});
+    getQueue(roomId).then((q) => {
+      setQueue(q);
+      const playing = q.find((item) => item.status === "playing");
+      if (playing?.song) {
+        setCurrentSong(playing.song, playing);
+        setIsPlayingRef.current(true);
+      }
+    }).catch(() => {});
     getRoom(roomId).then(setRoom).catch(() => {});
-  }, [roomId, setQueue, setRoom]);
+  }, [roomId, setQueue, setRoom, setCurrentSong]);
 
   // ── Song change: load video + audio ──────────────────────────────────────
   useEffect(() => {
@@ -212,21 +219,31 @@ export default function PlayerView({ roomId }: Props) {
 
     const base = process.env.NEXT_PUBLIC_API_URL ?? "";
     video.src = `${base}/songs/${currentSong.id}/video.mp4`;
-    if (vocal) vocal.src = `${base}/songs/${currentSong.id}/audio/vocals.wav`;
-    if (instr) instr.src = `${base}/songs/${currentSong.id}/audio/no_vocals.wav`;
+    if (vocal) vocal.src = `${base}/songs/${currentSong.id}/audio/no_vocals.wav`;
+    if (instr) instr.src = `${base}/songs/${currentSong.id}/audio/vocals.wav`;
 
     syncVolumes(playbackRef.current.main_volume, playbackRef.current.vocal_volume);
 
-    video.load();
+    // Play once the video has enough data — avoids "play before ready" errors
+    const handleCanPlay = () => {
+      video.play().catch(() => {
+        // Autoplay blocked — user must tap to unlock
+        setAudioBlocked(true);
+      });
+    };
+
+    video.addEventListener("canplay", handleCanPlay, { once: true });
+
     video.addEventListener("playing", () => {
-      // Video started — mark playing and start audio
       setIsPlayingRef.current(true);
       void tryPlayAudio(video.currentTime);
       sendRef.current?.({ type: "player.playing", positionSec: video.currentTime } as never);
     }, { once: true });
+
     video.addEventListener("ended", () => {
       sendRef.current?.({ type: "player.ended" } as never);
     }, { once: true });
+
     video.addEventListener("error", () => {
       sendRef.current?.({
         type: "player.error",
@@ -234,11 +251,19 @@ export default function PlayerView({ roomId }: Props) {
       } as never);
     }, { once: true });
 
-    video.play().catch(() => {
-      // Autoplay blocked for video — user must interact
-    });
+    // Continuously re-sync audio to video to prevent drift (WAV has no timestamp sync)
+    const handleTimeUpdate = () => {
+      const vt = video.currentTime;
+      if (vocal && Math.abs(vocal.currentTime - vt) > 0.15) vocal.currentTime = vt;
+      if (instr && Math.abs(instr.currentTime - vt) > 0.15) instr.currentTime = vt;
+    };
+    video.addEventListener("timeupdate", handleTimeUpdate);
+
+    video.load();
 
     return () => {
+      video.removeEventListener("canplay", handleCanPlay);
+      video.removeEventListener("timeupdate", handleTimeUpdate);
       video.src = "";
       if (vocal) { vocal.pause(); vocal.src = ""; }
       if (instr) { instr.pause(); instr.src = ""; }
@@ -385,7 +410,7 @@ export default function PlayerView({ roomId }: Props) {
         muted
       />
 
-      <SubtitleLayer key={subtitleRevision} song={currentSong} positionSec={playback.position_sec} />
+      <SubtitleLayer key={subtitleRevision} song={currentSong} videoRef={videoRef} />
 
       {/* Song info */}
       <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-sm rounded-xl px-4 py-2.5 max-w-sm">
