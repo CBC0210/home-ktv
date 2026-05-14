@@ -78,6 +78,12 @@ input[type="range"]::-moz-range-thumb {
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
 }
+@keyframes reaction-float {
+  0%   { transform: translateY(0) scale(0.5); opacity: 0; }
+  15%  { transform: translateY(-40px) scale(1.2); opacity: 1; }
+  100% { transform: translateY(-80vh) scale(0.8); opacity: 0; }
+}
 .animate-pulse-glow { animation: pulse-glow 3s ease-in-out infinite; }
 .animate-float      { animation: float 4s ease-in-out infinite; }
 .animate-spin-slow  { animation: spin-slow 20s linear infinite; }
+.animate-reaction-float { animation: reaction-float 4s cubic-bezier(.2,.6,.4,1) forwards; }

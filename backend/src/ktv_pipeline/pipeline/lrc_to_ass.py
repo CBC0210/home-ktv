@@ -49,8 +49,8 @@ class AssConfig:
 
     # Main (current-line) style — large, lower-center
     font_size: int = 88
-    primary_color: str = "&H0000CCFF"   # golden yellow — post-highlight (sung)
-    secondary_color: str = "&H00FFFFFF"  # white — pre-highlight (not yet sung)
+    primary_color: str = "&H00FFFFFF"   # pure white
+    secondary_color: str = "&H00FFFFFF"  # unused (no \k fill animation)
     outline_color: str = "&H00000000"   # black
     back_color: str = "&H00000000"
     bold: bool = True
@@ -407,15 +407,15 @@ def _render_events(lines: List[_Line], cfg: AssConfig) -> str:
 
 
 def _build_k_text(line: _Line) -> str:
-    """Build ``{\\kf<N>}text`` karaoke string for a subtitle line."""
-    cjk = _is_cjk(line.tokens)
-    parts: List[str] = []
-    for i, tok in enumerate(line.tokens):
-        next_ms = line.tokens[i + 1].ms if i + 1 < len(line.tokens) else line.end_ms
-        duration_cs = max(round((next_ms - tok.ms) / 10), 1)
-        sep = "" if cjk or i + 1 == len(line.tokens) else " "
-        parts.append(f"{{\\kf{duration_cs}}}{tok.text}{sep}")
-    return "".join(parts)
+    """Return the line text without karaoke fill tags.
+
+    The line-level (or even word-level) timestamps from LRC/WhisperX are not
+    reliable enough to drive a smooth fill animation — gaps between words
+    cause the fill to march on during silence, which looks wrong. Show the
+    whole line statically; the timing just controls when each Dialogue line
+    is on screen.
+    """
+    return line.full_text
 
 
 # ---------------------------------------------------------------------------

@@ -43,6 +43,7 @@ async def _ensure_opus(wav_path: Path) -> Optional[Path]:
         try:
             result = subprocess.run(
                 ["ffmpeg", "-y", "-i", str(wav_path),
+                 "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
                  "-c:a", "libopus", "-b:a", "128k", "-vbr", "on",
                  str(opus_path)],
                 capture_output=True, timeout=300,
@@ -266,9 +267,25 @@ async def serve_audio_file(
         )
 
 
+@router.get("/{song_id}/lyrics.txt")
+async def serve_lyrics_txt(song_id: str, session: Session = Depends(get_session)):
+    """Serve the plain-text lyrics for a song (for non-timed fallback display)."""
+    song = session.query(Song).filter_by(id=song_id).first()
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+    txt_path = settings.data_dir / "media" / song_id / "lyrics.txt"
+    if not txt_path.exists():
+        raise HTTPException(status_code=404, detail="Plain-text lyrics not available")
+    return Response(content=txt_path.read_text(encoding="utf-8"), media_type="text/plain; charset=utf-8")
+
+
 @router.get("/{song_id}/lyrics.ass")
 async def serve_lyrics_ass(song_id: str, session: Session = Depends(get_session)):
-    """Serve the timed lyrics ASS file for a song (for karaoke display)."""
+    """Serve the timed lyrics ASS file for a song (for karaoke display).
+
+    No-cache: lyrics may be edited live (lyrics.edit WS command), so we never
+    want the browser to return a stale copy.
+    """
     song = session.query(Song).filter_by(id=song_id).first()
     if not song:
         raise HTTPException(status_code=404, detail="Song not found")
@@ -277,12 +294,12 @@ async def serve_lyrics_ass(song_id: str, session: Session = Depends(get_session)
     if not ass_path.exists():
         raise HTTPException(status_code=404, detail="Lyrics ASS file not found")
 
-    return StreamingResponse(
-        ass_path.open("rb"),
+    return Response(
+        content=ass_path.read_bytes(),
         media_type="application/x-ass",
         headers={
-            "Content-Disposition": f'attachment; filename="{song_id}.ass"',
-            "Content-Length": str(ass_path.stat().st_size),
+            "Cache-Control": "no-store, must-revalidate",
+            "Pragma": "no-cache",
         },
     )
 

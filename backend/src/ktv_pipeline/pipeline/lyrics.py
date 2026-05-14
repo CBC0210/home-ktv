@@ -140,16 +140,44 @@ def _has_timing_markers(lrc: str) -> bool:
     return bool(re.search(r"\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]", lrc))
 
 
+# OpenCC simplified → traditional converter (cached singleton)
+_s2t_converter = None
+
+
+def _to_traditional(text: str) -> str:
+    """Convert simplified Chinese to traditional. Idempotent for non-CJK text.
+
+    Most mainland sources (NetEase, QQ) return simplified Chinese, but we
+    want Traditional for the karaoke display. OpenCC's s2twp variant uses
+    Taiwan-Mandarin idiom mapping (more natural than plain s2t).
+    """
+    global _s2t_converter
+    if not text or not re.search(r"[一-鿿]", text):
+        return text
+    try:
+        if _s2t_converter is None:
+            import opencc
+            _s2t_converter = opencc.OpenCC("s2twp")
+        return _s2t_converter.convert(text)
+    except Exception as exc:
+        log.warning("OpenCC conversion failed: %s", exc)
+        return text
+
+
 def _build_result(
     lrc: str,
     source: str,
     quality: str,
 ) -> LyricsResult:
-    """Normalise source output into a LyricsResult."""
+    """Normalise source output into a LyricsResult.
+
+    Lyrics from mainland sources are converted to Traditional Chinese
+    (Taiwan idioms) automatically. Non-CJK content passes through.
+    """
     lyrics_type = "synced" if _has_timing_markers(lrc) else "plain"
     return LyricsResult(
         lyrics_type=lyrics_type,
-        lrc=lrc,
+        lrc=_to_traditional(lrc),
         source=source,
         quality=quality,
     )
@@ -188,9 +216,49 @@ async def _retryable_get(
 # ---------------------------------------------------------------------------
 
 
+def _normalize(s: str) -> str:
+    """Lowercase, strip non-alphanumeric/CJK chars."""
+    if not s:
+        return ""
+    s = s.lower()
+    # Keep CJK + alphanumerics, drop punctuation/whitespace
+    return re.sub(r"[^\w一-鿿]", "", s)
+
+
+def _match_score(query: str, candidate: str) -> float:
+    """Rough 0-1 similarity score via normalized substring containment."""
+    q = _normalize(query)
+    c = _normalize(candidate)
+    if not q or not c:
+        return 0.0
+    if q == c:
+        return 1.0
+    if q in c or c in q:
+        return min(len(q), len(c)) / max(len(q), len(c))
+    # Token overlap (works for English; CJK has no spaces so falls through)
+    qt = set(q)
+    ct = set(c)
+    if not qt or not ct:
+        return 0.0
+    return len(qt & ct) / len(qt | ct) * 0.5  # weak signal, cap at 0.5
+
+
+def _netease_artist_names(song: dict) -> str:
+    """Extract artist names from NetEase song dict — artists are in artists[]."""
+    arts = song.get("artists") or song.get("ar") or []
+    if isinstance(arts, list):
+        return " ".join(a.get("name", "") for a in arts if isinstance(a, dict))
+    return ""
+
+
 async def _netease_search(client: httpx.AsyncClient, title: str, artist: str) -> Optional[dict]:
-    """Search NetEase and return the best song dict with 'id' and 'name'."""
-    params = {"s": f"{title} {artist}", "type": 1, "limit": 5}
+    """Search NetEase and return the best-matching song.
+
+    Scores each candidate by title + artist similarity to the query and
+    rejects matches below a confidence threshold — better no lyrics than
+    wrong lyrics for a different song.
+    """
+    params = {"s": f"{title} {artist}".strip(), "type": 1, "limit": 8}
     try:
         resp = await _retryable_get(
             client,
@@ -207,11 +275,28 @@ async def _netease_search(client: httpx.AsyncClient, title: str, artist: str) ->
     if not songs:
         return None
 
-    # Pick the first result that matches artist loosely
+    best: Optional[dict] = None
+    best_score = 0.0
     for s in songs:
-        if artist and artist.lower() in (s.get("artist", "") or "").lower():
-            return s
-    return songs[0] if songs else None
+        cand_title = s.get("name", "") or ""
+        cand_artist = _netease_artist_names(s)
+        title_score = _match_score(title, cand_title)
+        artist_score = _match_score(artist, cand_artist) if artist else 0.5
+        score = title_score * 0.7 + artist_score * 0.3
+        if score > best_score:
+            best_score = score
+            best = s
+
+    log.info(
+        "NetEase match for '%s'/'%s' → %s (score=%.2f)",
+        title, artist,
+        (best.get("name") if best else None),
+        best_score,
+    )
+    # Reject low-confidence matches — wrong lyrics are worse than no lyrics
+    if best_score < 0.5:
+        return None
+    return best
 
 
 async def _fetch_netease_lrc(client: httpx.AsyncClient, song_id: int) -> Optional[str]:
@@ -250,22 +335,16 @@ async def fetch_netease(title: str, artist: str) -> Optional[LyricsResult]:
     return None
 
 
-async def _amll_ttml_lookup(netease_id: int) -> Optional[str]:
-    """Query AMLL TTML DB for word-level LRC given a NetEase numeric ID."""
-    # AMLL API: GET https://api.UtuOvO.com/lyric/{netease_id} or similar.
-    # We probe the known endpoint. If it returns 404, try another format.
-    # This is reverse-engineered from AMLL/QQMusic desktop apps.
+async def _amll_ttml_lookup(netease_id: int, client: httpx.AsyncClient) -> Optional[str]:
+    """Query AMLL TTML DB for word-level LRC given a NetEase numeric ID.
+
+    Must be called with an existing client (already inside _http_lock).
+    """
     url = f"https://api.utuwork.cn/lyric/{netease_id}"
     try:
-        async with _http_lock:
-            async with httpx.AsyncClient(follow_redirects=True) as client:
-                resp = await _retryable_get(
-                    client, url,
-                    timeout=_DEFAULT_TIMEOUT,
-                )
+        resp = await _retryable_get(client, url, timeout=_DEFAULT_TIMEOUT)
         if resp.status_code == 200:
             data = resp.json()
-            # AMLL may return { lrc: "...", timed: true } or plain text
             lrc = data.get("lrc") or data.get("lyric") or data.get("txt") or ""
             if lrc:
                 return lrc
@@ -285,7 +364,7 @@ async def fetch_amll(title: str, artist: str) -> Optional[LyricsResult]:
                 if not song:
                     return None
                 netease_id = song["id"]
-                lrc = await _amll_ttml_lookup(netease_id)
+                lrc = await _amll_ttml_lookup(netease_id, client)
                 if lrc:
                     return _build_result(lrc, source="amll_ttml", quality="official_word")
                 # Fall back to plain NetEase LRC if AMLL has no TTML

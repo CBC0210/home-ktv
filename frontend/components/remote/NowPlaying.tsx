@@ -3,7 +3,19 @@
 import Image from "next/image";
 import { useRef, useState, useCallback, useEffect } from "react";
 import type { Song, PlaybackState, ClientCommand, QueueItem } from "@/lib/types";
-import { getLyricsAss } from "@/lib/api";
+import { getLyricsAss, getLyricsText } from "@/lib/api";
+
+const LYRICS_SOURCE_LABEL: Record<string, string> = {
+  youtube_subtitle: "YouTube 字幕",
+  amll_ttml: "AMLL TTML",
+  amll_ttml_fallback_netease: "NetEase 雲音樂",
+  netease: "NetEase 雲音樂",
+  qq: "QQ 音樂",
+  syncedlyrics: "LRCLIB",
+  mojim: "魔鏡歌詞網",
+  kkbox: "KKBOX",
+  genius: "Genius",
+};
 
 interface Props {
   currentSong: Song | null;
@@ -74,6 +86,20 @@ export default function NowPlaying({
   const [assContent, setAssContent] = useState("");
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const [lyricsSaving, setLyricsSaving] = useState(false);
+  const [plainLyrics, setPlainLyrics] = useState<string>("");
+
+  // Fetch plain-text lyrics when song lacks word-level timing
+  useEffect(() => {
+    if (!currentSong || currentSong.has_timing) {
+      setPlainLyrics("");
+      return;
+    }
+    let cancelled = false;
+    getLyricsText(currentSong.id)
+      .then((t) => { if (!cancelled) setPlainLyrics(t); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [currentSong?.id, currentSong?.has_timing]);
 
   const openLyricsEditor = useCallback(async () => {
     if (!currentSong) return;
@@ -293,8 +319,8 @@ export default function NowPlaying({
               className="flex-1"
               style={{ background: `linear-gradient(to right, #7c3aed ${vocalVol * 100}%, rgba(255,255,255,0.15) ${vocalVol * 100}%)` }}
             />
-            <span className="text-white/30 text-xs w-6 text-right flex-shrink-0">
-              人聲
+            <span className="text-white/40 text-xs w-12 text-right flex-shrink-0 font-mono tabular-nums">
+              {Math.round(vocalVol * 100)}%
             </span>
           </div>
         </div>
@@ -311,6 +337,14 @@ export default function NowPlaying({
             </button>
           ))}
         </div>
+
+        {/* Plain-text lyrics fallback (when no word timing) */}
+        {currentSong && !currentSong.has_timing && (
+          <PlainTextLyrics
+            song={currentSong}
+            text={plainLyrics}
+          />
+        )}
 
         {/* Lyrics edit */}
         {currentSong?.has_timing && (
@@ -367,6 +401,52 @@ export default function NowPlaying({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function PlainTextLyrics({ song, text }: { song: Song; text: string }) {
+  const sourceLabel = song.lyrics_source ? LYRICS_SOURCE_LABEL[song.lyrics_source] ?? song.lyrics_source : null;
+  const searchQuery = encodeURIComponent(`${song.title} ${song.artist ?? ""}`.trim() + " 歌詞");
+
+  if (text) {
+    return (
+      <div className="bg-white/4 backdrop-blur rounded-2xl p-4 border border-white/8">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-white/40 text-xs">純文字歌詞</span>
+          {sourceLabel && (
+            <span className="text-violet-300/60 text-[10px]">來源：{sourceLabel}</span>
+          )}
+        </div>
+        <div className="max-h-64 overflow-y-auto">
+          <pre className="text-white/80 text-sm whitespace-pre-wrap leading-relaxed font-sans">{text}</pre>
+        </div>
+      </div>
+    );
+  }
+
+  // No lyrics at all — show search links
+  return (
+    <div className="bg-white/4 backdrop-blur rounded-2xl p-4 border border-white/8 text-center">
+      <p className="text-white/50 text-sm mb-3">沒找到歌詞 — 請自行搜尋</p>
+      <div className="flex flex-wrap justify-center gap-2">
+        {[
+          { name: "Google", url: `https://www.google.com/search?q=${searchQuery}` },
+          { name: "Mojim", url: `https://mojim.com/twh_search.php?keyword=${searchQuery}` },
+          { name: "Genius", url: `https://genius.com/search?q=${searchQuery}` },
+          { name: "YouTube", url: `https://www.youtube.com/results?search_query=${searchQuery}` },
+        ].map((l) => (
+          <a
+            key={l.name}
+            href={l.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-3 py-1.5 rounded-full bg-white/8 hover:bg-white/15 text-white/70 text-xs transition-colors"
+          >
+            {l.name}
+          </a>
+        ))}
+      </div>
     </div>
   );
 }

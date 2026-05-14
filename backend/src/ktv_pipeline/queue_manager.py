@@ -27,16 +27,23 @@ class QueueManager:
     def __init__(self, session: Session):
         self.session = session
 
+    # Statuses that mean a queue item is still active (visible in the queue).
+    ACTIVE_STATUSES = [
+        "playing", "pending", "processing", "ready",
+        # Pipeline stages — written by PipelineOrchestrator._update_state
+        "downloading", "separating", "fetching_lyrics", "aligning", "packaging",
+    ]
+
     def get_queue(self, room_id: str) -> List[QueueItem]:
         """Return the current queue for a room, ordered by position.
 
-        Includes pending (waiting for pipeline), processing (pipeline running),
-        and ready (processed, waiting to play) items. Excludes playing/done/failed.
+        Includes playing + every state where a song is still working toward
+        being playable. Excludes done / failed.
         """
         return (
             self.session.query(QueueItem)
             .filter_by(room_id=room_id)
-            .filter(QueueItem.status.in_(["playing", "pending", "processing", "ready"]))
+            .filter(QueueItem.status.in_(self.ACTIVE_STATUSES))
             .order_by(QueueItem.position)
             .all()
         )
@@ -60,7 +67,7 @@ class QueueManager:
         existing = self.session.query(QueueItem).filter(
             QueueItem.room_id == room_id,
             QueueItem.song_id == song_id,
-            QueueItem.status.in_(["pending", "processing", "ready", "playing"]),
+            QueueItem.status.in_(self.ACTIVE_STATUSES),
         ).first()
         if existing:
             raise ValueError(f"Song {song_id} already in queue (status={existing.status}, id={existing.id})")
@@ -190,7 +197,7 @@ class QueueManager:
         items = self.session.query(QueueItem).filter(
             QueueItem.room_id == room_id,
             QueueItem.position >= from_pos,
-            QueueItem.status.in_(["pending", "processing"]),
+            QueueItem.status.in_(self.ACTIVE_STATUSES),
         ).all()
         for item in items:
             item.position += shift

@@ -1,4 +1,5 @@
 """WebSocket endpoint — connection, authentication, message dispatch."""
+import logging
 import uuid
 from typing import List, Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, HTTPException
@@ -8,6 +9,7 @@ from ktv_pipeline.auth import decode_access_token
 from ktv_pipeline.database import get_db_session
 from ktv_pipeline.models import Room, Guest
 
+log = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -107,6 +109,13 @@ async def ws_endpoint(
             guests_info = await _get_room_guests_info(room_id_resolved)
             await manager.broadcast_guests_updated(room_id_resolved, guests_info)
 
+        # Send the current playback state to the newly-connected client so a
+        # refreshed Remote immediately shows correct volume / play state.
+        await manager.send_to_client(client_id, {
+            "type": "playback.state",
+            "state": manager.get_playback_state(room_id_resolved),
+        })
+
         # Dispatch loop
         while True:
             raw = await websocket.receive_text()
@@ -140,26 +149,36 @@ async def dispatch_message(
 
     msg_type = msg.get("type", "")
 
+    # Heartbeat — keep latency low and avoid log spam
+    if msg_type == "ping":
+        await manager.send_to_client(client_id, {"type": "pong"})
+        return
+
+    log.info("[WS in] room=%s role=%s msg_type=%s", room_id, role.value, msg_type)
+
     # ── Player status messages ─────────────────────────────────────────────────
     if role == ClientRole.PLAYER:
         if msg_type == "player.ready":
+            # Send the full known state — covers Remote refresh case so the
+            # phone immediately shows current volume / play state on connect.
+            state = manager.get_playback_state(room_id)
             await manager.send_to_role(room_id, ClientRole.REMOTE, {
                 "type": "playback.state",
-                "state": {"playing": False, "ready": True},
+                "state": state,
             })
         elif msg_type == "player.playing":
             position = msg.get("positionSec", 0)
+            manager.update_playback_state(room_id, position_sec=position, is_playing=True)
             await manager.send_to_role(room_id, ClientRole.REMOTE, {
                 "type": "song.progress",
                 "positionSec": position,
             })
         elif msg_type == "player.buffering":
-            await manager.send_to_role(room_id, ClientRole.REMOTE, {
-                "type": "playback.state",
-                "state": {"buffering": True},
-            })
+            # Just relay; frontend has no buffering UI yet
+            pass
         elif msg_type == "player.ended":
             # Natural end of song — advance to next
+            manager.update_playback_state(room_id, is_playing=False, position_sec=0)
             await _handle_song_advance(room_id)
         elif msg_type == "player.error":
             await manager.broadcast_system_error(room_id, msg.get("error", "Unknown player error"))
@@ -171,36 +190,42 @@ async def dispatch_message(
             await manager.broadcast_reaction(room_id, emoji, nickname)
 
         elif msg_type == "playback.play":
+            manager.update_playback_state(room_id, is_playing=True)
             await manager.send_to_role(room_id, ClientRole.PLAYER, {"type": "playback.play"})
-            # Echo state back so all remotes update their play/pause button
             await manager.send_to_role(room_id, ClientRole.REMOTE, {
                 "type": "playback.state", "state": {"is_playing": True}
             })
         elif msg_type == "playback.pause":
+            manager.update_playback_state(room_id, is_playing=False)
             await manager.send_to_role(room_id, ClientRole.PLAYER, {"type": "playback.pause"})
             await manager.send_to_role(room_id, ClientRole.REMOTE, {
                 "type": "playback.state", "state": {"is_playing": False}
             })
         elif msg_type == "playback.skip":
-            # Server-side: mark current song done and start next
+            manager.update_playback_state(room_id, is_playing=False, position_sec=0)
             await _handle_song_advance(room_id)
         elif msg_type == "playback.replay":
+            manager.update_playback_state(room_id, is_playing=True, position_sec=0)
             await manager.send_to_role(room_id, ClientRole.PLAYER, {"type": "playback.replay"})
             await manager.send_to_role(room_id, ClientRole.REMOTE, {
                 "type": "playback.state", "state": {"is_playing": True}
             })
         elif msg_type == "playback.seek":
             position = msg.get("positionSec", 0)
+            manager.update_playback_state(room_id, position_sec=position)
             await manager.send_to_role(room_id, ClientRole.PLAYER, {"type": "playback.seek", "positionSec": position})
 
         elif msg_type == "playback.setVolume":
+            main_v = float(msg["main"]) if "main" in msg else None
+            vocal_v = float(msg["vocal"]) if "vocal" in msg else None
+            manager.update_playback_state(room_id, main_volume=main_v, vocal_volume=vocal_v)
             fwd: dict = {"type": "playback.setVolume"}
-            if "main" in msg:
-                fwd["main"] = float(msg["main"])
-            if "vocal" in msg:
-                fwd["vocal"] = float(msg["vocal"])
+            if main_v is not None:
+                fwd["main"] = main_v
+            if vocal_v is not None:
+                fwd["vocal"] = vocal_v
+            log.info("[setVolume] room=%s fwd=%s", room_id, fwd)
             await manager.send_to_role(room_id, ClientRole.PLAYER, fwd)
-            # Echo to all remotes so their volume sliders stay in sync
             await manager.send_to_role(room_id, ClientRole.REMOTE, fwd)
 
         elif msg_type == "queue.add":
@@ -304,6 +329,7 @@ async def _handle_song_advance(room_id: str) -> None:
             current_item_id = playing.id
             mgr.mark_done(playing.id)
 
+    log.info("[advance] room=%s marked_done=%s", room_id, current_item_id)
     if current_item_id:
         await manager.broadcast_song_ended(room_id, current_item_id)
 
@@ -322,7 +348,9 @@ async def _start_next_song(room_id: str) -> None:
         mgr = QueueManager(session)
 
         # Guard: never interrupt a song that is already playing
-        if mgr.get_currently_playing(room_id):
+        playing = mgr.get_currently_playing(room_id)
+        if playing:
+            log.info("[start_next] room=%s blocked by currently-playing QI#%s", room_id, playing.id)
             return
 
         # First, promote any 'pending' items whose song is already processed
@@ -344,7 +372,8 @@ async def _start_next_song(room_id: str) -> None:
             .first()
         )
         if not next_item:
-            # Broadcast empty queue so clients update their UI
+            # No ready song. Refresh queue and notify caller; pipeline completion
+            # of any processing item will retrigger _start_next_song.
             queue = mgr.get_queue(room_id)
             song_map = {s.id: s for s in session.query(Song).all()}
             guest_map = {g.id: g for g in session.query(Guest).all()}
@@ -352,8 +381,20 @@ async def _start_next_song(room_id: str) -> None:
                 room_id,
                 [_qi_to_dict(qi, song_map.get(qi.song_id), guest_map.get(qi.guest_id)) for qi in queue],
             )
+            # If anything is mid-pipeline, surface its progress
+            processing = next(
+                (qi for qi in queue if qi.status in (
+                    "pending", "processing", "downloading", "separating",
+                    "fetching_lyrics", "aligning", "packaging",
+                )), None,
+            )
+            if processing:
+                await manager.broadcast_song_processing(
+                    room_id, processing.id, processing.status, 0,
+                )
             return
 
+        log.info("[start_next] room=%s picked QI#%s song=%s", room_id, next_item.id, next_item.song_id)
         item = mgr.mark_playing(next_item.id)
         if not item:
             return
@@ -383,6 +424,45 @@ async def _start_next_song(room_id: str) -> None:
     await manager.broadcast_song_started(room_id, song_dict, qi_dict)
     await manager.broadcast_queue_updated(room_id, queue_dicts)
 
+    # Anything still pending in the queue should be in pipeline.
+    await _preload_upcoming(room_id, skip_item_id=item.id)
+
+
+async def _preload_upcoming(room_id: str, *, skip_item_id: int) -> None:
+    """Trigger pipeline for every pending queue item.
+
+    No-op for items whose Song is already in-flight or ready. Pipeline tasks
+    are idempotent (each stage checks cache), so triggering twice is safe.
+    GPU stages serialize internally via _gpu_lock.
+    """
+    import asyncio
+    from ktv_pipeline.models import Song, QueueItem
+    from api.songs import _run_pipeline_task
+
+    started = 0
+    with get_db_session() as session:
+        upcoming = (
+            session.query(QueueItem)
+            .filter(
+                QueueItem.room_id == room_id,
+                QueueItem.id != skip_item_id,
+                QueueItem.status == "pending",
+            )
+            .order_by(QueueItem.position)
+            .all()
+        )
+        for qi in upcoming:
+            s = session.query(Song).filter_by(id=qi.song_id).first()
+            if not s:
+                continue
+            if s.status in ("processing", "downloading", "separating",
+                            "fetching_lyrics", "aligning", "packaging", "ready"):
+                continue
+            asyncio.create_task(_run_pipeline_task(qi.id, room_id))
+            started += 1
+    if started:
+        log.info("[preload] room=%s kicked %d pending pipelines", room_id, started)
+
 
 async def _handle_lyrics_edit(room_id: str, msg: dict) -> None:
     """Handle lyrics.edit from remote — overwrite cached ASS and notify Player."""
@@ -393,7 +473,7 @@ async def _handle_lyrics_edit(room_id: str, msg: dict) -> None:
         return
     try:
         from ktv_pipeline.config import settings
-        ass_path = settings.data_dir / "cache" / "lrc" / song_id / "vocal.ass"
+        ass_path = settings.data_dir / "media" / song_id / "lyrics.ass"
         ass_path.parent.mkdir(parents=True, exist_ok=True)
         ass_path.write_text(ass_content, encoding="utf-8")
         await manager.broadcast_lyrics_updated(room_id, song_id)

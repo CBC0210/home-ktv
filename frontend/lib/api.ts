@@ -167,7 +167,18 @@ export function lyricsUrl(songId: string): string {
 // Lyrics
 export async function getLyricsAss(songId: string): Promise<string> {
   const base = process.env.NEXT_PUBLIC_API_URL ?? "";
-  const res = await fetch(`${base}/songs/${songId}/lyrics.ass`, { credentials: "include" });
+  // Cache-bust so live ASS edits via WS show immediately on next subtitle init
+  const res = await fetch(`${base}/songs/${songId}/lyrics.ass?t=${Date.now()}`, {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (!res.ok) return "";
+  return res.text();
+}
+
+export async function getLyricsText(songId: string): Promise<string> {
+  const base = process.env.NEXT_PUBLIC_API_URL ?? "";
+  const res = await fetch(`${base}/songs/${songId}/lyrics.txt`, { credentials: "include" });
   if (!res.ok) return "";
   return res.text();
 }

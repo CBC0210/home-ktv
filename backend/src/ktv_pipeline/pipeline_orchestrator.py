@@ -184,6 +184,9 @@ class PipelineOrchestrator:
         self._heartbeat_task: Optional[asyncio.Task] = None
         self._cancel = asyncio.Event()
         self._started_at: Optional[datetime] = None
+        # Set in run_from_queue() so _update_state can broadcast to the room
+        self._queue_item_id: Optional[int] = None
+        self._room_id: Optional[str] = None
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -244,6 +247,8 @@ class PipelineOrchestrator:
             if not item:
                 return {"ok": False, "error": "queue_item_not_found", "perm": True}
             song_id = item.song_id
+            self._queue_item_id = queue_item_id
+            self._room_id = item.room_id
 
         # Update queue status → processing
         with get_db_session() as db:
@@ -452,8 +457,8 @@ class PipelineOrchestrator:
             "video": str(dl_result.video_path),
         }
 
-        # ASS file
-        if aligned_lrc:
+        # ASS file (only when we have timed LRC)
+        if aligned_lrc and lyrics_result.lyrics_type == "synced":
             try:
                 lrc_converter = self._lrc_converter
                 cache_dir = settings.data_dir / "media"
@@ -467,9 +472,27 @@ class PipelineOrchestrator:
             except ConversionError as exc:
                 log.warning("[%s] ASS conversion failed, skipping: %s", song_id, exc)
 
+        # Plain-text lyrics — always save the text version when we have any lyrics
+        if aligned_lrc:
+            import re as _re
+            text_lines = []
+            for line in aligned_lrc.splitlines():
+                stripped = _re.sub(r"\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]", "", line).strip()
+                if stripped:
+                    text_lines.append(stripped)
+            if text_lines:
+                txt_path = settings.data_dir / "media" / song_id / "lyrics.txt"
+                txt_path.parent.mkdir(parents=True, exist_ok=True)
+                txt_path.write_text("\n".join(text_lines), encoding="utf-8")
+                files["lyrics_text"] = str(txt_path)
+
         if sep_result:
             files["vocal"] = str(sep_result.vocal_path)
             files["instrumental"] = str(sep_result.instrumental_path)
+
+            # Eagerly convert WAV → Opus so first play is smooth
+            await self._convert_opus_async(sep_result.vocal_path)
+            await self._convert_opus_async(sep_result.instrumental_path)
 
         # Write Song record
         with get_db_session() as db:
@@ -487,13 +510,93 @@ class PipelineOrchestrator:
 
         return files
 
+    async def _convert_opus_async(self, wav_path: Path) -> None:
+        """Convert wav_path to .opus with loudness normalization.
+
+        Applies EBU R128 loudnorm to bring each track to -14 LUFS so the
+        Demucs-separated vocal isn't perceptually quieter than the
+        instrumental — without this the vocal slider feels useless because
+        the raw vocal track is typically ~5-15 dB quieter than the original.
+        """
+        opus_path = wav_path.with_suffix(".opus")
+        if opus_path.exists() and opus_path.stat().st_size > 0:
+            return
+        import subprocess
+
+        def _run() -> None:
+            try:
+                subprocess.run(
+                    ["ffmpeg", "-y", "-i", str(wav_path),
+                     "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
+                     "-c:a", "libopus", "-b:a", "128k", "-vbr", "on",
+                     str(opus_path)],
+                    capture_output=True, timeout=180,
+                )
+            except Exception as exc:
+                log.warning("Opus conversion failed for %s: %s", wav_path.name, exc)
+
+        await asyncio.to_thread(_run)
+        if opus_path.exists():
+            log.info("Converted %s → %s (loudnorm applied)", wav_path.name, opus_path.name)
+
     # ------------------------------------------------------------------
     # State / DB helpers
     # ------------------------------------------------------------------
 
+    # Rough progress percent per stage, for UI overlay
+    _STAGE_PERCENT = {
+        SongState.DOWNLOADING: 15,
+        SongState.SEPARATING: 35,
+        SongState.FETCHING_LYRICS: 55,
+        SongState.ALIGNING: 75,
+        SongState.PACKAGING: 90,
+        SongState.READY: 100,
+    }
+
     async def _update_state(self, song_id: str, state: SongState) -> None:
-        """Log state change; DB update done via heartbeat task."""
+        """Update DB stage label + broadcast song.processing to the room.
+
+        Frontend QueueList / NowPlaying STAGE_LABELS read from QueueItem.status,
+        so writing the stage name there lights up the right label without
+        adding a new field.
+        """
         log.info("[%s] State: %s", song_id, state.value)
+
+        # Update QueueItem.status to the stage name (kept in DB)
+        if self._queue_item_id is not None:
+            try:
+                with get_db_session() as db:
+                    item = db.query(QueueItem).filter(QueueItem.id == self._queue_item_id).first()
+                    if item:
+                        item.status = state.value
+                        item.last_heartbeat = _utcnow()
+            except Exception as exc:
+                log.debug("[%s] queue status update failed: %s", song_id, exc)
+
+        # Broadcast song.processing so clients can update their overlay
+        if self._room_id is not None and self._queue_item_id is not None:
+            try:
+                from .ws_manager import manager
+                percent = self._STAGE_PERCENT.get(state, 0)
+                await manager.broadcast_song_processing(
+                    self._room_id, self._queue_item_id, state.value, percent,
+                )
+                # Also refresh the queue list so QueueItem.status changes are visible
+                from api.ws import _qi_to_dict  # local import to avoid cycle at module load
+                from .queue_manager import QueueManager
+                from .models import Song as SongModel, Guest as GuestModel
+                with get_db_session() as db:
+                    mgr = QueueManager(db)
+                    queue = mgr.get_queue(self._room_id)
+                    song_map = {s.id: s for s in db.query(SongModel).all()}
+                    guest_map = {g.id: g for g in db.query(GuestModel).all()}
+                    queue_dicts = [
+                        _qi_to_dict(qi, song_map.get(qi.song_id), guest_map.get(qi.guest_id))
+                        for qi in queue
+                    ]
+                await manager.broadcast_queue_updated(self._room_id, queue_dicts)
+            except Exception as exc:
+                log.debug("[%s] broadcast failed: %s", song_id, exc)
 
     async def _mark_ready(self, song_id: str) -> None:
         with get_db_session() as db:

@@ -41,6 +41,27 @@ class ConnectionManager:
         self._client_locks: Dict[str, asyncio.Lock] = {}
         # Background task handles for cleanup
         self._background_tasks: Dict[str, asyncio.Task] = {}
+        # In-memory playback state per room — restored to refreshing clients
+        # so a new Remote join doesn't show stale default values.
+        self._playback_state: Dict[str, Dict] = {}
+
+    def get_playback_state(self, room_id: str) -> Dict:
+        """Return the current playback snapshot, with sensible defaults."""
+        s = self._playback_state.get(room_id, {})
+        return {
+            "is_playing": s.get("is_playing", False),
+            "main_volume": s.get("main_volume", 1.0),
+            "vocal_volume": s.get("vocal_volume", 0.0),
+            "position_sec": s.get("position_sec", 0),
+        }
+
+    def update_playback_state(self, room_id: str, **patch) -> Dict:
+        """Merge non-None values from *patch* into the room playback state."""
+        s = self._playback_state.setdefault(room_id, {})
+        for k, v in patch.items():
+            if v is not None:
+                s[k] = v
+        return self.get_playback_state(room_id)
 
     # ── Connection ─────────────────────────────────────────────────────────────
 

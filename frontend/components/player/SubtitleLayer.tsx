@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import type SubtitlesOctopus from "libass-wasm";
 import type { Song } from "@/lib/types";
+import { getLyricsAss } from "@/lib/api";
 
 interface Props {
   song: Song;
@@ -10,71 +11,68 @@ interface Props {
 }
 
 export default function SubtitleLayer({ song, videoRef }: Props) {
-  const containerRef = useRef<HTMLDivElement>(null);
   const octopusRef = useRef<SubtitlesOctopus | null>(null);
 
-  // Initialize libass renderer
+  // Initialize libass renderer. libass-wasm v4 requires a `video` or `canvas`
+  // element — passing `container` is no longer accepted.
   useEffect(() => {
-    if (!song.has_timing || !containerRef.current) return;
-
-    const container = containerRef.current;
-    const base = process.env.NEXT_PUBLIC_API_URL ?? "";
-    const assUrl = `${base}/songs/${song.id}/lyrics.ass`;
+    if (!song.has_timing) return;
+    const video = videoRef.current;
+    if (!video) return;
 
     let destroyed = false;
 
-    import("libass-wasm").then(({ default: SubtitlesOctopusClass }) => {
-      if (destroyed) return;
-
-      const instance = new SubtitlesOctopusClass({
-        subUrl: assUrl,
-        workerUrl: "/libass/subtitles-octopus-worker.js",
-        legacyWorkerUrl: "/libass/subtitles-octopus-worker-legacy.js",
-        targetFps: 30,
-        prescaleFactor: 1.0,
-        renderAhead: 0.5,
-        availableFonts: {},
-        fallbackFont: "Arial",
-        container,
-      });
-
-      octopusRef.current = instance;
-
-      // Sync to current video position immediately after load
-      const video = videoRef.current;
-      if (video) {
-        instance.setCurrentTime(video.currentTime);
+    (async () => {
+      let assContent = "";
+      try {
+        assContent = await getLyricsAss(song.id);
+      } catch (err) {
+        console.error("[SubtitleLayer] failed to fetch ASS:", err);
+        return;
       }
-    }).catch(() => {});
+      if (!assContent || destroyed) return;
+
+      try {
+        const { default: SubtitlesOctopusClass } = await import("libass-wasm");
+        if (destroyed) return;
+
+        const options = {
+          video,
+          subContent: assContent,
+          workerUrl: "/libass/subtitles-octopus-worker.js",
+          legacyWorkerUrl: "/libass/subtitles-octopus-worker-legacy.js",
+          targetFps: 30,
+          prescaleFactor: 1.0,
+          renderAhead: 0.5,
+          // LXGW WenKai TC — modern, traditional-Chinese-optimized writing
+          // font that looks much cleaner than WenQuanYi.
+          fallbackFont: "/libass/fallback.ttf",
+          availableFonts: { "黑体": "/libass/fallback.ttf" },
+          onReady: () => console.info("[SubtitleLayer] libass ready"),
+          onError: (e: unknown) => console.error("[SubtitleLayer] libass runtime error:", e),
+        } as unknown as ConstructorParameters<typeof SubtitlesOctopusClass>[0];
+
+        const instance = new SubtitlesOctopusClass(options);
+        octopusRef.current = instance;
+      } catch (err) {
+        console.error("[SubtitleLayer] libass init failed:", err);
+      }
+    })();
 
     return () => {
       destroyed = true;
-      octopusRef.current?.dispose();
+      try { octopusRef.current?.dispose(); } catch { /* ignore */ }
       octopusRef.current = null;
     };
   }, [song.id, song.has_timing]);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Drive subtitle position from video timeupdate (~4x/sec) for smooth karaoke
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    const onTimeUpdate = () => {
-      octopusRef.current?.setCurrentTime(video.currentTime);
-    };
-
-    video.addEventListener("timeupdate", onTimeUpdate);
-    return () => video.removeEventListener("timeupdate", onTimeUpdate);
-  }, [videoRef]);
+  // When libass attaches to a video element it auto-syncs to currentTime via
+  // the video's `timeupdate` event — no manual hookup needed.
 
   if (song.has_timing) {
-    return (
-      <div
-        ref={containerRef}
-        className="absolute inset-0 pointer-events-none"
-        aria-hidden
-      />
-    );
+    // libass creates its own canvas overlay positioned over the video element.
+    // We don't need a wrapping div; just render nothing here.
+    return null;
   }
 
   if (song.lyrics_source && song.lyrics_source !== "none") {

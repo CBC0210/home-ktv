@@ -36,12 +36,22 @@ export function useWebSocket(
   onConnectedRef.current = onConnected;
 
   const sendCommand = useCallback((cmd: ClientCommand) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(cmd));
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify(cmd));
+      } catch (err) {
+        console.warn("[WS] send failed:", err);
+      }
+    } else {
+      console.warn(`[WS] dropped ${cmd.type} (readyState=${ws?.readyState ?? "null"})`);
     }
   }, []);
 
   useEffect(() => {
+    // Skip until we have a token (except player which connects unauthenticated)
+    if (role !== "player" && !token) return;
+
     let destroyed = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let retryDelay = 1000;
@@ -55,6 +65,7 @@ export function useWebSocket(
       ws.onopen = () => {
         connectedRef.current = true;
         retryDelay = 1000;
+        console.info(`[WS] connected as ${role}`);
         onConnectedRef.current?.();
       };
       ws.onmessage = (e) => {
@@ -64,21 +75,41 @@ export function useWebSocket(
           // ignore malformed messages
         }
       };
-      ws.onclose = () => {
+      ws.onclose = (e) => {
         connectedRef.current = false;
-        wsRef.current = null;
+        if (wsRef.current === ws) wsRef.current = null;
         if (!destroyed) {
+          console.info(`[WS] closed (code=${e.code}), retry in ${retryDelay}ms`);
           retryTimer = setTimeout(() => {
             retryDelay = Math.min(retryDelay * 2, 30000);
             connect();
           }, retryDelay);
         }
       };
+      ws.onerror = () => {
+        // onclose will fire next; nothing else to do
+      };
     }
+
+    // When the tab becomes visible again on mobile, kick a reconnect if needed
+    function handleVisibility() {
+      if (document.visibilityState !== "visible") return;
+      const ws = wsRef.current;
+      if (!ws || ws.readyState >= WebSocket.CLOSING) {
+        if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+        retryDelay = 1000;
+        connect();
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("online", handleVisibility);
 
     connect();
     return () => {
       destroyed = true;
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("online", handleVisibility);
       if (retryTimer) clearTimeout(retryTimer);
       wsRef.current?.close();
       wsRef.current = null;

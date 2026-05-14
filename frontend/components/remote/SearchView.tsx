@@ -208,9 +208,9 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
 
             <div className="divide-y divide-white/5">
               {results.map((item) => (
-                <div key={item.id} className="flex items-center gap-3 px-4 py-3 hover:bg-white/4 transition-colors">
+                <div key={item.id} className="flex items-start gap-3 px-3 py-3 hover:bg-white/4 transition-colors">
                   {/* Thumbnail */}
-                  <div className="relative w-16 h-11 rounded-xl overflow-hidden bg-white/8 flex-shrink-0">
+                  <div className="relative w-14 h-10 mt-0.5 rounded-lg overflow-hidden bg-white/8 flex-shrink-0">
                     {item.thumbnail_url ? (
                       <Image src={item.thumbnail_url} alt={item.title} fill className="object-cover" unoptimized />
                     ) : (
@@ -227,40 +227,33 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
                     )}
                   </div>
 
-                  {/* Info */}
+                  {/* Info — wraps to 2 lines so long titles stay readable */}
                   <div className="flex-1 min-w-0">
-                    <p className="text-white text-sm truncate font-medium leading-tight">{item.title}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
+                    <p className="text-white text-sm font-medium leading-snug line-clamp-2 break-words">{item.title}</p>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
                       {item.channel && (
-                        <span className="text-white/40 text-xs truncate max-w-[110px]">{item.channel}</span>
+                        <span className="text-white/40 text-xs truncate max-w-[60%]">{item.channel}</span>
                       )}
                       {item.duration_sec != null && (
                         <span className="text-white/25 text-xs flex-shrink-0">{formatDuration(item.duration_sec)}</span>
                       )}
                       {item.cached && (
-                        <span className="text-emerald-400 text-xs font-medium flex-shrink-0">立即播放</span>
+                        <span className="text-emerald-400 text-xs font-medium flex-shrink-0">⚡立即</span>
                       )}
                     </div>
                   </div>
 
-                  {/* Actions */}
-                  <div className="flex gap-1.5 flex-shrink-0">
-                    <button
-                      onClick={() => handleAdd(item.url, "next")}
-                      disabled={adding === item.url}
-                      title="插播"
-                      className="text-xs bg-white/8 hover:bg-white/15 text-white/60 hover:text-white px-2.5 py-1.5 rounded-xl transition-colors disabled:opacity-40"
-                    >
-                      插播
-                    </button>
+                  {/* Actions — only the + button stays inline; insert-next via secondary tap */}
+                  <div className="flex flex-col gap-1 flex-shrink-0">
                     <button
                       onClick={() => handleAdd(item.url, "end")}
                       disabled={adding === item.url}
-                      className={`text-sm w-10 h-8 rounded-xl transition-all font-bold flex items-center justify-center ${
+                      className={`text-base w-9 h-9 rounded-xl transition-all font-bold flex items-center justify-center ${
                         addedId === item.url
                           ? "bg-emerald-600 text-white"
                           : "bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-40"
                       }`}
+                      title="加入隊列"
                     >
                       {adding === item.url ? (
                         <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
@@ -268,6 +261,14 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
                         </svg>
                       ) : addedId === item.url ? "✓" : "+"}
+                    </button>
+                    <button
+                      onClick={() => handleAdd(item.url, "next")}
+                      disabled={adding === item.url}
+                      title="插播"
+                      className="text-[10px] w-9 h-6 rounded-lg bg-white/8 hover:bg-white/15 text-white/55 hover:text-white transition-colors disabled:opacity-40 font-medium"
+                    >
+                      插播
                     </button>
                   </div>
                 </div>

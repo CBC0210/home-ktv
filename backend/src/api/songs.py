@@ -134,13 +134,30 @@ def youtube_search(q: str, limit: int = 10):
         if not result or "entries" not in result:
             return []
 
+        def _thumb_url(entry: dict) -> Optional[str]:
+            # extract_flat doesn't populate `thumbnail`; build the canonical
+            # YouTube URL from the video ID instead.
+            t = entry.get("thumbnail")
+            if t:
+                return t
+            thumbs = entry.get("thumbnails")
+            if isinstance(thumbs, list) and thumbs:
+                # Last entry is usually highest-res
+                best = thumbs[-1]
+                if isinstance(best, dict) and best.get("url"):
+                    return best["url"]
+            vid = entry.get("id")
+            if vid:
+                return f"https://i.ytimg.com/vi/{vid}/mqdefault.jpg"
+            return None
+
         return [
             {
                 "id": entry.get("id"),
                 "title": entry.get("title"),
                 "channel": entry.get("channel") or entry.get("uploader"),
                 "duration_sec": entry.get("duration"),
-                "thumbnail_url": entry.get("thumbnail"),
+                "thumbnail_url": _thumb_url(entry),
                 "url": f"https://www.youtube.com/watch?v={entry.get('id')}",
                 "cached": False,  # will be updated by frontend using local search
             }
@@ -336,13 +353,16 @@ def add_song(
     existing_item = (
         session.query(QueueItem)
         .filter_by(room_id=room_id, song_id=yt_id)
-        .filter(QueueItem.status.in_(["pending", "processing", "ready", "playing"]))
+        .filter(QueueItem.status.in_(QueueManager.ACTIVE_STATUSES))
         .first()
     )
     if existing_item:
         session.refresh(song)
-        # Song already in queue — still try to auto-start if nothing is playing yet
-        background_tasks.add_task(_try_start_if_idle, room_id)
+        if existing_item.status == "pending" and song.status not in ("ready", "processing"):
+            # Pending item with no active pipeline — (re)trigger it
+            background_tasks.add_task(_run_pipeline_task, existing_item.id, room_id)
+        else:
+            background_tasks.add_task(_try_start_if_idle, room_id)
         return song
 
     # Add to queue

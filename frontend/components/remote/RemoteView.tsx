@@ -61,6 +61,8 @@ export default function RemoteView({ roomId }: Props) {
   const [session, setSession] = useState<GuestSession | null>(null);
   const [loadingSession, setLoadingSession] = useState(true);
   const [hasPassword, setHasPassword] = useState(false);
+  const [systemError, setSystemError] = useState<string | null>(null);
+  const [reactionToast, setReactionToast] = useState<{ emoji: string; from: string } | null>(null);
 
   const {
     room,
@@ -130,6 +132,7 @@ export default function RemoteView({ roomId }: Props) {
       else if (event.type === "song.started") {
         setCurrentSong(event.song, event.queueItem);
         setIsPlaying(true);
+        setProcessing(null);  // pipeline finished — clear overlay
       }
       else if (event.type === "song.progress") updatePosition(event.positionSec);
       else if (event.type === "song.ended") {
@@ -146,6 +149,14 @@ export default function RemoteView({ roomId }: Props) {
       else if (event.type === "guests.updated") setGuests(event.guests);
       else if (event.type === "song.processing")
         setProcessing({ stage: event.stage, percent: event.percent });
+      else if (event.type === "system.error") {
+        setSystemError(event.message);
+        setTimeout(() => setSystemError(null), 5000);
+      }
+      else if (event.type === "reaction") {
+        setReactionToast({ emoji: event.emoji, from: event.from });
+        setTimeout(() => setReactionToast(null), 2500);
+      }
     },
     [setQueue, setCurrentSong, updatePosition, setPlayback, setGuests, setProcessing, setIsPlaying]
   );
@@ -221,6 +232,22 @@ export default function RemoteView({ roomId }: Props) {
           <RoomTab room={room} session={session} guests={guests} onLeave={handleLeave} />
         )}
       </main>
+
+      {/* System error toast */}
+      {systemError && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-40 bg-red-900/90 backdrop-blur border border-red-500/40 rounded-xl px-4 py-2.5 max-w-xs shadow-xl">
+          <p className="text-white text-xs font-medium">⚠ {systemError}</p>
+        </div>
+      )}
+
+      {/* Reaction toast */}
+      {reactionToast && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-40 bg-violet-900/90 backdrop-blur border border-violet-500/40 rounded-full px-4 py-2 shadow-xl">
+          <p className="text-white text-xs">
+            {reactionToast.emoji} {reactionToast.from}
+          </p>
+        </div>
+      )}
 
       {/* Bottom tab bar */}
       <nav className="fixed bottom-0 left-0 right-0 bg-[#111]/90 backdrop-blur-xl border-t border-white/6 flex z-30 safe-bottom">

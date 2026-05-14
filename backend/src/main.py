@@ -2,6 +2,9 @@
 import logging
 from contextlib import asynccontextmanager
 
+# Ensure pipeline stages are visible in journald
+logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -25,11 +28,33 @@ def _recover_stuck_queue_items() -> None:
             log.warning("Startup recovery: reset %d stuck queue items to pending", n)
 
 
+async def _kick_all_pending_pipelines() -> None:
+    """Re-trigger pipeline for every room's pending items (after recovery)."""
+    import asyncio
+    from ktv_pipeline.models import QueueItem
+    from api.songs import _run_pipeline_task
+
+    with get_db_session() as session:
+        pending = (
+            session.query(QueueItem)
+            .filter(QueueItem.status == "pending")
+            .order_by(QueueItem.position)
+            .all()
+        )
+    started = 0
+    for qi in pending:
+        asyncio.create_task(_run_pipeline_task(qi.id, qi.room_id))
+        started += 1
+    if started:
+        log.info("Startup: kicked %d pending pipelines", started)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     init_db()
     _recover_stuck_queue_items()
+    await _kick_all_pending_pipelines()
     yield
     # Shutdown — nothing persistent to clean up for now
 
