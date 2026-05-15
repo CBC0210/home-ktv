@@ -83,6 +83,63 @@ async def _kick_all_pending_pipelines() -> None:
         log.info("Startup: kicked %d pending pipelines", started)
 
 
+# Rooms with zero connected clients for longer than this get their queue
+# cleared and go to standby — stops pipeline/playback churn on idle rooms.
+IDLE_CLEANUP_MINUTES = 30
+_room_empty_since: dict = {}
+
+
+async def _idle_room_cleanup_loop() -> None:
+    """Every 5 min: any room with no WS clients for >30 min → clear its
+    active queue + reset playback → standby. Saves resources."""
+    import asyncio
+    from datetime import datetime, timezone
+    from ktv_pipeline.ws_manager import manager
+    from ktv_pipeline.models import QueueItem, Room
+    from ktv_pipeline.queue_manager import QueueManager
+
+    while True:
+        await asyncio.sleep(300)
+        try:
+            now = datetime.now(timezone.utc)
+            with get_db_session() as s:
+                room_ids = [r.id for r in s.query(Room.id).all()]
+            for rid in room_ids:
+                has_clients = len(manager.get_room_clients(rid)) > 0
+                if has_clients:
+                    _room_empty_since.pop(rid, None)
+                    continue
+                with get_db_session() as s:
+                    active = (
+                        s.query(QueueItem)
+                        .filter(QueueItem.room_id == rid)
+                        .filter(QueueItem.status.in_(QueueManager.ACTIVE_STATUSES))
+                        .count()
+                    )
+                if active == 0:
+                    _room_empty_since.pop(rid, None)
+                    continue
+                since = _room_empty_since.setdefault(rid, now)
+                if (now - since).total_seconds() < IDLE_CLEANUP_MINUTES * 60:
+                    continue
+                # Idle long enough — clear the room's queue
+                with get_db_session() as s:
+                    n = (
+                        s.query(QueueItem)
+                        .filter(QueueItem.room_id == rid)
+                        .filter(QueueItem.status.in_(QueueManager.ACTIVE_STATUSES))
+                        .update({"status": "done"}, synchronize_session=False)
+                    )
+                    s.commit()
+                _room_empty_since.pop(rid, None)
+                manager.update_playback_state(rid, is_playing=False, position_sec=0)
+                await manager.broadcast_song_ended(rid, -1)
+                await manager.broadcast_queue_updated(rid, [])
+                log.info("Idle cleanup: room %s cleared %d items → standby", rid, n)
+        except Exception as exc:
+            log.warning("idle cleanup loop error: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -94,6 +151,7 @@ async def lifespan(app: FastAPI):
     import asyncio
     asyncio.create_task(asyncio.to_thread(_seed_default_admin_passwords))
     await _kick_all_pending_pipelines()
+    asyncio.create_task(_idle_room_cleanup_loop())
     yield
     # Shutdown — nothing persistent to clean up for now
 

@@ -332,6 +332,36 @@ export default function NowPlaying({
           </div>
         </div>
 
+        {/* Autoplay — admin only */}
+        {adminMode && (
+          <button
+            onClick={() => sendCommand({ type: "autoplay.set", enabled: !playback.autoplay })}
+            className={`flex items-center justify-between rounded-2xl px-4 py-3 border transition-colors ${
+              playback.autoplay
+                ? "bg-violet-600/20 border-violet-500/40"
+                : "bg-white/4 border-white/8"
+            }`}
+          >
+            <div className="text-left">
+              <p className="text-white text-sm font-medium">🔀 自動播放</p>
+              <p className="text-white/40 text-[11px] mt-0.5">
+                隊列快空時依最後一首的曲風自動推薦並預先處理
+              </p>
+            </div>
+            <span
+              className={`w-11 h-6 rounded-full flex-shrink-0 relative transition-colors ${
+                playback.autoplay ? "bg-violet-500" : "bg-white/15"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${
+                  playback.autoplay ? "left-[22px]" : "left-0.5"
+                }`}
+              />
+            </span>
+          </button>
+        )}
+
         {/* Reactions */}
         <div className="flex justify-around px-4">
           {["🔥", "👏", "😂", "❤️", "🎉"].map((emoji) => (

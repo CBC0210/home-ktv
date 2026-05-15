@@ -65,6 +65,7 @@ export interface PlaybackState {
   vocal_volume: number;
   pitch_semitones: number;
   speed_rate: number;
+  autoplay?: boolean;
 }
 
 export type ServerEvent =
@@ -111,6 +112,7 @@ export type ClientCommand =
   | { type: "lyrics.edit"; songId: string; ass: string }
   | { type: "lyrics.offset"; songId: string; offsetMs: number }
   | { type: "guest.kick"; guestId: string }
+  | { type: "autoplay.set"; enabled: boolean }
   | { type: "guest.updateNickname"; nickname: string };
 
 export interface GuestSession {

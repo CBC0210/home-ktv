@@ -256,10 +256,27 @@ async def dispatch_message(
         elif msg_type == "guest.kick":
             await _handle_guest_kick(room_id, guest_id, msg)
 
+        elif msg_type == "autoplay.set":
+            await _handle_autoplay_set(room_id, guest_id, msg)
+
     # ── Admin messages ─────────────────────────────────────────────────────────
     elif role == ClientRole.ADMIN:
         # Admin has full access; delegate to queue/rooms routers
         await manager.send_to_client(client_id, {"type": "system.error", "message": "Admin WS commands not yet implemented"})
+
+
+def _drop_pending_autopicks(room_id: str) -> None:
+    """Remove not-yet-playing auto-picked items so autoplay re-evaluates
+    against the new last song after a real user adds one."""
+    from ktv_pipeline.models import QueueItem
+    with get_db_session() as s:
+        ap_gid = _autoplay_guest_id(s)
+        s.query(QueueItem).filter(
+            QueueItem.room_id == room_id,
+            QueueItem.guest_id == ap_gid,
+            QueueItem.status != "playing",
+        ).delete(synchronize_session=False)
+        s.commit()
 
 
 async def _handle_queue_add(room_id: str, guest_id: str, nickname: str, msg: dict) -> None:
@@ -268,6 +285,7 @@ async def _handle_queue_add(room_id: str, guest_id: str, nickname: str, msg: dic
     if not song_id:
         await manager.broadcast_system_error(room_id, "queue.add: missing song_id")
         return
+    _drop_pending_autopicks(room_id)
     from ktv_pipeline.queue_manager import QueueManager
     from ktv_pipeline.database import get_db_session
     try:
@@ -454,6 +472,172 @@ async def _start_next_song(room_id: str) -> None:
 
     # Anything still pending in the queue should be in pipeline.
     await _preload_upcoming(room_id, skip_item_id=item.id)
+
+    # Autoplay: if near the end of the queue, pre-pick a recommendation.
+    await _maybe_autopick(room_id)
+
+
+AUTOPLAY_GUEST_NICK = "__autoplay__"
+
+
+def _autoplay_guest_id(session) -> str:
+    """Get/create the synthetic guest that owns auto-picked songs."""
+    from ktv_pipeline.models import Guest
+    g = session.query(Guest).filter_by(nickname=AUTOPLAY_GUEST_NICK).first()
+    if not g:
+        g = Guest(nickname=AUTOPLAY_GUEST_NICK, avatar_color="#6366f1", is_admin=False)
+        session.add(g)
+        session.commit()
+        session.refresh(g)
+    return g.id
+
+
+async def _handle_autoplay_set(room_id: str, requester_id: str, msg: dict) -> None:
+    """Admin-only toggle of the room's autoplay flag."""
+    from ktv_pipeline.models import Guest
+    with get_db_session() as s:
+        r = s.query(Guest).filter_by(id=requester_id).first()
+        if not r or not r.is_admin:
+            await manager.broadcast_system_error(room_id, "autoplay: 需要管理員權限")
+            return
+    enabled = bool(msg.get("enabled"))
+    manager.set_autoplay(room_id, enabled)
+    state = manager.get_playback_state(room_id)
+    await manager.send_to_role(room_id, ClientRole.REMOTE, {
+        "type": "playback.state", "state": state,
+    })
+    await manager.broadcast_activity(
+        room_id, f"🔀 自動播放{'開啟' if enabled else '關閉'}", "管理員",
+    )
+    if enabled:
+        await _maybe_autopick(room_id)
+
+
+async def _maybe_autopick(room_id: str) -> None:
+    """If autoplay is on and the queue is nearly empty, pick a song by the
+    LAST queued song's artist/genre, enqueue + process it (cached ahead)."""
+    if not manager.get_autoplay(room_id):
+        return
+    from ktv_pipeline.models import QueueItem, Song
+    from ktv_pipeline.queue_manager import QueueManager
+
+    with get_db_session() as s:
+        ap_gid = _autoplay_guest_id(s)
+        active = (
+            s.query(QueueItem)
+            .filter(QueueItem.room_id == room_id)
+            .filter(QueueItem.status.in_(QueueManager.ACTIVE_STATUSES))
+            .order_by(QueueItem.position)
+            .all()
+        )
+        # User (non-auto) items still waiting after the playing one
+        waiting_user = [
+            qi for qi in active
+            if qi.status != "playing" and qi.guest_id != ap_gid
+        ]
+        already_auto = [
+            qi for qi in active
+            if qi.guest_id == ap_gid and qi.status != "playing"
+        ]
+        # Trigger only when ≤1 user song remains and no auto pick pending
+        if len(waiting_user) > 1 or already_auto:
+            return
+        # Seed = last queued song, else the currently playing one
+        seed_qi = active[-1] if active else None
+        if not seed_qi:
+            return
+        seed_song = s.query(Song).filter_by(id=seed_qi.song_id).first()
+        if not seed_song:
+            return
+        seed_title = seed_song.title or ""
+        seed_artist = seed_song.artist or ""
+        existing_ids = {qi.song_id for qi in active}
+
+    # Clean the seed to an artist via the LLM (cached) → regex fallback
+    try:
+        from ktv_pipeline.llm import clean_title_llm
+        from ktv_pipeline.pipeline.lyrics import clean_song_query
+        llm = await clean_title_llm(seed_title, seed_artist)
+        if llm and llm.get("artist"):
+            artist = llm["artist"]
+            genre = llm.get("genre", "")
+        else:
+            _t, artist = clean_song_query(seed_title, seed_artist)
+            genre = ""
+    except Exception:
+        artist = seed_artist or seed_title
+        genre = ""
+
+    query = (artist or seed_title).strip()
+    if genre:
+        query = f"{artist} {genre}".strip()
+    if not query:
+        return
+
+    # YouTube-search a fresh song by the seed artist/genre
+    try:
+        import yt_dlp
+        opts = {
+            "quiet": True, "no_warnings": True,
+            "extract_flat": "in_playlist", "noplaylist": True,
+            "default_search": "ytsearch",
+        }
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            res = ydl.extract_info(f"ytsearch8:{query}", download=False)
+        entries = (res or {}).get("entries", []) or []
+    except Exception as exc:
+        log.warning("[autopick] yt search failed: %s", exc)
+        return
+
+    pick_id = None
+    for e in entries:
+        vid = e.get("id")
+        dur = e.get("duration") or 0
+        if not vid or vid in existing_ids:
+            continue
+        if dur and (dur < 60 or dur > 600):  # skip clips / hour-long mixes
+            continue
+        pick_id = vid
+        pick_title = e.get("title") or vid
+        break
+    if not pick_id:
+        return
+
+    # Enqueue under the autoplay guest + kick its pipeline
+    from ktv_pipeline.models import Song as SongM
+    with get_db_session() as s:
+        ap_gid = _autoplay_guest_id(s)
+        if not s.query(SongM).filter_by(id=pick_id).first():
+            s.add(SongM(id=pick_id, title=f"YouTube:{pick_id}", artist="", status="pending"))
+            s.commit()
+        mgr = QueueManager(s)
+        try:
+            qi = mgr.add_song(room_id=room_id, song_id=pick_id,
+                              guest_id=ap_gid, position="end")
+        except ValueError:
+            return
+        qid = qi.id
+    log.info("[autopick] room=%s seed=%r → %s (%s)", room_id, artist, pick_id, pick_title[:40])
+    import asyncio
+    from api.songs import _run_pipeline_task
+    asyncio.create_task(_run_pipeline_task(qid, room_id))
+    await manager.broadcast_activity(room_id, f"🎲 自動推薦：{pick_title[:24]}", "自動播放")
+    await _broadcast_queue_update_safe(room_id)
+
+
+async def _broadcast_queue_update_safe(room_id: str) -> None:
+    try:
+        from ktv_pipeline.queue_manager import QueueManager
+        from ktv_pipeline.models import Song, Guest
+        with get_db_session() as s:
+            mgr = QueueManager(s)
+            q = mgr.get_queue(room_id)
+            sm = {x.id: x for x in s.query(Song).all()}
+            gm = {x.id: x for x in s.query(Guest).all()}
+            qd = [_qi_to_dict(qi, sm.get(qi.song_id), gm.get(qi.guest_id)) for qi in q]
+        await manager.broadcast_queue_updated(room_id, qd)
+    except Exception:
+        pass
 
 
 async def _preload_upcoming(room_id: str, *, skip_item_id: int) -> None:

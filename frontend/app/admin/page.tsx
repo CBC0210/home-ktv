@@ -14,6 +14,7 @@ import {
   adminClearCache,
   adminListSavedSongs,
   adminDeleteSavedSong,
+  adminClearLeaderboard,
   adminGetSystemStatus,
   type SavedSong,
   adminGetRoomDetail,
@@ -686,6 +687,18 @@ function CacheTab() {
             </button>
             <button onClick={() => handleClear("all")} disabled={clearing} className="bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white px-4 py-2 rounded text-sm font-medium">
               {clearing ? "清除中…" : "清除全部"}
+            </button>
+            <button
+              onClick={async () => {
+                if (!confirm("清除所有排行榜資料（播放歷史 + 播放次數歸零）？")) return;
+                try {
+                  const r = await adminClearLeaderboard();
+                  alert(`已清除 ${r.removed} 筆播放記錄`);
+                } catch { alert("清除失敗"); }
+              }}
+              className="bg-orange-700 hover:bg-orange-600 text-white px-4 py-2 rounded text-sm font-medium"
+            >
+              清除排行榜
             </button>
           </div>
         </>

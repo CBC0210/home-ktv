@@ -342,6 +342,14 @@ def add_song(
     guest_id = payload["sub"]
     yt_id = extract_youtube_id(data.youtube_url)
 
+    # A real user is adding a song → discard any pending autoplay pick so it
+    # gets re-evaluated against the new last song.
+    try:
+        from api.ws import _drop_pending_autopicks
+        _drop_pending_autopicks(room_id)
+    except Exception:
+        pass
+
     # Check if song already exists
     song = session.query(Song).filter_by(id=yt_id).first()
 

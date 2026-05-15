@@ -44,6 +44,15 @@ class ConnectionManager:
         # In-memory playback state per room — restored to refreshing clients
         # so a new Remote join doesn't show stale default values.
         self._playback_state: Dict[str, Dict] = {}
+        # Per-room autoplay flag (admin-controlled). In-memory; resets on
+        # backend restart (acceptable — admin re-toggles).
+        self._autoplay: Dict[str, bool] = {}
+
+    def get_autoplay(self, room_id: str) -> bool:
+        return self._autoplay.get(room_id, False)
+
+    def set_autoplay(self, room_id: str, enabled: bool) -> None:
+        self._autoplay[room_id] = bool(enabled)
 
     def get_playback_state(self, room_id: str) -> Dict:
         """Return the current playback snapshot, with sensible defaults."""
@@ -53,6 +62,7 @@ class ConnectionManager:
             "main_volume": s.get("main_volume", 1.0),
             "vocal_volume": s.get("vocal_volume", 0.0),
             "position_sec": s.get("position_sec", 0),
+            "autoplay": self.get_autoplay(room_id),
         }
 
     def update_playback_state(self, room_id: str, **patch) -> Dict:

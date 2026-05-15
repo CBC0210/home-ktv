@@ -397,6 +397,25 @@ def clear_all_songs(
     return {"status": "ok", "songs": n_songs, "queue_items": n_queue}
 
 
+@router.delete("/leaderboard")
+def clear_leaderboard(
+    room_id: Optional[str] = Query(None, description="Limit to one room; omit = all"),
+    session: Session = Depends(get_session),
+    _=Depends(require_admin),
+):
+    """Wipe play history (the leaderboard data source). Also resets each
+    song's play_count so 歷史經典/本月熱門 start fresh."""
+    from ktv_pipeline.models import PlayHistory
+    q = session.query(PlayHistory)
+    if room_id:
+        q = q.filter(PlayHistory.room_id == room_id)
+    n = q.delete(synchronize_session=False)
+    if not room_id:
+        session.query(Song).update({"play_count": 0}, synchronize_session=False)
+    session.commit()
+    return {"status": "ok", "removed": n, "scope": room_id or "all"}
+
+
 # ── Error Logs ────────────────────────────────────────────────────────────────
 
 @router.get("/error-logs")

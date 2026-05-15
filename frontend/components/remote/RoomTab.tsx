@@ -1,18 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useKtvStore, type PlayerTheme } from "@/lib/stores";
 import { getRoomStats, getProcessingStats, type RoomStats, type ProcessingStats } from "@/lib/api";
 
 // Recharts lazy import
 import { PieChart, Pie, Cell, Tooltip as ReTooltip, BarChart, Bar, XAxis, YAxis, Cell as BarCell } from "recharts";
-
-const THEMES: { id: PlayerTheme; label: string; preview: string }[] = [
-  { id: "default", label: "預設暗色", preview: "bg-gray-900" },
-  { id: "party", label: "派對", preview: "bg-gradient-to-r from-pink-800 to-purple-800" },
-  { id: "elegant", label: "典雅", preview: "bg-slate-900" },
-  { id: "retro", label: "復古", preview: "bg-amber-900" },
-];
 
 interface Props {
   room: { id: string; name: string; has_password: boolean };
@@ -165,7 +157,6 @@ function TotalPlaysCard({ stats }: { stats: RoomStats }) {
 
 export default function RoomTab({ room, session, guests, onLeave, adminMode = false, onKick }: Props) {
   const [copied, setCopied] = useState(false);
-  const { theme, setTheme } = useKtvStore();
   const [stats, setStats] = useState<RoomStats | null>(null);
   const [procStats, setProcStats] = useState<ProcessingStats | null>(null);
   const [loadingStats, setLoadingStats] = useState(false);
