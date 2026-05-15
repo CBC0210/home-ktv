@@ -56,6 +56,7 @@ export default function PlayerView({ roomId }: Props) {
   const [remoteUrl, setRemoteUrl] = useState<string>("");
   const [audioBlocked, setAudioBlocked] = useState(false);
   const [subtitleRevision, setSubtitleRevision] = useState(0);
+  const [subtitleOffsetMs, setSubtitleOffsetMs] = useState(0);
   const [reactions, setReactions] = useState<{ id: number; emoji: string; from: string; x: number }[]>([]);
   const [systemError, setSystemError] = useState<string | null>(null);
   const [videoPosition, setVideoPosition] = useState(0);
@@ -207,6 +208,7 @@ export default function PlayerView({ roomId }: Props) {
           break;
         case "song.started":
           setCurrentSong(event.song, event.queueItem);
+          setSubtitleOffsetMs(event.song?.subtitle_offset_ms ?? 0);
           setProcessing(null);
           break;
         case "song.progress":
@@ -262,6 +264,9 @@ export default function PlayerView({ roomId }: Props) {
           break;
         case "lyrics.updated":
           setSubtitleRevision((r) => r + 1);
+          break;
+        case "lyrics.offset":
+          setSubtitleOffsetMs(event.offsetMs);
           break;
         case "reaction": {
           const id = Date.now() + Math.random();
@@ -385,12 +390,30 @@ export default function PlayerView({ roomId }: Props) {
     };
     video.addEventListener("error", handleVideoError);
 
-    // Resync audio to video to prevent drift
+    // Keep audio locked to the video clock WITHOUT constant hard seeks.
+    // Hard-seeking every timeupdate (~4×/s) makes the vocal stutter and
+    // sound sped-up/slowed-down. Instead: tiny drift → nudge playbackRate
+    // so it converges smoothly; only a big gap (real desync / user seek)
+    // gets a single hard seek.
+    const softSync = (el: HTMLAudioElement | null, vt: number) => {
+      if (!el || el.readyState < 2 || el.paused) return;
+      const drift = el.currentTime - vt;        // +ve = audio ahead
+      const ad = Math.abs(drift);
+      if (ad > 0.45) {
+        el.currentTime = vt;                    // real desync — snap once
+        el.playbackRate = 1;
+      } else if (ad > 0.04) {
+        // Converge over ~1-2s; clamp so pitch shift is inaudible
+        el.playbackRate = Math.max(0.97, Math.min(1.03, 1 - drift * 0.5));
+      } else {
+        el.playbackRate = 1;                    // in sync
+      }
+    };
     const handleTimeUpdate = () => {
       const vt = video.currentTime;
       setVideoPosition(vt);
-      if (vocal && Math.abs(vocal.currentTime - vt) > 0.15) vocal.currentTime = vt;
-      if (instr && Math.abs(instr.currentTime - vt) > 0.15) instr.currentTime = vt;
+      softSync(vocal, vt);
+      softSync(instr, vt);
     };
     video.addEventListener("timeupdate", handleTimeUpdate);
 
@@ -477,7 +500,12 @@ export default function PlayerView({ roomId }: Props) {
 
       {/* ── Subtitle layer (only when has timing) ─────────────────────────── */}
       {isPlaying && currentSong?.has_timing && (
-        <SubtitleLayer key={subtitleRevision} song={currentSong} videoRef={videoRef} />
+        <SubtitleLayer
+          key={subtitleRevision}
+          song={currentSong}
+          videoRef={videoRef}
+          offsetMs={subtitleOffsetMs}
+        />
       )}
 
       {/* ── Standby UI ────────────────────────────────────────────────────── */}

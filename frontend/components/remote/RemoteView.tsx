@@ -6,6 +6,7 @@ import { useWebSocket } from "@/lib/ws";
 import { getRoom, getQueue, getOnlineGuests, setGuestToken, verifyRoomAdmin } from "@/lib/api";
 import type { GuestSession, ServerEvent, ClientCommand } from "@/lib/types";
 import JoinForm from "./JoinForm";
+import InstallPrompt from "./InstallPrompt";
 import NowPlaying from "./NowPlaying";
 import QueueList from "./QueueList";
 import SearchView from "./SearchView";
@@ -299,6 +300,7 @@ export default function RemoteView({ roomId }: Props) {
             playback={playback}
             processing={processing}
             sendCommand={wsCommand}
+            adminMode={adminMode}
           />
         )}
         {tab === "queue" && (
@@ -313,7 +315,14 @@ export default function RemoteView({ roomId }: Props) {
           <SearchView roomId={roomId} token={session.token} />
         )}
         {tab === "room" && room && (
-          <RoomTab room={room} session={session} guests={guests} onLeave={handleLeave} />
+          <RoomTab
+            room={room}
+            session={session}
+            guests={guests}
+            onLeave={handleLeave}
+            adminMode={adminMode}
+            onKick={(gid) => wsCommand({ type: "guest.kick", guestId: gid })}
+          />
         )}
       </main>
 
@@ -332,6 +341,8 @@ export default function RemoteView({ roomId }: Props) {
           </p>
         </div>
       )}
+
+      <InstallPrompt />
 
       {/* Bottom tab bar */}
       <nav className="fixed bottom-0 left-0 right-0 bg-[#111]/90 backdrop-blur-xl border-t border-white/6 flex z-30 safe-bottom">

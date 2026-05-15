@@ -15,10 +15,10 @@ interface Props {
   onAdded?: () => void;
 }
 
+// "personal/我的最愛" moved to 資料庫 tab (歷史 / 喜歡的歌曲) — no duplicate here.
 const CATEGORIES: { id: LeaderboardCategory; label: string; emoji: string }[] = [
   { id: "all_time", label: "歷史經典", emoji: "🏆" },
   { id: "monthly_hot", label: "本月熱門", emoji: "🔥" },
-  { id: "personal", label: "我的最愛", emoji: "💜" },
 ];
 
 function formatDuration(sec: number | null): string {

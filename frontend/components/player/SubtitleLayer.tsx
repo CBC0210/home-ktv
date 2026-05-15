@@ -8,10 +8,16 @@ import { getLyricsAss } from "@/lib/api";
 interface Props {
   song: Song;
   videoRef: React.RefObject<HTMLVideoElement | null>;
+  /** Positive = subtitles shown LATER (delayed). Applied live, no reload. */
+  offsetMs?: number;
 }
 
-export default function SubtitleLayer({ song, videoRef }: Props) {
+export default function SubtitleLayer({ song, videoRef, offsetMs = 0 }: Props) {
   const octopusRef = useRef<SubtitlesOctopus | null>(null);
+
+  // libass `timeOffset` is added to video.currentTime. To DELAY subtitles
+  // (positive offsetMs) we must feed it a SMALLER time → negate.
+  const libassOffset = -offsetMs / 1000;
 
   // Initialize libass renderer. libass-wasm v4 requires a `video` or `canvas`
   // element — passing `container` is no longer accepted.
@@ -53,6 +59,7 @@ export default function SubtitleLayer({ song, videoRef }: Props) {
             "黑體": "/libass/fallback.ttf",
             "Noto Sans CJK SC": "/libass/notocjk.otf",
           },
+          timeOffset: libassOffset,
           onReady: () => console.info("[SubtitleLayer] libass ready"),
           onError: (e: unknown) => console.error("[SubtitleLayer] libass runtime error:", e),
         } as unknown as ConstructorParameters<typeof SubtitlesOctopusClass>[0];
@@ -70,6 +77,12 @@ export default function SubtitleLayer({ song, videoRef }: Props) {
       octopusRef.current = null;
     };
   }, [song.id, song.has_timing]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Live offset adjustment — no reload, libass picks up timeOffset per frame.
+  useEffect(() => {
+    const inst = octopusRef.current as unknown as { timeOffset?: number } | null;
+    if (inst) inst.timeOffset = libassOffset;
+  }, [libassOffset]);
 
   // When libass attaches to a video element it auto-syncs to currentTime via
   // the video's `timeupdate` event — no manual hookup needed.

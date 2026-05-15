@@ -1,7 +1,17 @@
 """Admin authentication — verify admin password, issue admin JWT."""
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from ktv_pipeline.schemas import SessionOut, GuestOut
+
+
+class AdminLoginBody(BaseModel):
+    password: str
+
+
+class AdminPasswordBody(BaseModel):
+    new_password: str
+    current_password: str
 from ktv_pipeline.auth import (
     verify_admin_password,
     create_access_token,
@@ -17,9 +27,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/admin/login")
-def admin_login(password: str) -> SessionOut:
+def admin_login(body: AdminLoginBody) -> SessionOut:
     """Verify admin password and return a session token with is_admin=True."""
-    if not verify_admin_password(password):
+    if not verify_admin_password(body.password):
         raise HTTPException(status_code=401, detail="Incorrect admin password")
 
     # Get or create the system admin guest
@@ -45,14 +55,14 @@ def admin_login(password: str) -> SessionOut:
 
 
 @router.post("/admin/password")
-def admin_change_password(new_password: str, current_password: str) -> dict:
+def admin_change_password(body: AdminPasswordBody) -> dict:
     """Change the admin password. Requires knowing the current password."""
     from ktv_pipeline.config import settings
 
-    if not verify_admin_password(current_password):
+    if not verify_admin_password(body.current_password):
         raise HTTPException(status_code=401, detail="Current password incorrect")
 
-    if len(new_password) < 8:
+    if len(body.new_password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
     # Note: for security, the admin password is set via config/settings.admin_password

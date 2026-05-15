@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Optional, Tuple
+from typing import Optional
 
 import httpx
 
@@ -19,14 +19,17 @@ from .config import settings
 log = logging.getLogger(__name__)
 
 _PROMPT = (
-    "You clean YouTube music video titles into the real song name and "
-    "performer. Rules:\n"
+    "You clean YouTube music video titles into the real song name, "
+    "performer, and a genre. Rules:\n"
     "- Prefer the original-language name (keep Chinese in Chinese, do not "
     "translate or romanize).\n"
     "- Drop noise: Official/MV/Music Video/Lyric/Audio/HD/4K/動態歌詞/Live etc.\n"
     "- If you cannot tell the artist, use an empty string.\n"
-    'Return ONLY a compact JSON object: {"title":"...","artist":"..."} '
-    "with no other text.\n\nInput: "
+    "- genre: ONE short Traditional-Chinese style tag (e.g. 華語流行, 搖滾, "
+    "獨立, 嘻哈, 抒情, R&B, 電子, 民謠, 韓流, 日系, 西洋流行); guess from the "
+    "artist if needed; empty string if unsure.\n"
+    'Return ONLY a compact JSON object: '
+    '{"title":"...","artist":"...","genre":"..."} with no other text.\n\nInput: '
 )
 
 
@@ -41,8 +44,8 @@ def _extract_text(content: list) -> str:
 
 async def clean_title_llm(
     raw_title: str, raw_artist: str = ""
-) -> Optional[Tuple[str, str]]:
-    """Ask MiniMax to extract (title, artist). Returns None on any failure."""
+) -> Optional[dict]:
+    """Ask MiniMax to extract {title, artist, genre}. None on any failure."""
     key = settings.minimax_api_key
     if not key or not raw_title:
         return None
@@ -88,10 +91,12 @@ async def clean_title_llm(
         obj = json.loads(m.group(0))
         title = (obj.get("title") or "").strip()
         artist = (obj.get("artist") or "").strip()
+        genre = (obj.get("genre") or "").strip()
         if not title:
             return None
-        log.info("LLM cleaned '%s' → title=%r artist=%r", raw_title, title, artist)
-        return title, artist
+        log.info("LLM cleaned '%s' → title=%r artist=%r genre=%r",
+                 raw_title, title, artist, genre)
+        return {"title": title, "artist": artist, "genre": genre}
     except Exception as exc:
         log.warning("MiniMax clean_title_llm failed: %s", exc)
         return None

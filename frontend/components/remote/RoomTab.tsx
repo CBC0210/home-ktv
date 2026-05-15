@@ -22,6 +22,8 @@ interface Props {
   };
   guests: Array<{ id: string; nickname: string; avatar_color: string | null; is_admin: boolean }>;
   onLeave: () => void;
+  adminMode?: boolean;
+  onKick?: (guestId: string) => void;
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -161,7 +163,7 @@ function TotalPlaysCard({ stats }: { stats: RoomStats }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function RoomTab({ room, session, guests, onLeave }: Props) {
+export default function RoomTab({ room, session, guests, onLeave, adminMode = false, onKick }: Props) {
   const [copied, setCopied] = useState(false);
   const { theme, setTheme } = useKtvStore();
   const [stats, setStats] = useState<RoomStats | null>(null);
@@ -272,6 +274,17 @@ export default function RoomTab({ room, session, guests, onLeave }: Props) {
               )}
               {g.id === session.guest.id && (
                 <span className="text-gray-500 text-xs">(你)</span>
+              )}
+              {adminMode && g.id !== session.guest.id && (
+                <button
+                  onClick={() => {
+                    if (confirm(`將 ${g.nickname} 踢出房間？`)) onKick?.(g.id);
+                  }}
+                  className="ml-auto text-rose-400/70 hover:text-rose-300 text-xs px-2 py-1 rounded-lg hover:bg-rose-500/10 transition-colors"
+                  title="踢出"
+                >
+                  踢出
+                </button>
               )}
             </div>
           ))}

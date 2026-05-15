@@ -109,10 +109,10 @@ export const getOnlineGuests = (roomId: string) =>
 
 // Admin
 export const adminLogin = (password: string) =>
-  apiFetch<{ token: string }>("/api/auth/admin/login", {
+  apiFetch<{ access_token: string; guest: Guest }>("/api/auth/admin/login", {
     method: "POST",
     body: JSON.stringify({ password }),
-  });
+  }).then((r) => ({ token: r.access_token }));
 
 // Room stats
 export interface RoomStats {

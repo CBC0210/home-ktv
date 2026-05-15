@@ -32,6 +32,7 @@ export interface Song {
   error_message: string | null;
   files: Record<string, string> | null;
   metadata: Record<string, unknown> | null;
+  subtitle_offset_ms?: number;
 }
 
 export interface Guest {
@@ -84,6 +85,8 @@ export type ServerEvent =
   | { type: "system.error"; message: string }
   | { type: "system.restarted" }
   | { type: "lyrics.updated"; songId: string }
+  | { type: "lyrics.offset"; songId: string; offsetMs: number }
+  | { type: "guest.kicked"; guestId: string }
   // Commands forwarded from Remote → Server → Player
   | { type: "playback.play" }
   | { type: "playback.pause" }
@@ -106,6 +109,8 @@ export type ClientCommand =
   | { type: "playback.setSpeed"; rate: number }
   | { type: "reaction.send"; emoji: string }
   | { type: "lyrics.edit"; songId: string; ass: string }
+  | { type: "lyrics.offset"; songId: string; offsetMs: number }
+  | { type: "guest.kick"; guestId: string }
   | { type: "guest.updateNickname"; nickname: string };
 
 export interface GuestSession {

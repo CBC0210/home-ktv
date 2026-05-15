@@ -154,17 +154,21 @@ def recommendations(
         f.song_id for f in session.query(Favorite).filter_by(guest_id=gid).all()
     }
 
-    # Artists the guest engaged with (from favorites + history)
+    # Artists + genres the guest engaged with (from favorites + history)
     seed_ids = list(fav_ids | played_ids)
     artists: set[str] = set()
+    genres: set[str] = set()
     if seed_ids:
         for s in session.query(Song).filter(Song.id.in_(seed_ids)).all():
             if s.artist:
                 artists.add(s.artist.strip())
+            g = (s.extra_metadata or {}).get("genre")
+            if g:
+                genres.add(g.strip())
 
     recs: "OrderedDict[str, Song]" = OrderedDict()
 
-    # 1. Same-artist ready songs not yet played
+    # 1. Same-artist ready songs not yet played (strongest signal)
     if artists:
         same = (
             session.query(Song)
@@ -177,7 +181,23 @@ def recommendations(
             if s.id not in played_ids and s.id not in recs:
                 recs[s.id] = s
 
-    # 2. Fill with globally most-played ready songs
+    # 2. Same-genre ready songs (broader taste match)
+    if genres and len(recs) < limit:
+        candidates = (
+            session.query(Song)
+            .filter(Song.status == "ready")
+            .order_by(Song.play_count.desc())
+            .limit(limit * 6)
+            .all()
+        )
+        for s in candidates:
+            g = (s.extra_metadata or {}).get("genre")
+            if g and g.strip() in genres and s.id not in played_ids and s.id not in recs:
+                recs[s.id] = s
+            if len(recs) >= limit:
+                break
+
+    # 3. Fill with globally most-played ready songs
     if len(recs) < limit:
         popular = (
             session.query(Song)

@@ -250,6 +250,12 @@ async def dispatch_message(
         elif msg_type == "lyrics.edit":
             await _handle_lyrics_edit(room_id, msg)
 
+        elif msg_type == "lyrics.offset":
+            await _handle_lyrics_offset(room_id, msg)
+
+        elif msg_type == "guest.kick":
+            await _handle_guest_kick(room_id, guest_id, msg)
+
     # ── Admin messages ─────────────────────────────────────────────────────────
     elif role == ClientRole.ADMIN:
         # Admin has full access; delegate to queue/rooms routers
@@ -433,6 +439,7 @@ async def _start_next_song(room_id: str) -> None:
             "has_timing": song.has_timing,
             "lyrics_source": song.lyrics_source,
             "error_message": song.error_message,
+            "subtitle_offset_ms": (song.extra_metadata or {}).get("subtitle_offset_ms", 0),
         } if song else {}
 
         qi_dict = _qi_to_dict(item, song, guest)
@@ -500,6 +507,64 @@ async def _handle_lyrics_edit(room_id: str, msg: dict) -> None:
         await manager.broadcast_lyrics_updated(room_id, song_id)
     except Exception as exc:
         await manager.broadcast_system_error(room_id, f"lyrics.edit failed: {exc}")
+
+
+async def _handle_lyrics_offset(room_id: str, msg: dict) -> None:
+    """Persist a per-song subtitle delay (ms) and live-push it to the Player."""
+    song_id = msg.get("songId")
+    try:
+        offset_ms = int(msg.get("offsetMs", 0))
+    except (TypeError, ValueError):
+        offset_ms = 0
+    if not song_id:
+        return
+    offset_ms = max(-5000, min(5000, offset_ms))
+    try:
+        from ktv_pipeline.models import Song
+        with get_db_session() as s:
+            song = s.query(Song).filter_by(id=song_id).first()
+            if song:
+                meta = dict(song.extra_metadata or {})
+                meta["subtitle_offset_ms"] = offset_ms
+                song.extra_metadata = meta
+                s.commit()
+        await manager.send_to_role(room_id, ClientRole.PLAYER, {
+            "type": "lyrics.offset", "songId": song_id, "offsetMs": offset_ms,
+        })
+    except Exception as exc:
+        await manager.broadcast_system_error(room_id, f"lyrics.offset failed: {exc}")
+
+
+async def _handle_guest_kick(room_id: str, requester_id: str, msg: dict) -> None:
+    """Admin-only: disconnect a guest's WS connections and remove them."""
+    target = msg.get("guestId")
+    if not target:
+        return
+    from ktv_pipeline.models import Guest
+    with get_db_session() as s:
+        requester = s.query(Guest).filter_by(id=requester_id).first()
+        if not requester or not requester.is_admin:
+            await manager.broadcast_system_error(room_id, "guest.kick: 需要管理員權限")
+            return
+        tg = s.query(Guest).filter_by(id=target).first()
+        tname = tg.nickname if tg else target
+    # Tell the target it was kicked, then force-close all its sockets
+    for c in list(manager.get_room_clients(room_id)):
+        if c.guest_id == target:
+            try:
+                await manager.send_to_client(c.client_id, {
+                    "type": "guest.kicked", "guestId": target,
+                })
+            except Exception:
+                pass
+            await manager.disconnect(c.client_id)
+            try:
+                await c.websocket.close(code=4003, reason="Kicked by admin")
+            except Exception:
+                pass
+    remaining = await _get_room_guests_info(room_id)
+    await manager.broadcast_guests_updated(room_id, remaining)
+    await manager.broadcast_activity(room_id, f"👢 踢出 {tname}", "管理員")
 
 
 def _qi_to_dict(qi, song, guest) -> dict:

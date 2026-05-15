@@ -537,7 +537,7 @@ async def set_lyrics_source(
     raw_title = song.title or song_id
     llm = await clean_title_llm(raw_title, song.artist or "")
     if llm:
-        title, artist = llm
+        title, artist = llm["title"], llm["artist"]
     else:
         title, artist = clean_song_query(raw_title, song.artist or "")
 

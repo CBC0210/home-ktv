@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useRef, useState, useCallback, useEffect } from "react";
 import type { Song, PlaybackState, ClientCommand, QueueItem } from "@/lib/types";
 import {
-  getLyricsAss, getLyricsText, getLyricsSource, setLyricsSource,
+  getLyricsText, getLyricsSource, setLyricsSource,
   getFavoriteStatus, addFavorite, removeFavorite,
 } from "@/lib/api";
 
@@ -26,6 +26,7 @@ interface Props {
   playback: PlaybackState;
   processing: { stage: string; percent: number } | null;
   sendCommand: (cmd: ClientCommand) => void;
+  adminMode?: boolean;
 }
 
 const STAGE_LABELS: Record<string, string> = {
@@ -77,19 +78,23 @@ export default function NowPlaying({
   playback,
   processing,
   sendCommand,
+  adminMode = false,
 }: Props) {
   const progressBarRef = useRef<HTMLDivElement>(null);
   const [mainVol, setMainVol] = useState(playback.main_volume);
   const [vocalVol, setVocalVol] = useState(playback.vocal_volume);
   const [lyricsEditorOpen, setLyricsEditorOpen] = useState(false);
+  const [offsetMs, setOffsetMs] = useState(0);
+  const [plainLyrics, setPlainLyrics] = useState<string>("");
 
   // Sync volume local state when server echoes back changes (e.g., another remote adjusted it)
   useEffect(() => { setMainVol(playback.main_volume); }, [playback.main_volume]);
   useEffect(() => { setVocalVol(playback.vocal_volume); }, [playback.vocal_volume]);
-  const [assContent, setAssContent] = useState("");
-  const [lyricsLoading, setLyricsLoading] = useState(false);
-  const [lyricsSaving, setLyricsSaving] = useState(false);
-  const [plainLyrics, setPlainLyrics] = useState<string>("");
+
+  // Initialise the subtitle-delay editor from the song's saved offset
+  useEffect(() => {
+    setOffsetMs(currentSong?.subtitle_offset_ms ?? 0);
+  }, [currentSong?.id, currentSong?.subtitle_offset_ms]);
 
   // Fetch plain-text lyrics when song lacks word-level timing
   useEffect(() => {
@@ -104,27 +109,24 @@ export default function NowPlaying({
     return () => { cancelled = true; };
   }, [currentSong?.id, currentSong?.has_timing]);
 
-  const openLyricsEditor = useCallback(async () => {
+  // Apply + persist the delay (server live-pushes it to the TV)
+  const applyOffset = useCallback((next: number) => {
     if (!currentSong) return;
-    setLyricsLoading(true);
-    setLyricsEditorOpen(true);
-    try {
-      const content = await getLyricsAss(currentSong.id);
-      setAssContent(content);
-    } finally {
-      setLyricsLoading(false);
-    }
-  }, [currentSong]);
+    const clamped = Math.max(-5000, Math.min(5000, next));
+    setOffsetMs(clamped);
+    sendCommand({ type: "lyrics.offset", songId: currentSong.id, offsetMs: clamped });
+  }, [currentSong, sendCommand]);
 
-  function saveLyrics() {
-    if (!currentSong || !assContent.trim()) return;
-    setLyricsSaving(true);
-    sendCommand({ type: "lyrics.edit", songId: currentSong.id, ass: assContent });
-    setTimeout(() => {
-      setLyricsSaving(false);
-      setLyricsEditorOpen(false);
-    }, 800);
-  }
+  // Arrow keys nudge the delay while the editor is open
+  useEffect(() => {
+    if (!lyricsEditorOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") { e.preventDefault(); applyOffset(offsetMs - 100); }
+      else if (e.key === "ArrowRight") { e.preventDefault(); applyOffset(offsetMs + 100); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lyricsEditorOpen, offsetMs, applyOffset]);
 
   function handleSeek(e: React.MouseEvent<HTMLDivElement>) {
     const bar = progressBarRef.current;
@@ -356,58 +358,81 @@ export default function NowPlaying({
           <LyricsSourcePicker song={currentSong} />
         )}
 
-        {/* Lyrics edit */}
-        {currentSong?.has_timing && (
+        {/* Lyrics timing — admin only */}
+        {adminMode && currentSong?.has_timing && (
           <button
-            onClick={openLyricsEditor}
-            className="text-xs text-white/25 hover:text-white/50 py-1 transition-colors text-center"
+            onClick={() => setLyricsEditorOpen(true)}
+            className="text-xs text-amber-300/70 hover:text-amber-300 py-1 transition-colors text-center"
           >
-            ✏️ 編輯歌詞時間軸
+            ⏱️ 調整字幕延遲（管理員）
           </button>
         )}
       </div>
 
-      {/* Lyrics editor modal */}
+      {/* Subtitle-delay editor modal (admin) */}
       {lyricsEditorOpen && (
-        <div className="fixed inset-0 bg-black/90 z-50 flex flex-col">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
-            <h3 className="text-white font-semibold text-sm">編輯 ASS 時間軸</h3>
-            <button
-              onClick={() => setLyricsEditorOpen(false)}
-              className="text-white/50 hover:text-white w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition-all"
-            >
-              ✕
-            </button>
-          </div>
-          <div className="flex-1 overflow-hidden flex flex-col p-4 gap-3">
-            {lyricsLoading ? (
-              <div className="flex-1 flex items-center justify-center">
-                <p className="text-white/40 text-sm">載入歌詞中…</p>
-              </div>
-            ) : (
-              <textarea
-                value={assContent}
-                onChange={(e) => setAssContent(e.target.value)}
-                className="flex-1 bg-white/5 text-white text-xs font-mono p-4 rounded-2xl resize-none outline-none border border-white/10 focus:border-violet-500/50 transition-colors"
-                spellCheck={false}
-                placeholder="ASS 內容…"
-              />
-            )}
-            <div className="flex gap-2">
+        <div className="fixed inset-0 bg-black/90 z-50 flex flex-col items-center justify-center p-6">
+          <div className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+            <div className="text-center mb-5">
+              <div className="text-3xl mb-1">⏱️</div>
+              <h3 className="text-white font-bold text-lg">調整字幕延遲</h3>
+              <p className="text-white/40 text-xs mt-1">
+                字幕對不上時微調。可按 ← → 鍵微調，效果即時顯示在電視上。
+              </p>
+            </div>
+
+            <div className="flex items-center justify-center gap-4 mb-2">
               <button
-                onClick={() => setLyricsEditorOpen(false)}
-                className="flex-1 py-3 rounded-2xl bg-white/8 text-white/70 text-sm hover:bg-white/12 transition-colors"
+                onClick={() => applyOffset(offsetMs - 100)}
+                className="w-14 h-14 rounded-2xl bg-white/8 hover:bg-white/15 text-white text-2xl font-bold active:scale-90 transition-all"
+                title="字幕提前 0.1 秒"
               >
-                取消
+                ‹‹
               </button>
+              <div className="text-center min-w-[110px]">
+                <p className={`text-3xl font-bold tabular-nums ${offsetMs === 0 ? "text-white/50" : "text-amber-300"}`}>
+                  {offsetMs > 0 ? "+" : ""}{(offsetMs / 1000).toFixed(1)}s
+                </p>
+                <p className="text-white/30 text-[10px] mt-0.5">
+                  {offsetMs === 0 ? "未調整" : offsetMs > 0 ? "字幕延後" : "字幕提前"}
+                </p>
+              </div>
               <button
-                onClick={saveLyrics}
-                disabled={lyricsSaving || lyricsLoading || !assContent.trim()}
-                className="flex-1 py-3 rounded-2xl bg-violet-600 text-white text-sm hover:bg-violet-500 transition-colors disabled:opacity-40"
+                onClick={() => applyOffset(offsetMs + 100)}
+                className="w-14 h-14 rounded-2xl bg-white/8 hover:bg-white/15 text-white text-2xl font-bold active:scale-90 transition-all"
+                title="字幕延後 0.1 秒"
               >
-                {lyricsSaving ? "儲存中…" : "儲存並更新"}
+                ››
               </button>
             </div>
+
+            <div className="flex justify-center gap-2 mb-5">
+              <button
+                onClick={() => applyOffset(offsetMs - 500)}
+                className="px-3 py-1.5 rounded-lg bg-white/6 text-white/50 text-xs hover:bg-white/12"
+              >
+                −0.5s
+              </button>
+              <button
+                onClick={() => applyOffset(0)}
+                className="px-3 py-1.5 rounded-lg bg-white/6 text-white/50 text-xs hover:bg-white/12"
+              >
+                歸零
+              </button>
+              <button
+                onClick={() => applyOffset(offsetMs + 500)}
+                className="px-3 py-1.5 rounded-lg bg-white/6 text-white/50 text-xs hover:bg-white/12"
+              >
+                +0.5s
+              </button>
+            </div>
+
+            <button
+              onClick={() => setLyricsEditorOpen(false)}
+              className="w-full py-3 rounded-2xl bg-violet-600 text-white text-sm font-medium hover:bg-violet-500 transition-colors"
+            >
+              完成（已自動儲存）
+            </button>
           </div>
         </div>
       )}

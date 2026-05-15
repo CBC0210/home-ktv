@@ -61,16 +61,21 @@ async def prefetch_all_lyrics(song_id: str) -> dict:
         duration = song.duration_sec
         meta = dict(song.extra_metadata or {})
 
-    # Best title/artist: LLM (cached in meta) → regex fallback
+    # Best title/artist/genre: LLM (cached in meta) → regex fallback
     cleaned = meta.get("clean_query")
     if not cleaned:
         llm = await clean_title_llm(raw_title, raw_artist)
         if llm:
-            cleaned = {"title": llm[0], "artist": llm[1], "via": "llm"}
+            cleaned = {
+                "title": llm["title"], "artist": llm["artist"],
+                "genre": llm.get("genre", ""), "via": "llm",
+            }
         else:
             ct, ca = clean_song_query(raw_title, raw_artist)
-            cleaned = {"title": ct, "artist": ca, "via": "regex"}
+            cleaned = {"title": ct, "artist": ca, "genre": "", "via": "regex"}
         meta["clean_query"] = cleaned
+        if cleaned.get("genre"):
+            meta["genre"] = cleaned["genre"]
     title, artist = cleaned["title"], cleaned["artist"]
     log.info("[%s] prefetch using title=%r artist=%r (%s)",
              song_id, title, artist, cleaned.get("via"))
@@ -117,6 +122,8 @@ async def prefetch_all_lyrics(song_id: str) -> dict:
         meta = dict(song.extra_metadata or {})
         meta["available_lyrics"] = available
         meta["clean_query"] = cleaned
+        if cleaned.get("genre"):
+            meta["genre"] = cleaned["genre"]
         song.extra_metadata = meta
 
         active = media_dir / "lyrics.ass"
