@@ -294,27 +294,6 @@ export default function RoomTab({ room, session, guests, onLeave, adminMode = fa
         </div>
       </div>
 
-      {/* Theme switcher */}
-      <div className="bg-gray-800 rounded-xl p-4">
-        <p className="text-gray-400 text-sm mb-3">Player 主題</p>
-        <div className="grid grid-cols-2 gap-2">
-          {THEMES.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTheme(t.id)}
-              className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-all ${
-                theme === t.id
-                  ? "ring-2 ring-purple-500 bg-gray-700 text-white"
-                  : "bg-gray-700/50 text-gray-400 hover:text-white hover:bg-gray-700"
-              }`}
-            >
-              <span className={`w-4 h-4 rounded-sm flex-shrink-0 ${t.preview}`} />
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* Leave */}
       <button
         onClick={onLeave}

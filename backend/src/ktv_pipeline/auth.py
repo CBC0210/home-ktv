@@ -60,16 +60,15 @@ def guest_from_request(request: Request) -> dict:
     Raises 401 if missing or invalid.
     """
     token: Optional[str] = None
-    
-    # Check cookie first
-    cookie_token = request.cookies.get("ktv_session")
-    if cookie_token:
-        token = cookie_token
+
+    # Authorization header takes priority — an explicit Bearer token is a
+    # deliberate choice (e.g. the admin page) and must NOT be shadowed by a
+    # leftover guest `ktv_session` cookie from a prior Remote session.
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:]
     else:
-        # Check Authorization header
-        auth = request.headers.get("Authorization", "")
-        if auth.startswith("Bearer "):
-            token = auth[7:]
+        token = request.cookies.get("ktv_session")
 
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated — no session token")
