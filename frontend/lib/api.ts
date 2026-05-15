@@ -423,6 +423,11 @@ export const adminDeleteSavedSong = (songId: string) =>
     `/api/admin/songs/${songId}`, { method: "DELETE" }
   );
 
+export const adminClearAllSongs = () =>
+  adminApiFetch<{ status: string; songs: number; queue_items: number }>(
+    "/api/admin/songs", { method: "DELETE" }
+  );
+
 export const adminClearLeaderboard = (roomId?: string) =>
   adminApiFetch<{ status: string; removed: number; scope: string }>(
     `/api/admin/leaderboard${roomId ? `?room_id=${roomId}` : ""}`,

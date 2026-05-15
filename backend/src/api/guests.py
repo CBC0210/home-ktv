@@ -34,11 +34,12 @@ def join_room(data: GuestJoin, response: Response, session: Session = Depends(ge
     if not room:
         raise HTTPException(status_code=404, detail=f"Room '{data.room_id}' not found")
 
-    # Verify room password if required
+    # Verify room password if required (accepts `password` or `room_password`)
     if room.password_hash:
-        if not data.room_password:
+        pw = data.effective_password
+        if not pw:
             raise HTTPException(status_code=403, detail="Room password required")
-        if not verify_room_password(room.password_hash, data.room_password):
+        if not verify_room_password(room.password_hash, pw):
             raise HTTPException(status_code=403, detail="Incorrect room password")
 
     # Find or create guest by nickname (within this room — key is nickname for simplicity)

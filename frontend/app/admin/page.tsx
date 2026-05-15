@@ -14,6 +14,7 @@ import {
   adminClearCache,
   adminListSavedSongs,
   adminDeleteSavedSong,
+  adminClearAllSongs,
   adminClearLeaderboard,
   adminGetSystemStatus,
   type SavedSong,
@@ -635,6 +636,23 @@ function CacheTab() {
     setDelId(null);
   }
 
+  const [clearingAll, setClearingAll] = useState(false);
+  async function handleClearAllSongs() {
+    if (!songs || songs.length === 0) return;
+    if (!confirm(`永久刪除全部 ${songs.length} 首歌曲？\n會清空資料庫記錄、隊列與全部 ${songsTotal} 媒體檔，無法復原。`)) return;
+    setClearingAll(true);
+    try {
+      const r = await adminClearAllSongs();
+      setSongs([]);
+      setSongsTotal("");
+      adminGetCacheStats().then(setStats).catch(() => {});
+      alert(`已清除 ${r.songs} 首歌曲、${r.queue_items} 筆隊列項目`);
+    } catch {
+      alert("清除失敗");
+    }
+    setClearingAll(false);
+  }
+
   async function handleClear(what: "all" | "cache" | "tmp") {
     if (!confirm(`確定清除 ${what}？`)) return;
     setClearing(true);
@@ -708,11 +726,22 @@ function CacheTab() {
       <div className="mt-2">
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-white font-semibold text-lg">已保存歌曲</h2>
-          {songs && (
-            <span className="text-gray-400 text-sm">
-              {songs.length} 首 · 共 {songsTotal}
-            </span>
-          )}
+          <div className="flex items-center gap-3">
+            {songs && (
+              <span className="text-gray-400 text-sm">
+                {songs.length} 首 · 共 {songsTotal}
+              </span>
+            )}
+            {songs && songs.length > 0 && (
+              <button
+                onClick={handleClearAllSongs}
+                disabled={clearingAll}
+                className="bg-red-800 hover:bg-red-700 disabled:opacity-50 text-white px-3 py-1.5 rounded text-sm font-medium flex-shrink-0"
+              >
+                {clearingAll ? "清除中…" : "全部清除"}
+              </button>
+            )}
+          </div>
         </div>
         {!songs ? (
           <p className="text-gray-500">載入中…</p>

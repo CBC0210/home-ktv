@@ -15,10 +15,20 @@ class SessionOut(BaseModel):
 
 
 class GuestJoin(BaseModel):
-    """Used when a guest joins a room (password already validated client-side or here)."""
+    """Used when a guest joins a room.
+
+    The frontend historically sends `password`; older code expected
+    `room_password`. Accept both so a password-protected room works
+    regardless of which field the client (incl. cached bundles) sends.
+    """
     nickname: str
     room_id: str
     room_password: Optional[str] = None
+    password: Optional[str] = None
+
+    @property
+    def effective_password(self) -> Optional[str]:
+        return self.room_password or self.password
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
