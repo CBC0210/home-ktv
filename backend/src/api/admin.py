@@ -115,6 +115,181 @@ def change_room_password(
     return {"status": "ok", "room_id": room_id, "has_password": bool(new_password)}
 
 
+# ── Detail views (room overview + per-guest drill-down) ─────────────────────
+
+@router.get("/rooms/{room_id}/detail")
+def room_detail(
+    room_id: str,
+    session: Session = Depends(get_session),
+    _=Depends(require_admin),
+):
+    """Everything about a room: connected guests, queue, processing
+    breakdown, and play stats — one call powering the admin room panel."""
+    from ktv_pipeline.models import Guest, QueueItem, Song, PlayHistory
+    from ktv_pipeline.ws_manager import manager
+    from sqlalchemy import func
+
+    room = session.query(Room).filter_by(id=room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    # Connected guests (live WS), enriched with per-guest play counts
+    client_ids = {
+        c.guest_id for c in manager.get_room_clients(room_id) if c.guest_id
+    }
+    guest_rows = (
+        session.query(Guest).filter(Guest.id.in_(client_ids)).all()
+        if client_ids else []
+    )
+    play_counts = dict(
+        session.query(PlayHistory.guest_id, func.count(PlayHistory.id))
+        .filter(PlayHistory.room_id == room_id)
+        .group_by(PlayHistory.guest_id)
+        .all()
+    )
+    guests = [
+        {
+            "id": g.id,
+            "nickname": g.nickname,
+            "avatar_color": g.avatar_color,
+            "is_admin": g.is_admin,
+            "plays_here": int(play_counts.get(g.id, 0)),
+            "last_seen": g.last_seen.isoformat() if g.last_seen else None,
+        }
+        for g in guest_rows
+    ]
+
+    # Active queue with song + requester + processing state
+    q = (
+        session.query(QueueItem)
+        .filter(QueueItem.room_id == room_id)
+        .filter(QueueItem.status.in_(QueueManagerStatuses()))
+        .order_by(QueueItem.position)
+        .all()
+    )
+    song_map = {s.id: s for s in session.query(Song).all()}
+    guest_map = {g.id: g for g in session.query(Guest).all()}
+    queue = []
+    for qi in q:
+        s = song_map.get(qi.song_id)
+        gg = guest_map.get(qi.guest_id)
+        queue.append({
+            "id": qi.id,
+            "status": qi.status,
+            "position": qi.position,
+            "song_id": qi.song_id,
+            "title": s.title if s else qi.song_id,
+            "artist": s.artist if s else None,
+            "song_status": s.status if s else None,
+            "has_timing": s.has_timing if s else None,
+            "lyrics_source": s.lyrics_source if s else None,
+            "requested_by": gg.nickname if gg else None,
+        })
+
+    # Processing breakdown for songs in this room's active queue
+    breakdown: dict = {}
+    for qi in q:
+        s = song_map.get(qi.song_id)
+        st = s.status if s else "unknown"
+        breakdown[st] = breakdown.get(st, 0) + 1
+
+    total_played = (
+        session.query(func.count(PlayHistory.id))
+        .filter(PlayHistory.room_id == room_id).scalar() or 0
+    )
+    unique_songs = (
+        session.query(func.count(func.distinct(PlayHistory.song_id)))
+        .filter(PlayHistory.room_id == room_id).scalar() or 0
+    )
+
+    return {
+        "room": {
+            "id": room.id,
+            "name": room.name,
+            "is_default": room.is_default,
+            "has_password": bool(room.password_hash),
+            "has_admin_password": bool(room.admin_password_hash),
+            "created_at": room.created_at.isoformat() if room.created_at else None,
+        },
+        "online_guests": guests,
+        "online_count": len(guests),
+        "queue": queue,
+        "queue_count": len(queue),
+        "processing_breakdown": breakdown,
+        "stats": {
+            "total_played": int(total_played),
+            "unique_songs": int(unique_songs),
+        },
+    }
+
+
+def QueueManagerStatuses():
+    from ktv_pipeline.queue_manager import QueueManager
+    return QueueManager.ACTIVE_STATUSES
+
+
+@router.get("/guests/{guest_id}/detail")
+def guest_detail(
+    guest_id: str,
+    session: Session = Depends(get_session),
+    _=Depends(require_admin),
+):
+    """A guest's profile + recent play history + favorites."""
+    from ktv_pipeline.models import Guest, PlayHistory, Favorite, Song
+    from sqlalchemy import func
+
+    g = session.query(Guest).filter_by(id=guest_id).first()
+    if not g:
+        raise HTTPException(status_code=404, detail="Guest not found")
+
+    hist = (
+        session.query(PlayHistory)
+        .filter_by(guest_id=guest_id)
+        .order_by(PlayHistory.played_at.desc())
+        .limit(50)
+        .all()
+    )
+    favs = (
+        session.query(Favorite)
+        .filter_by(guest_id=guest_id)
+        .order_by(Favorite.added_at.desc())
+        .all()
+    )
+    sid_set = {h.song_id for h in hist} | {f.song_id for f in favs}
+    songs = {
+        s.id: s for s in session.query(Song).filter(Song.id.in_(sid_set)).all()
+    } if sid_set else {}
+
+    def _s(sid):
+        s = songs.get(sid)
+        return {"id": sid, "title": s.title if s else sid,
+                "artist": s.artist if s else None}
+
+    total_plays = (
+        session.query(func.count(PlayHistory.id))
+        .filter_by(guest_id=guest_id).scalar() or 0
+    )
+
+    return {
+        "guest": {
+            "id": g.id,
+            "nickname": g.nickname,
+            "avatar_color": g.avatar_color,
+            "is_admin": g.is_admin,
+            "first_seen": g.first_seen.isoformat() if g.first_seen else None,
+            "last_seen": g.last_seen.isoformat() if g.last_seen else None,
+        },
+        "total_plays": int(total_plays),
+        "history": [
+            {**_s(h.song_id),
+             "played_at": h.played_at.isoformat() if h.played_at else None,
+             "room_id": h.room_id}
+            for h in hist
+        ],
+        "favorites": [_s(f.song_id) for f in favs],
+    }
+
+
 # ── Song DB management (used by Remote admin mode + admin page) ──────────────
 
 @router.delete("/songs/{song_id}")

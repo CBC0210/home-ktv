@@ -13,10 +13,15 @@ import {
   adminGetCacheStats,
   adminClearCache,
   adminGetSystemStatus,
+  adminGetRoomDetail,
+  adminGetGuestDetail,
+  AdminAuthError,
   type AdminRoomItem,
   type ErrorLogEntry,
   type CacheStats,
   type SystemStatus,
+  type AdminRoomDetail,
+  type AdminGuestDetail,
 } from "@/lib/api";
 
 // ── Login Screen ───────────────────────────────────────────────────────────────
@@ -80,6 +85,7 @@ function RoomsTab() {
   const [createPw, setCreatePw] = useState("");
   const [deleting, setDeleting] = useState<string | null>(null);
   const [passwordEdit, setPasswordEdit] = useState<{ roomId: string; name: string; kind: "join" | "admin" } | null>(null);
+  const [detailRoom, setDetailRoom] = useState<string | null>(null);
   const [newPw, setNewPw] = useState("");
   const [opError, setOpError] = useState("");
 
@@ -205,6 +211,13 @@ function RoomsTab() {
               </div>
               <div className="flex gap-2">
                 <button
+                  onClick={() => setDetailRoom(room.id)}
+                  className="text-violet-300 hover:text-violet-200 text-sm px-3 py-1 border border-violet-800/50 rounded"
+                  title="查看房間詳情"
+                >
+                  查看
+                </button>
+                <button
                   onClick={() => setPasswordEdit({ roomId: room.id, name: room.name, kind: "join" })}
                   className="text-gray-400 hover:text-white text-sm px-3 py-1 border border-gray-700 rounded"
                   title="入房密碼"
@@ -258,6 +271,204 @@ function RoomsTab() {
           </form>
         </div>
       )}
+
+      {detailRoom && (
+        <RoomDetailPanel roomId={detailRoom} onClose={() => setDetailRoom(null)} />
+      )}
+    </div>
+  );
+}
+
+// ── Room detail panel (online users, queue, processing, stats) ─────────────
+
+function RoomDetailPanel({ roomId, onClose }: { roomId: string; onClose: () => void }) {
+  const [data, setData] = useState<AdminRoomDetail | null>(null);
+  const [err, setErr] = useState("");
+  const [guestId, setGuestId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setErr("");
+    try {
+      setData(await adminGetRoomDetail(roomId));
+    } catch (e) {
+      if (!(e instanceof AdminAuthError)) setErr((e as Error).message || "載入失敗");
+    }
+  }, [roomId]);
+
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  return (
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-start justify-center p-4 overflow-y-auto">
+      <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-2xl my-8">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800 sticky top-0 bg-gray-900 rounded-t-xl">
+          <h3 className="text-white font-semibold">
+            房間詳情 — {data?.room.name ?? roomId}
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-white w-8 h-8 rounded-full hover:bg-gray-800">✕</button>
+        </div>
+
+        {err && <p className="text-red-400 text-sm p-5">{err}</p>}
+        {!data && !err && <p className="text-gray-500 p-5">載入中…</p>}
+
+        {data && (
+          <div className="p-5 flex flex-col gap-5">
+            <div className="grid grid-cols-4 gap-2">
+              {[
+                ["在線人數", data.online_count],
+                ["隊列", data.queue_count],
+                ["累計播放", data.stats.total_played],
+                ["不重複歌", data.stats.unique_songs],
+              ].map(([l, v]) => (
+                <div key={l} className="bg-gray-800 rounded-lg p-3 text-center">
+                  <div className="text-xl font-bold text-white">{v}</div>
+                  <div className="text-[11px] text-gray-400 mt-0.5">{l}</div>
+                </div>
+              ))}
+            </div>
+
+            {Object.keys(data.processing_breakdown).length > 0 && (
+              <div>
+                <p className="text-gray-400 text-sm mb-2">隊列歌曲處理狀態</p>
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(data.processing_breakdown).map(([k, v]) => (
+                    <span key={k} className="text-xs bg-gray-800 text-gray-300 px-2.5 py-1 rounded-full">
+                      {k}: {v}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <p className="text-gray-400 text-sm mb-2">在線用戶（點擊查看記錄）</p>
+              {data.online_guests.length === 0 ? (
+                <p className="text-gray-600 text-sm">目前無人在線</p>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  {data.online_guests.map((g) => (
+                    <button
+                      key={g.id}
+                      onClick={() => setGuestId(g.id)}
+                      className="flex items-center gap-2.5 bg-gray-800 hover:bg-gray-700 rounded-lg px-3 py-2 text-left transition-colors"
+                    >
+                      <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                        style={{ backgroundColor: g.avatar_color ?? "#7c3aed" }}>
+                        {g.nickname.slice(0, 1).toUpperCase()}
+                      </div>
+                      <span className="text-white text-sm flex-1">{g.nickname}</span>
+                      {g.is_admin && <span className="text-amber-400 text-[10px]">管理員</span>}
+                      <span className="text-gray-500 text-xs">{g.plays_here} 首</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <p className="text-gray-400 text-sm mb-2">隊列（{data.queue_count}）</p>
+              {data.queue.length === 0 ? (
+                <p className="text-gray-600 text-sm">隊列是空的</p>
+              ) : (
+                <div className="flex flex-col divide-y divide-gray-800 border border-gray-800 rounded-lg overflow-hidden">
+                  {data.queue.map((qi) => (
+                    <div key={qi.id} className="flex items-center gap-3 px-3 py-2 bg-gray-900">
+                      <span className="text-gray-600 text-xs w-5 text-center">{qi.position}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-sm truncate">{qi.title}</p>
+                        <p className="text-gray-500 text-xs truncate">
+                          {qi.artist ?? "—"} · {qi.requested_by ?? "?"}
+                        </p>
+                      </div>
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${
+                        qi.status === "playing" ? "bg-violet-600 text-white"
+                        : qi.status === "ready" ? "bg-emerald-700 text-emerald-100"
+                        : "bg-amber-700 text-amber-100"
+                      }`}>{qi.status}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {guestId && (
+        <GuestDetailPanel guestId={guestId} onClose={() => setGuestId(null)} />
+      )}
+    </div>
+  );
+}
+
+function GuestDetailPanel({ guestId, onClose }: { guestId: string; onClose: () => void }) {
+  const [data, setData] = useState<AdminGuestDetail | null>(null);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    adminGetGuestDetail(guestId)
+      .then(setData)
+      .catch((e) => { if (!(e instanceof AdminAuthError)) setErr((e as Error).message); });
+  }, [guestId]);
+
+  return (
+    <div className="fixed inset-0 bg-black/80 z-[60] flex items-start justify-center p-4 overflow-y-auto" onClick={onClose}>
+      <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-md my-8" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
+          <h3 className="text-white font-semibold">
+            {data?.guest.nickname ?? "用戶"} 的記錄
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-white w-8 h-8 rounded-full hover:bg-gray-800">✕</button>
+        </div>
+        {err && <p className="text-red-400 text-sm p-5">{err}</p>}
+        {!data && !err && <p className="text-gray-500 p-5">載入中…</p>}
+        {data && (
+          <div className="p-5 flex flex-col gap-4">
+            <div className="text-sm text-gray-400">
+              累計播放 <span className="text-white font-bold">{data.total_plays}</span> 首
+              {data.guest.first_seen && (
+                <> · 首次 {new Date(data.guest.first_seen).toLocaleDateString("zh-TW")}</>
+              )}
+            </div>
+
+            <div>
+              <p className="text-gray-400 text-sm mb-1.5">⭐ 收藏（{data.favorites.length}）</p>
+              {data.favorites.length === 0 ? (
+                <p className="text-gray-600 text-sm">無</p>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  {data.favorites.map((s) => (
+                    <div key={s.id} className="text-sm text-white truncate">
+                      {s.title} <span className="text-gray-500">· {s.artist ?? "—"}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <p className="text-gray-400 text-sm mb-1.5">🕑 歷史記錄（最近 {data.history.length}）</p>
+              {data.history.length === 0 ? (
+                <p className="text-gray-600 text-sm">無</p>
+              ) : (
+                <div className="flex flex-col gap-1 max-h-64 overflow-y-auto">
+                  {data.history.map((h, i) => (
+                    <div key={i} className="text-sm text-gray-300 truncate">
+                      {h.title}
+                      <span className="text-gray-600 text-xs ml-2">
+                        {h.played_at ? new Date(h.played_at).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -272,13 +483,17 @@ function ErrorLogsTab() {
   const [resolvingId, setResolvingId] = useState<number | null>(null);
   const [resolveAllLoading, setResolveAllLoading] = useState(false);
 
+  const [loadErr, setLoadErr] = useState("");
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadErr("");
     try {
       const data = await adminListErrorLogs({ resolved: showResolved ? undefined : false, limit: 100 });
       setLogs(data.entries);
       setTotal(data.total);
-    } catch { /* silent */ }
+    } catch (e) {
+      if (!(e instanceof AdminAuthError)) setLoadErr((e as Error).message || "載入失敗");
+    }
     setLoading(false);
   }, [showResolved]);
 
@@ -330,6 +545,8 @@ function ErrorLogsTab() {
           )}
         </div>
       </div>
+
+      {loadErr && <p className="text-red-400 text-sm mb-2">載入失敗：{loadErr}</p>}
 
       {loading ? (
         <p className="text-gray-500">載入中…</p>
@@ -530,6 +747,9 @@ export default function AdminPage() {
   useEffect(() => {
     const stored = localStorage.getItem("admin_token");
     if (stored) setToken(stored);
+    const onExpired = () => setToken(null);
+    window.addEventListener("admin-auth-expired", onExpired);
+    return () => window.removeEventListener("admin-auth-expired", onExpired);
   }, []);
 
   if (!token) {

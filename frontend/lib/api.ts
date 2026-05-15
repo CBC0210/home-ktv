@@ -264,19 +264,61 @@ export function isYoutubeUrl(input: string): boolean {
 }
 // ── Admin API ─────────────────────────────────────────────────────────────────
 
-export function adminApiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = localStorage.getItem("admin_token");
-  return apiFetch<T>(path, {
+export class AdminAuthError extends Error {}
+
+export async function adminApiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("admin_token") : null;
+  const initHeaders =
+    init?.headers && typeof init.headers === "object" && !Array.isArray(init.headers)
+      ? (init.headers as Record<string, string>)
+      : {};
+  const res = await fetch(`${BASE}${path}`, {
+    credentials: "include",
     ...init,
     headers: {
-      ...(init?.headers && typeof init.headers === "object" && !Array.isArray(init.headers)
-        ? (init.headers as Record<string, string>)
-        : {}),
       "Content-Type": "application/json",
+      ...initHeaders,
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   });
+  if (res.status === 401 || res.status === 403) {
+    // Token expired/invalid → drop it and tell the page to show login
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("admin_token");
+      window.dispatchEvent(new Event("admin-auth-expired"));
+    }
+    throw new AdminAuthError("登入已過期，請重新登入");
+  }
+  if (!res.ok) {
+    let detail = "";
+    try { detail = (await res.json())?.detail ?? ""; } catch { /* ignore */ }
+    throw new Error(`${detail || `HTTP ${res.status}`}`);
+  }
+  return res.json() as Promise<T>;
 }
+
+export interface AdminRoomDetail {
+  room: { id: string; name: string; is_default: boolean; has_password: boolean; has_admin_password: boolean; created_at: string | null };
+  online_guests: Array<{ id: string; nickname: string; avatar_color: string | null; is_admin: boolean; plays_here: number; last_seen: string | null }>;
+  online_count: number;
+  queue: Array<{ id: number; status: string; position: number; song_id: string; title: string; artist: string | null; song_status: string | null; has_timing: boolean | null; lyrics_source: string | null; requested_by: string | null }>;
+  queue_count: number;
+  processing_breakdown: Record<string, number>;
+  stats: { total_played: number; unique_songs: number };
+}
+
+export interface AdminGuestDetail {
+  guest: { id: string; nickname: string; avatar_color: string | null; is_admin: boolean; first_seen: string | null; last_seen: string | null };
+  total_plays: number;
+  history: Array<{ id: string; title: string; artist: string | null; played_at: string | null; room_id: string }>;
+  favorites: Array<{ id: string; title: string; artist: string | null }>;
+}
+
+export const adminGetRoomDetail = (roomId: string) =>
+  adminApiFetch<AdminRoomDetail>(`/api/admin/rooms/${roomId}/detail`);
+
+export const adminGetGuestDetail = (guestId: string) =>
+  adminApiFetch<AdminGuestDetail>(`/api/admin/guests/${guestId}/detail`);
 
 export interface AdminRoomItem {
   id: string;

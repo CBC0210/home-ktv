@@ -48,6 +48,10 @@ export default function PlayerView({ roomId }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const vocalRef = useRef<HTMLAudioElement>(null);
   const instrRef = useRef<HTMLAudioElement>(null);
+  // True once the user has unlocked audio at least once this session.
+  // Until then we keep songs PAUSED at 0 instead of playing muted, so the
+  // first song doesn't silently run ahead and then jump on unlock.
+  const audioUnlockedRef = useRef(false);
   // Web Audio graph (lazy)
   const audioCtxRef = useRef<AudioContext | null>(null);
   const vocalGainRef = useRef<GainNode | null>(null);
@@ -194,6 +198,7 @@ export default function PlayerView({ roomId }: Props) {
     if (vocal) { vocal.currentTime = pos; try { await vocal.play(); } catch { /* ignore */ } }
     if (instr) { instr.currentTime = pos; try { await instr.play(); } catch { /* ignore */ } }
     if (video && video.paused) { try { await video.play(); } catch { /* ignore */ } }
+    if (ok) audioUnlockedRef.current = true;
     setAudioBlocked(!ok);
   }, [ensureAudioGraph]);
 
@@ -360,6 +365,14 @@ export default function PlayerView({ roomId }: Props) {
     syncVolumes(playbackRef.current.main_volume, playbackRef.current.vocal_volume);
 
     const handleCanPlay = () => {
+      if (!audioUnlockedRef.current) {
+        // Audio not unlocked yet — keep the song PAUSED at 0 and show the
+        // tap-to-start overlay. unlockAudio() will start video+audio together.
+        video.pause();
+        video.currentTime = 0;
+        setAudioBlocked(true);
+        return;
+      }
       video.play().catch(() => setAudioBlocked(true));
     };
     video.addEventListener("canplay", handleCanPlay, { once: true });
@@ -735,9 +748,9 @@ export default function PlayerView({ roomId }: Props) {
           onClick={() => void unlockAudio()}
         >
           <div className="bg-black/70 backdrop-blur-md rounded-3xl px-10 py-8 text-center border border-white/10">
-            <div className="text-5xl mb-3">🔊</div>
-            <p className="text-white text-xl font-semibold">點擊啟用聲音</p>
-            <p className="text-white/50 text-sm mt-1">瀏覽器需要互動才能播放音訊</p>
+            <div className="text-5xl mb-3">▶️</div>
+            <p className="text-white text-xl font-semibold">點擊開始播放</p>
+            <p className="text-white/50 text-sm mt-1">已暫停等待 — 點一下從頭播放（含聲音）</p>
           </div>
         </div>
       )}
