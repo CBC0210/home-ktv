@@ -60,6 +60,7 @@ export default function PlayerView({ roomId }: Props) {
   const [systemError, setSystemError] = useState<string | null>(null);
   const [videoPosition, setVideoPosition] = useState(0);
   const [processingExpanded, setProcessingExpanded] = useState(false);
+  const [activity, setActivity] = useState<{ id: number; text: string; actor: string } | null>(null);
   const clock = useClock();
 
   const {
@@ -275,6 +276,14 @@ export default function PlayerView({ roomId }: Props) {
           setSystemError(event.message);
           setTimeout(() => setSystemError(null), 5000);
           break;
+        case "activity": {
+          const id = Date.now() + Math.random();
+          setActivity({ id, text: event.text, actor: event.actor });
+          setTimeout(() => {
+            setActivity((cur) => (cur && cur.id === id ? null : cur));
+          }, 3000);
+          break;
+        }
       }
     },
     [setQueue, setCurrentSong, updatePosition, setPlayback, setProcessing, setGuests, tryPlayAudio]
@@ -403,6 +412,38 @@ export default function PlayerView({ roomId }: Props) {
   const nextItem = queue.find((q) => q.id !== currentQueueItem?.id && q.status !== "playing");
   const duration = currentSong?.duration_sec ?? 0;
   const progressPct = duration > 0 ? Math.min(100, (videoPosition / duration) * 100) : 0;
+
+  // ── Preload next ready song's media during current playback ───────────────
+  // Pulls video + opus audio into the browser HTTP cache so song-to-song
+  // switching is instant instead of streaming-from-cold over the Tunnel.
+  const preloadedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!currentSong) return;
+    const next = queue.find(
+      (q) => q.status === "ready" && q.song && q.id !== currentQueueItem?.id
+    );
+    const nextSong = next?.song;
+    if (!nextSong || preloadedRef.current === nextSong.id) return;
+    preloadedRef.current = nextSong.id;
+    const base = process.env.NEXT_PUBLIC_API_URL ?? "";
+    const urls = [
+      `${base}/songs/${nextSong.id}/video.mp4`,
+      `${base}/songs/${nextSong.id}/audio/vocals.wav`,
+      `${base}/songs/${nextSong.id}/audio/no_vocals.wav`,
+    ];
+    const controllers: AbortController[] = [];
+    urls.forEach((u) => {
+      const ctrl = new AbortController();
+      controllers.push(ctrl);
+      // Low-priority full GET → populates HTTP cache; body discarded.
+      fetch(u, { signal: ctrl.signal, priority: "low" as RequestPriority })
+        .then((r) => r.blob())
+        .then(() => console.info("[Player] preloaded", u.split("/").slice(-2).join("/")))
+        .catch(() => { /* aborted or failed — fine */ });
+    });
+    return () => controllers.forEach((c) => c.abort());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSong?.id, queue]);
 
   // ────────────────────────────────────────────────────────────────────────────
   // Render — media is rendered at root and never unmounts; overlays change.
@@ -644,6 +685,20 @@ export default function PlayerView({ roomId }: Props) {
 
       <ReactionOverlay reactions={reactions} />
       {systemError && <SystemErrorToast message={systemError} />}
+
+      {/* Activity toast — transient notification of what someone just did */}
+      {activity && (
+        <div
+          key={activity.id}
+          className="absolute bottom-32 left-1/2 -translate-x-1/2 z-30 bg-black/80 backdrop-blur-md border border-white/15 rounded-full px-5 py-2 shadow-2xl pointer-events-none animate-activity-pop"
+        >
+          <p className="text-white text-sm font-medium whitespace-nowrap">
+            <span className="text-violet-300">{activity.actor}</span>
+            <span className="text-white/30 mx-2">·</span>
+            <span>{activity.text}</span>
+          </p>
+        </div>
+      )}
 
       {/* Audio unlock overlay */}
       {audioBlocked && isPlaying && (

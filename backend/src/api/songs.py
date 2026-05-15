@@ -83,6 +83,14 @@ async def _run_pipeline_task(queue_item_id: int, room_id: str) -> None:
         # Auto-start if nothing is currently playing
         from api.ws import _start_next_song
         await _start_next_song(room_id)
+        # Background: pre-fetch every lyrics source so Remote switching is
+        # instant (local file copy, no network round-trip).
+        from ktv_pipeline.lyrics_prefetch import prefetch_all_lyrics
+        with get_db_session() as _s:
+            _qi = _s.query(QueueItem).filter_by(id=queue_item_id).first()
+            _sid = _qi.song_id if _qi else None
+        if _sid:
+            asyncio.create_task(prefetch_all_lyrics(_sid))
 
 
 async def _broadcast_queue_update(room_id: str) -> None:
@@ -411,3 +419,197 @@ def song_status(song_id: str, session: Session = Depends(get_session)):
             for qi in queue_items
         ],
     }
+
+# ── Lyrics source selection (Remote can switch + we remember the choice) ──────
+
+from pydantic import BaseModel as _BaseModel
+
+
+class LyricsSourceBody(_BaseModel):
+    source: str  # youtube|amll_ttml|netease|qq|syncedlyrics|mojim|kkbox|genius|none
+
+
+@router.get("/{song_id}/lyrics/source")
+def get_lyrics_source(song_id: str, session: Session = Depends(get_session)):
+    """Return current + preferred source and the list of PRE-FETCHED sources.
+
+    If a ready song has never been prefetched (older songs), kick the
+    background prefetch so the picker fills in shortly.
+    """
+    song = session.query(Song).filter_by(id=song_id).first()
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+    meta = song.extra_metadata or {}
+    avail = meta.get("available_lyrics") or {}
+    if not avail and song.status == "ready" and not meta.get("_prefetch_started"):
+        m = dict(meta)
+        m["_prefetch_started"] = True
+        song.extra_metadata = m
+        session.commit()
+        from ktv_pipeline.lyrics_prefetch import prefetch_all_lyrics
+        asyncio.create_task(prefetch_all_lyrics(song_id))
+    # avail = {"netease": {"timed": true}, "mojim": {"timed": false}, ...}
+    return {
+        "song_id": song_id,
+        "current": song.lyrics_source,
+        "preferred": meta.get("preferred_lyrics_source"),
+        "has_timing": song.has_timing,
+        "available": avail,        # only sources that actually have lyrics
+        "prefetched": bool(avail),  # false → still fetching in background
+    }
+
+
+@router.post("/{song_id}/lyrics/source")
+async def set_lyrics_source(
+    song_id: str,
+    body: LyricsSourceBody,
+    session: Session = Depends(get_session),
+):
+    """Switch the active lyrics source — INSTANT.
+
+    Sources are pre-fetched after processing into media/{id}/lyrics_{src}.ass.
+    This just copies the chosen pre-cached file onto lyrics.ass (no network).
+    Falls back to an on-demand fetch only if the cache is missing.
+    source="none" disables timed subtitles.
+    """
+    from ktv_pipeline.config import settings as cfg
+
+    song = session.query(Song).filter_by(id=song_id).first()
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+
+    src = body.source
+    media_dir = cfg.data_dir / "media" / song_id
+    media_dir.mkdir(parents=True, exist_ok=True)
+    ass_path = media_dir / "lyrics.ass"
+    txt_path = media_dir / "lyrics.txt"
+
+    meta = dict(song.extra_metadata or {})
+    meta["preferred_lyrics_source"] = src
+
+    if src == "none":
+        if ass_path.exists():
+            ass_path.unlink()
+        song.has_timing = False
+        song.lyrics_source = "none"
+        song.extra_metadata = meta
+        session.commit()
+        await _broadcast_lyrics_changed(song_id)
+        return {"ok": True, "source": "none", "has_timing": False}
+
+    cached_ass = media_dir / f"lyrics_{src}.ass"
+    cached_txt = media_dir / f"lyrics_{src}.txt"
+
+    # ── Fast path: pre-cached file → instant swap ────────────────────────────
+    if cached_ass.exists():
+        ass_path.write_text(cached_ass.read_text(encoding="utf-8"), encoding="utf-8")
+        if cached_txt.exists():
+            txt_path.write_text(cached_txt.read_text(encoding="utf-8"), encoding="utf-8")
+        song.has_timing = True
+        song.lyrics_source = src
+        song.extra_metadata = meta
+        session.commit()
+        await _broadcast_lyrics_changed(song_id)
+        return {"ok": True, "source": src, "has_timing": True, "cached": True}
+
+    if cached_txt.exists():
+        # Plain-text-only source — no timed ASS
+        txt_path.write_text(cached_txt.read_text(encoding="utf-8"), encoding="utf-8")
+        if ass_path.exists():
+            ass_path.unlink()
+        song.has_timing = False
+        song.lyrics_source = src
+        song.extra_metadata = meta
+        session.commit()
+        await _broadcast_lyrics_changed(song_id)
+        return {"ok": True, "source": src, "has_timing": False, "cached": True}
+
+    # ── Slow path: not pre-fetched yet → fetch on demand once ────────────────
+    from ktv_pipeline.pipeline.lyrics import (
+        fetch_youtube_subtitles, fetch_amll, fetch_netease, fetch_qq,
+        fetch_syncedlyrics, _fetch_mojim, _fetch_kkbox, _fetch_genius,
+        clean_song_query,
+    )
+    from ktv_pipeline.pipeline.lrc_to_ass import convert_lrc_to_ass, ConversionError
+    from ktv_pipeline.llm import clean_title_llm
+    import re as _re
+
+    raw_title = song.title or song_id
+    llm = await clean_title_llm(raw_title, song.artist or "")
+    if llm:
+        title, artist = llm
+    else:
+        title, artist = clean_song_query(raw_title, song.artist or "")
+
+    try:
+        if src == "youtube":
+            result = await fetch_youtube_subtitles(song_id, raw_title)
+        elif src == "amll_ttml":
+            result = await fetch_amll(title, artist)
+        elif src == "netease":
+            result = await fetch_netease(title, artist)
+        elif src == "qq":
+            result = await fetch_qq(title, artist)
+        elif src == "syncedlyrics":
+            result = await fetch_syncedlyrics(title, artist)
+        elif src == "mojim":
+            result = await _fetch_mojim(title, artist)
+        elif src == "kkbox":
+            result = await _fetch_kkbox(title, artist)
+        elif src == "genius":
+            result = await _fetch_genius(title, artist)
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown source: {src}")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"{src} fetch failed: {exc}")
+
+    if result is None or not result.lrc.strip():
+        raise HTTPException(status_code=404, detail=f"No lyrics from {src}")
+
+    text_lines = [
+        _re.sub(r"\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]", "", ln).strip()
+        for ln in result.lrc.splitlines()
+    ]
+    text_lines = [t for t in text_lines if t]
+    if text_lines:
+        joined = "\n".join(text_lines)
+        txt_path.write_text(joined, encoding="utf-8")
+        cached_txt.write_text(joined, encoding="utf-8")
+
+    if result.lyrics_type == "synced":
+        try:
+            ass = convert_lrc_to_ass(
+                result.lrc, total_duration_sec=song.duration_sec, song_id=song_id,
+            )
+            ass_path.write_text(ass, encoding="utf-8")
+            cached_ass.write_text(ass, encoding="utf-8")
+            song.has_timing = True
+        except ConversionError:
+            song.has_timing = False
+    else:
+        if ass_path.exists():
+            ass_path.unlink()
+        song.has_timing = False
+
+    song.lyrics_source = result.source or src
+    song.extra_metadata = meta
+    session.commit()
+    await _broadcast_lyrics_changed(song_id)
+    return {"ok": True, "source": song.lyrics_source, "has_timing": song.has_timing}
+
+
+async def _broadcast_lyrics_changed(song_id: str) -> None:
+    """Tell every room currently playing this song to reload subtitles."""
+    from ktv_pipeline.ws_manager import manager
+    from ktv_pipeline.models import QueueItem as _QI
+    with get_db_session() as s:
+        rooms = [
+            r[0] for r in s.query(_QI.room_id)
+            .filter_by(song_id=song_id, status="playing")
+            .distinct()
+            .all()
+        ]
+    for room_id in rooms or []:
+        await manager.broadcast_lyrics_updated(room_id, song_id)

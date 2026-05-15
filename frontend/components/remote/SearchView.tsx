@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from "react";
 import Image from "next/image";
 import { youtubeSearch, searchSongs, addSong, isYoutubeUrl, type YoutubeResult } from "@/lib/api";
 import LeaderboardView from "./LeaderboardView";
+import LibraryView from "./LibraryView";
 
 interface Props {
   roomId: string;
@@ -18,7 +19,13 @@ function formatDuration(sec: number | null): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-type SubTab = "search" | "leaderboard";
+type SubTab = "search" | "library" | "leaderboard";
+
+const SUBTAB_LABEL: Record<SubTab, string> = {
+  search: "搜尋",
+  library: "資料庫",
+  leaderboard: "排行榜",
+};
 
 export default function SearchView({ roomId, token = null, onAdded }: Props) {
   const [subTab, setSubTab] = useState<SubTab>("search");
@@ -115,7 +122,7 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
     <div className="flex flex-col h-full">
       {/* Sub-tabs */}
       <div className="flex border-b border-white/8 sticky top-0 bg-[#0a0a0a]/95 backdrop-blur-md z-10">
-        {(["search", "leaderboard"] as SubTab[]).map((t) => (
+        {(["search", "library", "leaderboard"] as SubTab[]).map((t) => (
           <button
             key={t}
             onClick={() => setSubTab(t)}
@@ -123,7 +130,7 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
               subTab === t ? "text-violet-400" : "text-white/40 hover:text-white/70"
             }`}
           >
-            {t === "search" ? "搜尋" : "排行榜"}
+            {SUBTAB_LABEL[t]}
             {subTab === t && (
               <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-violet-400 rounded-full" />
             )}
@@ -133,6 +140,10 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
 
       {subTab === "leaderboard" && (
         <LeaderboardView roomId={roomId} token={token} onAdded={onAdded} />
+      )}
+
+      {subTab === "library" && (
+        <LibraryView roomId={roomId} onAdded={onAdded} />
       )}
 
       {subTab === "search" && (

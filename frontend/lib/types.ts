@@ -80,6 +80,7 @@ export type ServerEvent =
   | { type: "guests.updated"; guests: Guest[] }
   | { type: "playback.state"; state: PlaybackState }
   | { type: "reaction"; emoji: string; from: string }
+  | { type: "activity"; text: string; actor: string }
   | { type: "system.error"; message: string }
   | { type: "system.restarted" }
   | { type: "lyrics.updated"; songId: string }

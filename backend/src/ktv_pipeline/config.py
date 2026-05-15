@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_dir: Path = Path("/data/ktv/logs")
     dev_mode: bool = False
+    # MiniMax LLM (Anthropic-compatible endpoint) — used to clean messy
+    # YouTube titles into accurate {title, artist} for lyric search.
+    minimax_api_key: str = ""
+    minimax_model: str = "MiniMax-M2.5"
+    minimax_base_url: str = "https://api.minimax.io/anthropic/v1/messages"
 
     @property
     def version(self) -> str:

@@ -3,7 +3,10 @@
 import Image from "next/image";
 import { useRef, useState, useCallback, useEffect } from "react";
 import type { Song, PlaybackState, ClientCommand, QueueItem } from "@/lib/types";
-import { getLyricsAss, getLyricsText } from "@/lib/api";
+import {
+  getLyricsAss, getLyricsText, getLyricsSource, setLyricsSource,
+  getFavoriteStatus, addFavorite, removeFavorite,
+} from "@/lib/api";
 
 const LYRICS_SOURCE_LABEL: Record<string, string> = {
   youtube_subtitle: "YouTube 字幕",
@@ -208,6 +211,7 @@ export default function NowPlaying({
               ♪ {currentQueueItem.guest.nickname} 點的
             </p>
           )}
+          {currentSong && <FavoriteHeart songId={currentSong.id} />}
         </div>
 
         {/* Processing bar */}
@@ -296,10 +300,11 @@ export default function NowPlaying({
                 sendCommand({ type: "playback.setVolume", main: v });
               }}
               className="flex-1"
+              style={{ background: `linear-gradient(to right, #fff ${mainVol * 100}%, rgba(255,255,255,0.15) ${mainVol * 100}%)` }}
             />
-            <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-white/40 flex-shrink-0">
-              <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
-            </svg>
+            <span className="text-white/40 text-xs w-12 text-right flex-shrink-0 font-mono tabular-nums">
+              {Math.round(mainVol * 100)}%
+            </span>
           </div>
           <div className="flex items-center gap-3">
             <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-violet-400/60 flex-shrink-0">
@@ -344,6 +349,11 @@ export default function NowPlaying({
             song={currentSong}
             text={plainLyrics}
           />
+        )}
+
+        {/* Lyrics source selector */}
+        {currentSong && (
+          <LyricsSourcePicker song={currentSong} />
         )}
 
         {/* Lyrics edit */}
@@ -448,5 +458,164 @@ function PlainTextLyrics({ song, text }: { song: Song; text: string }) {
         ))}
       </div>
     </div>
+  );
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+  youtube: "YouTube 字幕",
+  amll_ttml: "AMLL 逐字",
+  netease: "NetEase",
+  qq: "QQ 音樂",
+  syncedlyrics: "LRCLIB",
+  mojim: "魔鏡(純文字)",
+  kkbox: "KKBOX(純文字)",
+  genius: "Genius(純文字)",
+  none: "關閉字幕",
+};
+
+function LyricsSourcePicker({ song }: { song: Song }) {
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState<string | null>(song.lyrics_source);
+  const [available, setAvailable] = useState<Record<string, { timed: boolean }>>({});
+  const [prefetched, setPrefetched] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCurrent(song.lyrics_source);
+    getLyricsSource(song.id)
+      .then((info) => {
+        if (cancelled) return;
+        setCurrent(info.current);
+        setAvailable(info.available || {});
+        setPrefetched(info.prefetched ?? false);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [song.id, song.lyrics_source]);
+
+  async function pick(src: string) {
+    setBusy(src);
+    setMsg(null);
+    try {
+      const r = await setLyricsSource(song.id, src);
+      setCurrent(r.source);
+      setMsg(
+        src === "none" ? "✓ 已關閉字幕"
+        : r.has_timing ? "✓ 已切換（有時間軸）"
+        : "✓ 已切換（純文字）"
+      );
+      setTimeout(() => setMsg(null), 2000);
+    } catch {
+      setMsg("✗ 此來源找不到歌詞");
+      setTimeout(() => setMsg(null), 2000);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // Only show sources that were actually pre-fetched, plus "none"
+  const options = [...Object.keys(available), "none"];
+
+  return (
+    <div className="bg-white/4 backdrop-blur rounded-2xl border border-white/8 overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 text-left"
+      >
+        <span className="text-white/60 text-xs">
+          字幕來源：<span className="text-violet-300">{current ? (SOURCE_LABELS[current] ?? current) : "—"}</span>
+        </span>
+        <span className="text-white/30 text-xs">{open ? "▲" : "▼ 切換"}</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-3">
+          {!prefetched && (
+            <p className="text-white/40 text-[11px] mb-2 px-1">
+              其他來源整理中…（背景處理，稍後再開即可瞬間切換）
+            </p>
+          )}
+          <div className="grid grid-cols-3 gap-1.5">
+            {options.map((s) => {
+              const timed = s !== "none" && available[s]?.timed;
+              return (
+                <button
+                  key={s}
+                  onClick={() => pick(s)}
+                  disabled={busy !== null}
+                  className={`text-[11px] py-2 px-1 rounded-lg transition-colors disabled:opacity-40 ${
+                    current === s
+                      ? "bg-violet-600 text-white"
+                      : "bg-white/8 text-white/60 hover:bg-white/15"
+                  }`}
+                >
+                  {busy === s ? "…" : (SOURCE_LABELS[s] ?? s)}
+                  {s !== "none" && (
+                    <span className="block text-[9px] opacity-60">
+                      {timed ? "時間軸" : "純文字"}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {msg && (
+        <p className="px-4 pb-3 text-xs text-white/50">{msg}</p>
+      )}
+    </div>
+  );
+}
+
+function FavoriteHeart({ songId }: { songId: string }) {
+  const [fav, setFav] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setFav(false);
+    getFavoriteStatus(songId)
+      .then((r) => { if (!cancelled) setFav(r.favorited); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [songId]);
+
+  async function toggle() {
+    if (busy) return;
+    setBusy(true);
+    const next = !fav;
+    setFav(next);  // optimistic
+    try {
+      if (next) await addFavorite(songId);
+      else await removeFavorite(songId);
+    } catch {
+      setFav(!next);  // revert
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={busy}
+      className="mt-3 inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-white/8 hover:bg-white/12 transition-all active:scale-95 disabled:opacity-50"
+      aria-label={fav ? "取消收藏" : "加入收藏"}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        className={`w-5 h-5 transition-colors ${fav ? "text-rose-500" : "text-white/40"}`}
+        fill={fav ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth="2"
+      >
+        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+      </svg>
+      <span className={`text-xs font-medium ${fav ? "text-rose-400" : "text-white/50"}`}>
+        {fav ? "已收藏" : "收藏"}
+      </span>
+    </button>
   );
 }

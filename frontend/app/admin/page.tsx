@@ -79,7 +79,7 @@ function RoomsTab() {
   const [createName, setCreateName] = useState("");
   const [createPw, setCreatePw] = useState("");
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [passwordEdit, setPasswordEdit] = useState<{ roomId: string; name: string } | null>(null);
+  const [passwordEdit, setPasswordEdit] = useState<{ roomId: string; name: string; kind: "join" | "admin" } | null>(null);
   const [newPw, setNewPw] = useState("");
   const [opError, setOpError] = useState("");
 
@@ -125,8 +125,15 @@ function RoomsTab() {
     e.preventDefault();
     if (!passwordEdit) return;
     try {
-      const result = await adminChangeRoomPassword(passwordEdit.roomId, newPw || null);
-      setRooms((r) => r.map((x) => x.id === passwordEdit.roomId ? { ...x, has_password: result.has_password } : x));
+      if (passwordEdit.kind === "join") {
+        const result = await adminChangeRoomPassword(passwordEdit.roomId, newPw || null);
+        setRooms((r) => r.map((x) => x.id === passwordEdit.roomId ? { ...x, has_password: result.has_password } : x));
+      } else {
+        // admin-mode password — uses /api/rooms/{id}/admin-password
+        if (!newPw.trim()) { setOpError("管理員密碼不能為空"); return; }
+        const { setRoomAdminPassword } = await import("@/lib/api");
+        await setRoomAdminPassword(passwordEdit.roomId, newPw);
+      }
       setPasswordEdit(null);
       setNewPw("");
     } catch {
@@ -198,10 +205,18 @@ function RoomsTab() {
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => setPasswordEdit({ roomId: room.id, name: room.name })}
+                  onClick={() => setPasswordEdit({ roomId: room.id, name: room.name, kind: "join" })}
                   className="text-gray-400 hover:text-white text-sm px-3 py-1 border border-gray-700 rounded"
+                  title="入房密碼"
                 >
-                  密碼
+                  入房密碼
+                </button>
+                <button
+                  onClick={() => setPasswordEdit({ roomId: room.id, name: room.name, kind: "admin" })}
+                  className="text-amber-400/80 hover:text-amber-300 text-sm px-3 py-1 border border-amber-900/50 rounded"
+                  title="遙控管理員模式密碼"
+                >
+                  管理員密碼
                 </button>
                 <button
                   onClick={() => handleDelete(room.id)}
@@ -219,18 +234,26 @@ function RoomsTab() {
       {passwordEdit && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <form onSubmit={handlePasswordChange} className="bg-gray-900 border border-gray-700 rounded-lg p-6 w-full max-w-sm flex flex-col gap-4">
-            <h3 className="text-white font-semibold">修改房間密碼 — {passwordEdit.name}</h3>
+            <h3 className="text-white font-semibold">
+              {passwordEdit.kind === "join" ? "修改入房密碼" : "修改管理員密碼"} — {passwordEdit.name}
+            </h3>
+            <p className="text-xs text-gray-500">
+              {passwordEdit.kind === "join"
+                ? "用戶進房間時要輸入的密碼。"
+                : "遙控頭像點擊進入管理員模式時要輸入的密碼，可進行刪歌、拖曳排序等進階操作。"}
+            </p>
             <input
               value={newPw}
               onChange={(e) => setNewPw(e.target.value)}
-              placeholder="新密碼（留空移除密碼）"
+              placeholder={passwordEdit.kind === "join" ? "新密碼（留空移除密碼）" : "新管理員密碼"}
               type="password"
               className="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"
               autoFocus
             />
+            {opError && <p className="text-red-400 text-sm">{opError}</p>}
             <div className="flex gap-2">
               <button type="submit" className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded text-sm font-medium flex-1">儲存</button>
-              <button type="button" onClick={() => { setPasswordEdit(null); setNewPw(""); }} className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm font-medium flex-1">取消</button>
+              <button type="button" onClick={() => { setPasswordEdit(null); setNewPw(""); setOpError(""); }} className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm font-medium flex-1">取消</button>
             </div>
           </form>
         </div>

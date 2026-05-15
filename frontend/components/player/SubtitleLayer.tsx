@@ -44,10 +44,15 @@ export default function SubtitleLayer({ song, videoRef }: Props) {
           targetFps: 30,
           prescaleFactor: 1.0,
           renderAhead: 0.5,
-          // LXGW WenKai TC — modern, traditional-Chinese-optimized writing
-          // font that looks much cleaner than WenQuanYi.
-          fallbackFont: "/libass/fallback.ttf",
-          availableFonts: { "黑体": "/libass/fallback.ttf" },
+          // 黑体/黑體 → LXGW WenKai TC (pretty, Traditional-Chinese tuned).
+          // Noto Sans CJK is the per-glyph fallback so Korean Hangul and
+          // Japanese Kana (absent in LXGW) still render.
+          fallbackFont: "/libass/notocjk.otf",
+          availableFonts: {
+            "黑体": "/libass/fallback.ttf",
+            "黑體": "/libass/fallback.ttf",
+            "Noto Sans CJK SC": "/libass/notocjk.otf",
+          },
           onReady: () => console.info("[SubtitleLayer] libass ready"),
           onError: (e: unknown) => console.error("[SubtitleLayer] libass runtime error:", e),
         } as unknown as ConstructorParameters<typeof SubtitlesOctopusClass>[0];

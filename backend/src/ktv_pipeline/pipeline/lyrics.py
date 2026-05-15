@@ -216,12 +216,27 @@ async def _retryable_get(
 # ---------------------------------------------------------------------------
 
 
+_t2s_converter = None
+
+
 def _normalize(s: str) -> str:
-    """Lowercase, strip non-alphanumeric/CJK chars."""
+    """Lowercase, fold Traditional→Simplified, strip non-alphanumeric/CJK.
+
+    Mainland catalogs (NetEase/QQ) store Simplified; our queries are often
+    Traditional. Without folding, 風≠风 breaks every match.
+    """
+    global _t2s_converter
     if not s:
         return ""
     s = s.lower()
-    # Keep CJK + alphanumerics, drop punctuation/whitespace
+    if re.search(r"[一-鿿]", s):
+        try:
+            if _t2s_converter is None:
+                import opencc
+                _t2s_converter = opencc.OpenCC("t2s")
+            s = _t2s_converter.convert(s)
+        except Exception:
+            pass
     return re.sub(r"[^\w一-鿿]", "", s)
 
 
@@ -251,49 +266,74 @@ def _netease_artist_names(song: dict) -> str:
     return ""
 
 
+def _cjk_core(s: str) -> str:
+    """Return only the CJK runs of *s* (for CJK songs the English tacked-on
+    alt-title / romanization just pollutes the search)."""
+    runs = re.findall(r"[一-鿿]+", s or "")
+    return "".join(runs)
+
+
+def _query_variants(title: str, artist: str) -> list[str]:
+    """Ranked search-query candidates. Pure-CJK forms first — they match
+    mainland catalogs (NetEase/QQ) far better than English-polluted ones."""
+    ct, ca = _cjk_core(title), _cjk_core(artist)
+    cands = []
+    if ct:
+        cands.append(f"{ct} {ca}".strip())
+        cands.append(ct)
+    cands.append(f"{title} {artist}".strip())
+    cands.append(title.strip())
+    # Dedup preserving order
+    seen, out = set(), []
+    for q in cands:
+        q = q.strip()
+        if q and q not in seen:
+            seen.add(q)
+            out.append(q)
+    return out
+
+
 async def _netease_search(client: httpx.AsyncClient, title: str, artist: str) -> Optional[dict]:
     """Search NetEase and return the best-matching song.
 
-    Scores each candidate by title + artist similarity to the query and
-    rejects matches below a confidence threshold — better no lyrics than
-    wrong lyrics for a different song.
+    Tries several query variants (CJK-only first), scores candidates by
+    title+artist similarity, and rejects low-confidence matches — wrong
+    lyrics are worse than no lyrics.
     """
-    params = {"s": f"{title} {artist}".strip(), "type": 1, "limit": 8}
-    try:
-        resp = await _retryable_get(
-            client,
-            "https://music.163.com/api/search/get",
-            params=params,
-            timeout=_DEFAULT_TIMEOUT,
-        )
-    except LyricsError:
-        return None
-
-    if resp.status_code != 200:
-        return None
-    songs = resp.json().get("result", {}).get("songs", [])
-    if not songs:
-        return None
-
     best: Optional[dict] = None
     best_score = 0.0
-    for s in songs:
-        cand_title = s.get("name", "") or ""
-        cand_artist = _netease_artist_names(s)
-        title_score = _match_score(title, cand_title)
-        artist_score = _match_score(artist, cand_artist) if artist else 0.5
-        score = title_score * 0.7 + artist_score * 0.3
-        if score > best_score:
-            best_score = score
-            best = s
+    for query in _query_variants(title, artist):
+        try:
+            resp = await _retryable_get(
+                client,
+                "https://music.163.com/api/search/get",
+                params={"s": query, "type": 1, "limit": 8},
+                timeout=_DEFAULT_TIMEOUT,
+            )
+        except LyricsError:
+            continue
+        if resp.status_code != 200:
+            continue
+        songs = resp.json().get("result", {}).get("songs", [])
+        for s in songs:
+            cand_title = s.get("name", "") or ""
+            cand_artist = _netease_artist_names(s)
+            # Score against BOTH raw and CJK-core forms; take the best
+            ts = max(_match_score(title, cand_title),
+                     _match_score(_cjk_core(title), cand_title))
+            asc = (max(_match_score(artist, cand_artist),
+                       _match_score(_cjk_core(artist), cand_artist))
+                   if artist else 0.5)
+            score = ts * 0.7 + asc * 0.3
+            if score > best_score:
+                best_score, best = score, s
+        if best_score >= 0.85:
+            break  # strong match — stop trying more variants
 
     log.info(
         "NetEase match for '%s'/'%s' → %s (score=%.2f)",
-        title, artist,
-        (best.get("name") if best else None),
-        best_score,
+        title, artist, (best.get("name") if best else None), best_score,
     )
-    # Reject low-confidence matches — wrong lyrics are worse than no lyrics
     if best_score < 0.5:
         return None
     return best
@@ -698,19 +738,35 @@ def _vtt_to_lrc(vtt_content: str) -> Optional[str]:
     return "\n".join(f"{tag}{text}" for tag, text in deduped)
 
 
-def _pick_best_subtitle(subs: dict, auto_subs: dict) -> Optional[tuple[str, bool]]:
+_ZH_LANGS = ("zh", "zh-Hant", "zh-Hans", "zh-TW", "zh-CN", "zh-HK")
+
+
+def _pick_best_subtitle(
+    subs: dict, auto_subs: dict, cjk_only: bool = False
+) -> Optional[tuple[str, bool]]:
     """Return (lang_key, is_auto) for the best available subtitle track.
 
     Prefers manual subtitles over auto-generated, and Chinese over English.
-    Returns None if no subtitles are available.
+    When *cjk_only* is True (the song title is Chinese), never fall back to
+    a non-Chinese track — a wrong English auto-translation is worse than
+    using NetEase/QQ lyrics instead.
     """
-    for lang in _YT_SUB_LANGS:
+    # Manual zh first
+    for lang in _ZH_LANGS:
         if lang in subs:
             return (lang, False)
-    for lang in _YT_SUB_LANGS:
+    # Auto zh next
+    for lang in _ZH_LANGS:
         if lang in auto_subs:
             return (lang, True)
-    # Fallback: first available manual, then first auto
+    if cjk_only:
+        # No Chinese track — refuse English; let NetEase/QQ handle it
+        return None
+    # Non-CJK song: allow English then anything
+    if "en" in subs:
+        return ("en", False)
+    if "en" in auto_subs:
+        return ("en", True)
     if subs:
         return (next(iter(subs)), False)
     if auto_subs:
@@ -718,7 +774,9 @@ def _pick_best_subtitle(subs: dict, auto_subs: dict) -> Optional[tuple[str, bool
     return None
 
 
-def _download_youtube_subs_sync(youtube_id: str, tmpdir: str) -> Optional[str]:
+def _download_youtube_subs_sync(
+    youtube_id: str, tmpdir: str, cjk_only: bool = False
+) -> Optional[str]:
     """Synchronous yt_dlp subtitle download.  Run in a thread via asyncio.to_thread."""
     try:
         import yt_dlp  # type: ignore
@@ -744,8 +802,9 @@ def _download_youtube_subs_sync(youtube_id: str, tmpdir: str) -> Optional[str]:
             info = ydl.extract_info(url, download=False)
             subs = info.get("subtitles", {}) if info else {}
             auto_subs = info.get("automatic_captions", {}) if info else {}
-            pick = _pick_best_subtitle(subs, auto_subs)
+            pick = _pick_best_subtitle(subs, auto_subs, cjk_only=cjk_only)
             if not pick:
+                log.info("No suitable YouTube subtitle for %s (cjk_only=%s)", youtube_id, cjk_only)
                 return None
             lang, is_auto = pick
             # Now download just the chosen subtitle track
@@ -769,17 +828,22 @@ def _download_youtube_subs_sync(youtube_id: str, tmpdir: str) -> Optional[str]:
     return None
 
 
-async def fetch_youtube_subtitles(youtube_id: str) -> Optional[LyricsResult]:
+async def fetch_youtube_subtitles(
+    youtube_id: str, title: str = ""
+) -> Optional[LyricsResult]:
     """Phase 0: extract subtitles directly from the YouTube video.
 
     Uses yt_dlp in a thread pool (sync) so it doesn't block the event loop.
-    Returns None if no subtitles are available or extraction fails.
+    For Chinese-titled songs we refuse non-Chinese tracks (a wrong English
+    auto-translation is worse than falling through to NetEase/QQ).
+    Returns None if no suitable subtitles are available.
     """
-    log.info("Trying YouTube subtitles for video %s", youtube_id)
+    cjk_only = bool(re.search(r"[一-鿿]", title))
+    log.info("Trying YouTube subtitles for %s (cjk_only=%s)", youtube_id, cjk_only)
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
             vtt_content = await asyncio.to_thread(
-                _download_youtube_subs_sync, youtube_id, tmpdir
+                _download_youtube_subs_sync, youtube_id, tmpdir, cjk_only
             )
             if not vtt_content:
                 return None
@@ -812,6 +876,60 @@ _PLAINTEXT_SOURCES = [
 ]
 
 
+_TITLE_NOISE = re.compile(
+    r"(official|mv|m/?v|music\s*video|lyric[s]?|audio|hd|4k|hq|"
+    r"高清|官方|歌詞|歌词|字幕|live|visuali[sz]er|完整版|動態歌詞|动态歌词|"
+    r"純享|纯享|cover|remix|live\s*version|現場|现场|高音質|無損|无损|"
+    r"feat\.?|ft\.?|prod\.?|topic|audio\s*only)",
+    re.I,
+)
+
+
+def clean_song_query(raw_title: str, raw_artist: str) -> tuple[str, str]:
+    """Turn a messy YouTube title into a (title, artist) suitable for lyric search.
+
+    Handles: bracketed noise (【】[]()（）), "Artist - Title" splits, and uses
+    the known artist to decide which side of a dash is the title. Falls back
+    gracefully — the worst case is the original strings.
+    """
+    t = raw_title or ""
+    # 1. Remove bracket blocks that contain noise words (Official MV / 動態歌詞…)
+    t = re.sub(
+        r"[\(\[【（]([^)\]】）]*?)[\)\]】）]",
+        lambda m: "" if _TITLE_NOISE.search(m.group(1)) else m.group(0),
+        t,
+    )
+    # 2. Unwrap remaining brackets — some channels (周杰倫 etc.) put the actual
+    #    song name inside 【】, so keep the text, just drop the brackets.
+    t = re.sub(r"[\[【（(]\s*([^)\]】）]*?)\s*[)\]】）]", r" \1 ", t)
+    # 3. Strip trailing "- noise…" even without surrounding spaces
+    t = re.sub(r"[-–—|｜]\s*" + _TITLE_NOISE.pattern + r".*$", "", t, flags=re.I)
+    # 3b. Strip a trailing run of noise words ("… Official Music Video")
+    for _ in range(4):
+        new = re.sub(
+            r"\s+" + _TITLE_NOISE.pattern + r"\s*$", "", t, flags=re.I
+        )
+        if new == t:
+            break
+        t = new
+    t = re.sub(r"\s{2,}", " ", t).strip(" -–—|｜·•・~　").strip()
+
+    title = t
+    artist = (raw_artist or "").strip()
+
+    # Split "A - B" — pick the side that is NOT the artist as the title
+    parts = re.split(r"\s*[-–—|｜]\s*", t, maxsplit=1)
+    if len(parts) == 2:
+        a, b = parts[0].strip(), parts[1].strip()
+        if artist:
+            sa, sb = _match_score(artist, a), _match_score(artist, b)
+            title = b if sa >= sb else a
+        else:
+            title, artist = b, a  # YouTube "Artist - Title" convention
+    title = re.sub(r"\s*(feat\.?|ft\.?)\s+.+$", "", title, flags=re.I).strip()
+    return title or raw_title, artist or raw_artist
+
+
 async def fetch_lyrics(
     title: str,
     artist: str,
@@ -835,12 +953,19 @@ async def fetch_lyrics(
       - ``source``: provider name or None
       - ``quality``: "official_word" | "official_line" | "plaintext" | "none"
     """
-    log.info("Fetching lyrics for '%s' by '%s'", title, artist)
+    # Clean the messy YouTube title → usable (title, artist) for lyric APIs
+    clean_title, clean_artist = clean_song_query(title, artist)
+    if (clean_title, clean_artist) != (title, artist):
+        log.info(
+            "Cleaned query: '%s'/'%s' → '%s'/'%s'",
+            title, artist, clean_title, clean_artist,
+        )
 
-    # Phase 0: YouTube native subtitles (highest priority)
+    # Phase 0: YouTube native subtitles (highest priority) — uses raw title for
+    # CJK detection (the original title is fine for that).
     if youtube_id:
         try:
-            result = await fetch_youtube_subtitles(youtube_id)
+            result = await fetch_youtube_subtitles(youtube_id, title)
             if result is not None and result.lrc.strip():
                 log.info("Lyrics found via youtube_subtitle")
                 return result
@@ -850,7 +975,7 @@ async def fetch_lyrics(
     # Phase 1: synced / timed lyrics
     for source_name, fetcher in _SYNCED_SOURCES:
         try:
-            result = await fetcher(title, artist)
+            result = await fetcher(clean_title, clean_artist)
             if result is not None and result.lrc.strip():
                 log.info("Lyrics found via %s", source_name)
                 return result
@@ -864,7 +989,7 @@ async def fetch_lyrics(
     # Phase 2: plain text fallback
     for source_name, fetcher in _PLAINTEXT_SOURCES:
         try:
-            result = await fetcher(title, artist)
+            result = await fetcher(clean_title, clean_artist)
             if result is not None and result.lrc.strip():
                 log.info("Plain-text lyrics found via %s", source_name)
                 return result

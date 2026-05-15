@@ -37,6 +37,31 @@
 本專案由 OpenClaw AI Agent 透過 Telegram 接收使用者指令，呼叫 Claude Code CLI 執行開發。
 詳見 [`CLAUDE.md` §17](CLAUDE.md#17-工作流程openclaw--claude-code-整合)。
 
+## 連結與密碼（自用速查）
+
+| 頁面 | 網址 |
+|---|---|
+| **Player（電視）** | https://ktv.bc-verse.com/r/home/player |
+| **Remote（手機點歌）** | https://ktv.bc-verse.com/r/home/remote |
+| **Admin 管理頁** | https://ktv.bc-verse.com/admin |
+
+| 密碼 | 預設值 | 用途 / 修改位置 |
+|---|---|---|
+| 入房密碼 | `home` | 手機進 home 房要輸入。改：Admin 頁 → 房間列表 → **入房密碼** |
+| Remote 管理員模式 | `homeadmin` | Remote 右上角頭像**點一下**進入，可拖曳排序、永久刪歌。改：Admin 頁 → 房間列表 → **管理員密碼** |
+| Admin 管理頁登入 | `BCktv210` | 進 `/admin` 的密碼（系統管理員）。改：`.env` 的 `ADMIN_PASSWORD` |
+
+- 新建房間的管理員模式預設密碼 = `<房間ID>admin`（例：房間 `party` → `partyadmin`）。
+- 三種密碼互相獨立：**入房**（進房間）≠ **管理員模式**（Remote 進階操作）≠ **Admin 頁**（系統後台）。
+- 所有密碼與連結也註記在 [`.env`](.env) 檔頂部，方便在伺服器上直接查。
+
+### 操作要點
+
+- Player 第一次開要**點一下畫面**解鎖音訊（瀏覽器 autoplay policy）。
+- 字幕來源可在 Remote「正在播放」頁切換（YouTube / NetEase / QQ / LRCLIB / 純文字 / 關閉），
+  系統會在歌曲處理完後**背景預抓所有來源**，切換即時生效。
+- 影片自動限制 ≤1080p 並轉碼，避免 Tunnel 卡頓；播當前歌時背景預載下一首。
+
 ## Domain
 
 `https://ktv.bc-verse.com`

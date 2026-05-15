@@ -457,6 +457,10 @@ class PipelineOrchestrator:
             "video": str(dl_result.video_path),
         }
 
+        # Transcode oversized / >1080p video into media dir so streaming
+        # serves a Tunnel-friendly file (huge 4K downloads cause playback lag).
+        await self._transcode_video_async(song_id, dl_result.video_path)
+
         # ASS file (only when we have timed LRC)
         if aligned_lrc and lyrics_result.lyrics_type == "synced":
             try:
@@ -509,6 +513,64 @@ class PipelineOrchestrator:
                 song.processed_at = _utcnow()
 
         return files
+
+    async def _transcode_video_async(self, song_id: str, video_path: Path) -> None:
+        """Re-encode video to ≤1080p H.264 ~2Mbps into media/{id}/video.mp4.
+
+        Skips if already ≤1080p AND under ~60MB (already Tunnel-friendly).
+        The streaming endpoint prefers the media path, so this transparently
+        replaces an oversized cache file without touching it.
+        """
+        if not video_path.exists():
+            return
+        media_out = settings.data_dir / "media" / song_id / "video.mp4"
+        if media_out.exists() and media_out.stat().st_size > 0:
+            return  # already transcoded
+
+        import subprocess
+
+        def _probe_and_run() -> None:
+            try:
+                size_mb = video_path.stat().st_size / (1024 * 1024)
+                h = subprocess.run(
+                    ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                     "-show_entries", "stream=height", "-of", "csv=p=0", str(video_path)],
+                    capture_output=True, text=True, timeout=30,
+                )
+                height = int((h.stdout.strip() or "0").split(",")[0] or 0)
+            except Exception:
+                height, size_mb = 9999, 9999  # be safe → transcode
+
+            media_out.parent.mkdir(parents=True, exist_ok=True)
+            if height <= 1080 and size_mb < 60:
+                # Small enough — just hardlink/copy into media for stable path
+                try:
+                    import shutil
+                    shutil.copy2(video_path, media_out)
+                    log.info("[%s] Video already small (%dp, %.0fMB) — copied",
+                             song_id, height, size_mb)
+                    return
+                except Exception:
+                    pass
+            try:
+                subprocess.run(
+                    ["ffmpeg", "-y", "-i", str(video_path),
+                     "-vf", "scale='min(1920,iw)':'min(1080,ih)':"
+                            "force_original_aspect_ratio=decrease",
+                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+                     "-maxrate", "2500k", "-bufsize", "5000k",
+                     "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
+                     str(media_out)],
+                    capture_output=True, timeout=900,
+                )
+                if media_out.exists():
+                    new_mb = media_out.stat().st_size / (1024 * 1024)
+                    log.info("[%s] Transcoded video %.0fMB → %.0fMB",
+                             song_id, size_mb, new_mb)
+            except Exception as exc:
+                log.warning("[%s] Video transcode failed: %s", song_id, exc)
+
+        await asyncio.to_thread(_probe_and_run)
 
     async def _convert_opus_async(self, wav_path: Path) -> None:
         """Convert wav_path to .opus with loudness normalization.

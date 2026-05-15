@@ -164,6 +164,25 @@ export function lyricsUrl(songId: string): string {
   return `${BASE}/songs/${songId}/lyrics.ass`;
 }
 
+// Room admin mode
+export async function verifyRoomAdmin(roomId: string, password: string): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/api/rooms/${roomId}/admin/verify`, {
+    method: "POST",
+    body: JSON.stringify({ password }),
+  });
+}
+
+export async function setRoomAdminPassword(roomId: string, newPassword: string): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/api/rooms/${roomId}/admin-password`, {
+    method: "PATCH",
+    body: JSON.stringify({ new_password: newPassword }),
+  });
+}
+
+export async function deleteSong(songId: string): Promise<void> {
+  await apiFetch<{ status: string }>(`/api/admin/songs/${songId}`, { method: "DELETE" });
+}
+
 // Lyrics
 export async function getLyricsAss(songId: string): Promise<string> {
   const base = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -175,6 +194,24 @@ export async function getLyricsAss(songId: string): Promise<string> {
   if (!res.ok) return "";
   return res.text();
 }
+
+export interface LyricsSourceInfo {
+  song_id: string;
+  current: string | null;
+  preferred: string | null;
+  has_timing: boolean;
+  available: Record<string, { timed: boolean }>;
+  prefetched: boolean;
+}
+
+export const getLyricsSource = (songId: string) =>
+  apiFetch<LyricsSourceInfo>(`/api/songs/${songId}/lyrics/source`);
+
+export const setLyricsSource = (songId: string, source: string) =>
+  apiFetch<{ ok: boolean; source: string; has_timing: boolean }>(
+    `/api/songs/${songId}/lyrics/source`,
+    { method: "POST", body: JSON.stringify({ source }) },
+  );
 
 export async function getLyricsText(songId: string): Promise<string> {
   const base = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -331,3 +368,43 @@ export const adminClearCache = (what: "all" | "cache" | "tmp" = "all") =>
 
 export const adminGetSystemStatus = () =>
   adminApiFetch<SystemStatus>("/api/admin/system-status");
+
+// ── Library: favorites / history / recommendations ──────────────────────────
+
+export interface LibrarySong {
+  id: string;
+  title: string;
+  artist: string | null;
+  duration_sec: number | null;
+  thumbnail_url: string | null;
+  status: string;
+  has_timing: boolean;
+  play_count: number;
+  favorited: boolean;
+}
+
+export const getFavorites = () =>
+  apiFetch<LibrarySong[]>("/api/library/favorites");
+
+export const getHistory = () =>
+  apiFetch<LibrarySong[]>("/api/library/history");
+
+export const getRecommendations = () =>
+  apiFetch<LibrarySong[]>("/api/library/recommendations");
+
+export const getFavoriteStatus = (songId: string) =>
+  apiFetch<{ song_id: string; favorited: boolean }>(
+    `/api/library/favorites/${songId}/status`
+  );
+
+export const addFavorite = (songId: string) =>
+  apiFetch<{ ok: boolean; favorited: boolean }>(
+    `/api/library/favorites/${songId}`,
+    { method: "POST" }
+  );
+
+export const removeFavorite = (songId: string) =>
+  apiFetch<{ ok: boolean; favorited: boolean }>(
+    `/api/library/favorites/${songId}`,
+    { method: "DELETE" }
+  );

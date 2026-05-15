@@ -188,6 +188,7 @@ async def dispatch_message(
         if msg_type == "reaction.send":
             emoji = msg.get("emoji", "👍")
             await manager.broadcast_reaction(room_id, emoji, nickname)
+            await manager.broadcast_activity(room_id, f"{emoji}", nickname)
 
         elif msg_type == "playback.play":
             manager.update_playback_state(room_id, is_playing=True)
@@ -195,14 +196,17 @@ async def dispatch_message(
             await manager.send_to_role(room_id, ClientRole.REMOTE, {
                 "type": "playback.state", "state": {"is_playing": True}
             })
+            await manager.broadcast_activity(room_id, "▶ 播放", nickname)
         elif msg_type == "playback.pause":
             manager.update_playback_state(room_id, is_playing=False)
             await manager.send_to_role(room_id, ClientRole.PLAYER, {"type": "playback.pause"})
             await manager.send_to_role(room_id, ClientRole.REMOTE, {
                 "type": "playback.state", "state": {"is_playing": False}
             })
+            await manager.broadcast_activity(room_id, "⏸ 暫停", nickname)
         elif msg_type == "playback.skip":
             manager.update_playback_state(room_id, is_playing=False, position_sec=0)
+            await manager.broadcast_activity(room_id, "⏭ 切下一首", nickname)
             await _handle_song_advance(room_id)
         elif msg_type == "playback.replay":
             manager.update_playback_state(room_id, is_playing=True, position_sec=0)
@@ -210,10 +214,13 @@ async def dispatch_message(
             await manager.send_to_role(room_id, ClientRole.REMOTE, {
                 "type": "playback.state", "state": {"is_playing": True}
             })
+            await manager.broadcast_activity(room_id, "🔁 重播", nickname)
         elif msg_type == "playback.seek":
             position = msg.get("positionSec", 0)
             manager.update_playback_state(room_id, position_sec=position)
             await manager.send_to_role(room_id, ClientRole.PLAYER, {"type": "playback.seek", "positionSec": position})
+            mm = int(position // 60); ss = int(position % 60)
+            await manager.broadcast_activity(room_id, f"⏩ 跳轉至 {mm}:{ss:02d}", nickname)
 
         elif msg_type == "playback.setVolume":
             main_v = float(msg["main"]) if "main" in msg else None
@@ -224,18 +231,21 @@ async def dispatch_message(
                 fwd["main"] = main_v
             if vocal_v is not None:
                 fwd["vocal"] = vocal_v
-            log.info("[setVolume] room=%s fwd=%s", room_id, fwd)
             await manager.send_to_role(room_id, ClientRole.PLAYER, fwd)
             await manager.send_to_role(room_id, ClientRole.REMOTE, fwd)
+            if main_v is not None:
+                await manager.broadcast_activity(room_id, f"🔊 主音量 {int(main_v * 100)}%", nickname)
+            if vocal_v is not None:
+                await manager.broadcast_activity(room_id, f"🎤 人聲 {int(vocal_v * 100)}%", nickname)
 
         elif msg_type == "queue.add":
-            await _handle_queue_add(room_id, guest_id, msg)
+            await _handle_queue_add(room_id, guest_id, nickname, msg)
 
         elif msg_type == "queue.remove":
-            await _handle_queue_remove(room_id, msg)
+            await _handle_queue_remove(room_id, nickname, msg)
 
         elif msg_type == "queue.reorder":
-            await _handle_queue_reorder(room_id, msg)
+            await _handle_queue_reorder(room_id, nickname, msg)
 
         elif msg_type == "lyrics.edit":
             await _handle_lyrics_edit(room_id, msg)
@@ -246,7 +256,7 @@ async def dispatch_message(
         await manager.send_to_client(client_id, {"type": "system.error", "message": "Admin WS commands not yet implemented"})
 
 
-async def _handle_queue_add(room_id: str, guest_id: str, msg: dict) -> None:
+async def _handle_queue_add(room_id: str, guest_id: str, nickname: str, msg: dict) -> None:
     """Handle queue.add from remote — add song via QueueManager."""
     song_id = msg.get("song_id") or msg.get("youtubeId")
     if not song_id:
@@ -268,11 +278,13 @@ async def _handle_queue_add(room_id: str, guest_id: str, msg: dict) -> None:
             guest = session.query(Guest).filter_by(id=guest_id).first()
             queue = mgr.get_queue(room_id)
             await manager.broadcast_queue_updated(room_id, [_qi_to_dict(qi, song if qi.song_id == song_id else None, guest if qi.guest_id == guest_id else None) for qi in queue])
+            if song:
+                await manager.broadcast_activity(room_id, f"➕ {song.title[:30]}", nickname)
     except Exception as exc:
         await manager.broadcast_system_error(room_id, f"queue.add failed: {exc}")
 
 
-async def _handle_queue_remove(room_id: str, msg: dict) -> None:
+async def _handle_queue_remove(room_id: str, nickname: str, msg: dict) -> None:
     """Handle queue.remove from remote — remove item via QueueManager."""
     item_id = msg.get("queueItemId")
     if not item_id:
@@ -283,6 +295,12 @@ async def _handle_queue_remove(room_id: str, msg: dict) -> None:
     try:
         with get_db_session() as session:
             mgr = QueueManager(session)
+            qi = session.query(QueueItem).filter_by(id=int(item_id)).first()
+            song_title = None
+            if qi:
+                from ktv_pipeline.models import Song
+                s = session.query(Song).filter_by(id=qi.song_id).first()
+                song_title = s.title if s else None
             removed = mgr.remove_item(int(item_id))
             if removed:
                 queue = mgr.get_queue(room_id)
@@ -290,13 +308,15 @@ async def _handle_queue_remove(room_id: str, msg: dict) -> None:
                 song_map = {s.id: s for s in session.query(Song).all()}
                 guest_map = {g.id: g for g in session.query(Guest).all()}
                 await manager.broadcast_queue_updated(room_id, [_qi_to_dict(qi, song_map.get(qi.song_id), guest_map.get(qi.guest_id)) for qi in queue])
+                if song_title:
+                    await manager.broadcast_activity(room_id, f"➖ {song_title[:30]}", nickname)
             else:
                 await manager.broadcast_system_error(room_id, "Queue item not found")
     except Exception as exc:
         await manager.broadcast_system_error(room_id, f"queue.remove failed: {exc}")
 
 
-async def _handle_queue_reorder(room_id: str, msg: dict) -> None:
+async def _handle_queue_reorder(room_id: str, nickname: str, msg: dict) -> None:
     """Handle queue.reorder from remote/admin — reorder queue positions."""
     item_ids = msg.get("queueItemIds", [])
     if not item_ids:
@@ -313,6 +333,7 @@ async def _handle_queue_reorder(room_id: str, msg: dict) -> None:
             song_map = {s.id: s for s in session.query(Song).all()}
             guest_map = {g.id: g for g in session.query(Guest).all()}
             await manager.broadcast_queue_updated(room_id, [_qi_to_dict(qi, song_map.get(qi.song_id), guest_map.get(qi.guest_id)) for qi in queue])
+            await manager.broadcast_activity(room_id, "🔀 重新排序隊列", nickname)
     except Exception as exc:
         await manager.broadcast_system_error(room_id, f"queue.reorder failed: {exc}")
 

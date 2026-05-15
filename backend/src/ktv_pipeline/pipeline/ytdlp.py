@@ -134,7 +134,12 @@ class YtDlpWrapper:
 
     def _ydl_opts(self, output_template: str) -> dict:
         opts: dict = {
-            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            # Cap at 1080p — KTV background never needs 4K, and 4K files
+            # (200-400MB) overwhelm the Cloudflare Tunnel → playback lag.
+            "format": (
+                "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/"
+                "best[height<=1080][ext=mp4]/best[height<=1080]/best"
+            ),
             "outtmpl": output_template,
             "merge_output_format": "mp4",
             "quiet": True,

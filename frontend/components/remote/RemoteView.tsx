@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useKtvStore } from "@/lib/stores";
 import { useWebSocket } from "@/lib/ws";
-import { getRoom, getQueue, getOnlineGuests, setGuestToken } from "@/lib/api";
+import { getRoom, getQueue, getOnlineGuests, setGuestToken, verifyRoomAdmin } from "@/lib/api";
 import type { GuestSession, ServerEvent, ClientCommand } from "@/lib/types";
 import JoinForm from "./JoinForm";
 import NowPlaying from "./NowPlaying";
@@ -63,6 +63,11 @@ export default function RemoteView({ roomId }: Props) {
   const [hasPassword, setHasPassword] = useState(false);
   const [systemError, setSystemError] = useState<string | null>(null);
   const [reactionToast, setReactionToast] = useState<{ emoji: string; from: string } | null>(null);
+  const [adminMode, setAdminMode] = useState(false);
+  const [adminModalOpen, setAdminModalOpen] = useState(false);
+  const [adminPassword, setAdminPassword] = useState("");
+  const [adminError, setAdminError] = useState<string | null>(null);
+  const [adminVerifying, setAdminVerifying] = useState(false);
 
   const {
     room,
@@ -94,8 +99,34 @@ export default function RemoteView({ roomId }: Props) {
         localStorage.removeItem(`ktv_session_${roomId}`);
       }
     }
+    // Restore admin mode flag (stored separately so it survives refresh)
+    if (localStorage.getItem(`ktv_admin_${roomId}`) === "1") {
+      setAdminMode(true);
+    }
     setLoadingSession(false);
   }, [roomId]);
+
+  async function handleAdminVerify() {
+    if (!adminPassword.trim()) return;
+    setAdminVerifying(true);
+    setAdminError(null);
+    try {
+      await verifyRoomAdmin(roomId, adminPassword);
+      setAdminMode(true);
+      localStorage.setItem(`ktv_admin_${roomId}`, "1");
+      setAdminModalOpen(false);
+      setAdminPassword("");
+    } catch {
+      setAdminError("密碼錯誤");
+    } finally {
+      setAdminVerifying(false);
+    }
+  }
+
+  function exitAdminMode() {
+    setAdminMode(false);
+    localStorage.removeItem(`ktv_admin_${roomId}`);
+  }
 
   useEffect(() => {
     getRoom(roomId)
@@ -198,14 +229,66 @@ export default function RemoteView({ roomId }: Props) {
         <div className="flex items-center gap-2">
           <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
           <span className="text-white font-semibold text-sm">{room?.name ?? roomId}</span>
+          {adminMode && (
+            <span className="ml-2 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-bold uppercase tracking-wider">
+              管理員
+            </span>
+          )}
         </div>
-        <div
-          className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm"
+        <button
+          onClick={() => {
+            if (adminMode) exitAdminMode();
+            else setAdminModalOpen(true);
+          }}
+          className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm transition-all ${
+            adminMode ? "ring-2 ring-amber-400 ring-offset-2 ring-offset-[#0a0a0a]" : "active:scale-90"
+          }`}
           style={{ backgroundColor: session.guest.avatar_color ?? "#7c3aed" }}
+          title={adminMode ? "點擊退出管理員模式" : "點擊進入管理員模式"}
         >
           {initials}
-        </div>
+        </button>
       </header>
+
+      {/* Admin password modal */}
+      {adminModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-6">
+          <div className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+            <div className="text-center mb-4">
+              <div className="text-3xl mb-2">🔐</div>
+              <h2 className="text-white font-bold text-lg">進入管理員模式</h2>
+              <p className="text-white/40 text-xs mt-1">解鎖隊列管理、刪除歌曲等進階操作</p>
+            </div>
+            <input
+              type="password"
+              autoFocus
+              value={adminPassword}
+              onChange={(e) => { setAdminPassword(e.target.value); setAdminError(null); }}
+              onKeyDown={(e) => { if (e.key === "Enter") void handleAdminVerify(); }}
+              placeholder="管理員密碼"
+              className="w-full bg-white/8 border border-white/10 rounded-2xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-amber-500/50 focus:bg-white/10 transition-all text-sm"
+            />
+            {adminError && (
+              <p className="text-red-400 text-xs mt-2 text-center">{adminError}</p>
+            )}
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={() => { setAdminModalOpen(false); setAdminPassword(""); setAdminError(null); }}
+                className="flex-1 py-3 rounded-2xl bg-white/8 text-white/70 text-sm hover:bg-white/12 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleAdminVerify}
+                disabled={adminVerifying || !adminPassword.trim()}
+                className="flex-1 py-3 rounded-2xl bg-amber-600 text-white text-sm font-medium hover:bg-amber-500 transition-colors disabled:opacity-40"
+              >
+                {adminVerifying ? "驗證中…" : "進入"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Content */}
       <main className="flex-1 overflow-y-auto pb-20">
@@ -223,6 +306,7 @@ export default function RemoteView({ roomId }: Props) {
             queue={queue}
             currentQueueItemId={currentQueueItem?.id ?? null}
             sendCommand={wsCommand}
+            adminMode={adminMode}
           />
         )}
         {tab === "search" && (

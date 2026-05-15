@@ -355,10 +355,21 @@ def _auto_detect_word_level(tokens: List[_Token]) -> bool:
 # ---------------------------------------------------------------------------
 
 
+# Vertical band centred slightly above screen middle (cfg.play_res_y/2 ≈ 540).
+# "整體往上" — current line sits a bit above centre, with the previous line
+# above it and the next two below.
+def _line_positions(cfg: AssConfig) -> dict:
+    cy = cfg.play_res_y // 2
+    return {
+        "prev":  cy - 170,   # ~370 on 1080
+        "cur":   cy - 40,    # ~500 — current, slightly above true centre
+        "next":  cy + 95,    # ~635
+        "next2": cy + 195,   # ~735
+    }
+
+
 def _render_header(cfg: AssConfig) -> str:
     bold_flag = "-1" if cfg.bold else "0"
-    p1_v = cfg.margin_v + cfg.preview_gap
-    p2_v = p1_v + cfg.preview2_gap
     return (
         f"[Script Info]\n"
         f"ScriptType: v4.00+\n"
@@ -369,9 +380,7 @@ def _render_header(cfg: AssConfig) -> str:
         f"\n"
         f"[V4+ Styles]\n"
         f"Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        f"Style: Default,{cfg.font_name},{cfg.font_size},{cfg.primary_color},{cfg.secondary_color},{cfg.outline_color},{cfg.back_color},{bold_flag},0,0,0,100,100,0,0,1,{cfg.outline},{cfg.shadow},2,40,40,{cfg.margin_v},1\n"
-        f"Style: Preview,{cfg.font_name},{cfg.font_size_preview},{cfg.preview_color},{cfg.preview_color},{cfg.outline_color},{cfg.back_color},0,0,0,0,100,100,0,0,1,2,0,2,40,40,{p1_v},1\n"
-        f"Style: Preview2,{cfg.font_name},{cfg.font_size_preview2},{cfg.preview2_color},{cfg.preview2_color},{cfg.outline_color},{cfg.back_color},0,0,0,0,100,100,0,0,1,2,0,2,40,40,{p2_v},1\n"
+        f"Style: Default,{cfg.font_name},{cfg.font_size},{cfg.primary_color},{cfg.secondary_color},{cfg.outline_color},{cfg.back_color},{bold_flag},0,0,0,100,100,0,0,1,{cfg.outline},{cfg.shadow},5,40,40,40,1\n"
         f"\n"
         f"[Events]\n"
         f"Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
@@ -379,29 +388,38 @@ def _render_header(cfg: AssConfig) -> str:
 
 
 def _render_events(lines: List[_Line], cfg: AssConfig) -> str:
-    fade = f"{{\\fad({cfg.fade_in_ms},0)}}"
+    """Per timing window emit 4 stacked lines: prev / current / next / next2.
+
+    Uses \\an5 + \\pos for exact vertical placement (independent of timing
+    accuracy) so a slightly-off LRC still reads naturally as a rolling block.
+    """
+    fade = f"\\fad({cfg.fade_in_ms},0)"
+    pos = _line_positions(cfg)
+    cx = cfg.play_res_x // 2
     parts: List[str] = []
 
     for i, line in enumerate(lines):
         t_start = fmt_ass_time(line.start_ms)
         t_end = fmt_ass_time(line.end_ms)
-        k_text = _build_k_text(line)
 
-        parts.append(
-            f"Dialogue: 0,{t_start},{t_end},Default,,0,0,0,,{fade}{k_text}"
-        )
+        def _ev(text: str, y: int, fs: int, alpha: str) -> str:
+            ov = (
+                f"{{\\an5\\pos({cx},{y})\\fs{fs}"
+                f"\\1a{alpha}\\3a&H40&{fade}}}"
+            )
+            return f"Dialogue: 0,{t_start},{t_end},Default,,0,0,0,,{ov}{text}"
 
+        if i - 1 >= 0:
+            parts.append(_ev(lines[i - 1].full_text, pos["prev"],
+                             cfg.font_size_preview2, "&H80&"))
+        parts.append(_ev(_build_k_text(line), pos["cur"],
+                          cfg.font_size, "&H00&"))
         if i + 1 < len(lines):
-            preview_text = lines[i + 1].full_text
-            parts.append(
-                f"Dialogue: 0,{t_start},{t_end},Preview,,0,0,0,,{fade}{preview_text}"
-            )
-
+            parts.append(_ev(lines[i + 1].full_text, pos["next"],
+                             cfg.font_size_preview, "&H50&"))
         if i + 2 < len(lines):
-            preview2_text = lines[i + 2].full_text
-            parts.append(
-                f"Dialogue: 0,{t_start},{t_end},Preview2,,0,0,0,,{fade}{preview2_text}"
-            )
+            parts.append(_ev(lines[i + 2].full_text, pos["next2"],
+                             cfg.font_size_preview2, "&H80&"))
 
     return "\n".join(parts) + "\n"
 

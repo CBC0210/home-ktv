@@ -115,6 +115,63 @@ def change_room_password(
     return {"status": "ok", "room_id": room_id, "has_password": bool(new_password)}
 
 
+# ── Song DB management (used by Remote admin mode + admin page) ──────────────
+
+@router.delete("/songs/{song_id}")
+def delete_song_admin(
+    song_id: str,
+    session: Session = Depends(get_session),
+    payload: dict = Depends(get_current_guest),
+):
+    """Delete a song from the DB + remove its queue items + on-disk media.
+
+    Allowed for any room admin (guest.is_admin=True after admin-mode verify).
+    """
+    if not payload.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin only")
+    song = session.query(Song).filter_by(id=song_id).first()
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+    # Remove queue items first (cascading)
+    session.query(QueueItem).filter_by(song_id=song_id).delete()
+    session.delete(song)
+    session.commit()
+    # Clean up media + cache directories on disk (best-effort)
+    from ktv_pipeline.config import settings as cfg
+    import shutil
+    for sub in ("media", "cache", "cache/demucs"):
+        path = cfg.data_dir / sub / song_id
+        if path.exists():
+            try:
+                shutil.rmtree(path)
+            except OSError:
+                pass
+    return {"status": "ok", "deleted": song_id}
+
+
+@router.delete("/songs")
+def clear_all_songs(
+    session: Session = Depends(get_session),
+    _=Depends(require_admin),
+):
+    """Wipe every song + queue item + on-disk media. System admin only."""
+    n_queue = session.query(QueueItem).delete()
+    n_songs = session.query(Song).delete()
+    session.commit()
+    from ktv_pipeline.config import settings as cfg
+    import shutil
+    for sub in ("media", "cache", "cache/demucs"):
+        path = cfg.data_dir / sub
+        if path.exists():
+            for child in path.iterdir():
+                try:
+                    if child.is_dir():
+                        shutil.rmtree(child)
+                except OSError:
+                    pass
+    return {"status": "ok", "songs": n_songs, "queue_items": n_queue}
+
+
 # ── Error Logs ────────────────────────────────────────────────────────────────
 
 @router.get("/error-logs")

@@ -1,12 +1,21 @@
 """Rooms API routes — room management and password-protected creation."""
 from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ktv_pipeline.database import get_db_session
 from ktv_pipeline.models import Room
 from ktv_pipeline.schemas import RoomCreate, RoomOut
-from ktv_pipeline.auth import hash_password, verify_admin_password
+from ktv_pipeline.auth import hash_password, verify_admin_password, verify_password
 from ktv_pipeline.deps import get_current_guest
+
+
+class AdminVerifyBody(BaseModel):
+    password: str
+
+
+class AdminPasswordBody(BaseModel):
+    new_password: str
 
 
 router = APIRouter(prefix="/rooms", tags=["rooms"])
@@ -241,3 +250,56 @@ def get_processing_stats(room_id: str, session: Session = Depends(get_session)):
             result[status] = count
 
     return result
+
+
+# ── Per-room admin mode (separate from system admin) ──────────────────────────
+
+@router.post("/{room_id}/admin/verify")
+def verify_room_admin(
+    room_id: str,
+    body: AdminVerifyBody,
+    payload: dict = Depends(get_current_guest),
+    session: Session = Depends(get_session),
+):
+    """Verify the room admin-mode password. Returns 200 on match, 403 otherwise.
+
+    Used by Remote to enter admin mode (queue/DB elevated ops). Separate from
+    the system ADMIN_PASSWORD (used for /admin web page).
+    """
+    room = session.query(Room).filter_by(id=room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+    if not room.admin_password_hash:
+        raise HTTPException(status_code=503, detail="Room admin password not set")
+    if not verify_password(body.password, room.admin_password_hash):
+        raise HTTPException(status_code=403, detail="Wrong admin password")
+    # Mark this guest as room-admin in DB so subsequent JWTs/operations know
+    from ktv_pipeline.models import Guest
+    guest = session.query(Guest).filter_by(id=payload["sub"]).first()
+    if guest:
+        guest.is_admin = True
+        session.commit()
+    return {"ok": True, "room_id": room_id}
+
+
+@router.patch("/{room_id}/admin-password")
+def set_room_admin_password(
+    room_id: str,
+    body: AdminPasswordBody,
+    payload: dict = Depends(get_current_guest),
+    session: Session = Depends(get_session),
+):
+    """Change the room admin-mode password. System admin only.
+
+    System admin = JWT with is_admin=True (set via /admin login).
+    """
+    if not payload.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin only")
+    if not body.new_password.strip():
+        raise HTTPException(status_code=400, detail="Password cannot be empty")
+    room = session.query(Room).filter_by(id=room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+    room.admin_password_hash = hash_password(body.new_password)
+    session.commit()
+    return {"ok": True, "room_id": room_id}

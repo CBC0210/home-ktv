@@ -19,6 +19,9 @@ class Room(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     password_hash: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    # Separate password for Remote admin-mode (queue/DB elevated ops).
+    # Changeable from /admin web page. Default seeded at startup when NULL.
+    admin_password_hash: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=now_utc)
     created_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)

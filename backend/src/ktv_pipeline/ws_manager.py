@@ -176,6 +176,10 @@ class ConnectionManager:
     async def broadcast_reaction(self, room_id: str, emoji: str, from_nickname: str) -> None:
         await self.send_to_room(room_id, {"type": "reaction", "emoji": emoji, "from": from_nickname})
 
+    async def broadcast_activity(self, room_id: str, text: str, actor: str) -> None:
+        """Brief description of a remote action, shown as a transient toast on Player."""
+        await self.send_to_room(room_id, {"type": "activity", "text": text, "actor": actor})
+
     async def broadcast_system_error(self, room_id: str, message: str) -> None:
         await self.send_to_room(room_id, {"type": "system.error", "message": message})
 
