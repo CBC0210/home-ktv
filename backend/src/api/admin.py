@@ -290,6 +290,56 @@ def guest_detail(
     }
 
 
+@router.get("/songs")
+def list_saved_songs(
+    session: Session = Depends(get_session),
+    _=Depends(require_admin),
+):
+    """List every saved song with its on-disk footprint (media + cache +
+    demucs), so the admin can see what's stored and prune big/unused ones."""
+    import os
+    from ktv_pipeline.config import settings
+
+    def dir_size(p) -> int:
+        if not os.path.isdir(p):
+            return 0
+        tot = 0
+        for dp, _dn, fn in os.walk(p):
+            for f in fn:
+                try:
+                    tot += os.path.getsize(os.path.join(dp, f))
+                except OSError:
+                    pass
+        return tot
+
+    data = str(settings.data_dir)
+    songs = session.query(Song).order_by(Song.processed_at.desc()).all()
+    out = []
+    for s in songs:
+        b = (
+            dir_size(os.path.join(data, "media", s.id))
+            + dir_size(os.path.join(data, "cache", s.id))
+            + dir_size(os.path.join(data, "cache", "demucs", s.id))
+        )
+        out.append({
+            "id": s.id,
+            "title": s.title,
+            "artist": s.artist,
+            "status": s.status,
+            "play_count": s.play_count or 0,
+            "has_timing": s.has_timing,
+            "lyrics_source": s.lyrics_source,
+            "duration_sec": s.duration_sec,
+            "last_played_at": s.last_played_at.isoformat() if s.last_played_at else None,
+            "bytes": b,
+            "human": _human_size(b),
+        })
+    out.sort(key=lambda x: x["bytes"], reverse=True)
+    total = sum(x["bytes"] for x in out)
+    return {"songs": out, "count": len(out), "total_bytes": total,
+            "total_human": _human_size(total)}
+
+
 # ── Song DB management (used by Remote admin mode + admin page) ──────────────
 
 @router.delete("/songs/{song_id}")

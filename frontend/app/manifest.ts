@@ -2,9 +2,9 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Home KTV 遙控",
-    short_name: "KTV 遙控",
-    description: "掃碼點歌、控制播放的家庭 KTV 遙控器",
+    name: "響窩 Echonest",
+    short_name: "響窩",
+    description: "響窩 Echonest — 掃碼點歌、控制播放的家庭 KTV",
     start_url: "/r/home/remote",
     display: "standalone",
     orientation: "portrait",

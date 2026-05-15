@@ -301,6 +301,22 @@ export default function RoomTab({ room, session, guests, onLeave, adminMode = fa
       >
         離開房間（清除身份）
       </button>
+
+      {/* Credit */}
+      <div className="text-center pt-4 pb-2 border-t border-white/5 mt-2">
+        <p className="text-white/40 text-xs font-medium tracking-wide">響窩 Echonest</p>
+        <p className="text-white/25 text-[11px] mt-1">
+          由 CBC 製作 ·{" "}
+          <a
+            href="https://github.com/CBC0210/home-ktv"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline hover:text-violet-400 transition-colors"
+          >
+            GitHub
+          </a>
+        </p>
+      </div>
     </div>
   );
 }

@@ -52,6 +52,9 @@ export default function PlayerView({ roomId }: Props) {
   // Until then we keep songs PAUSED at 0 instead of playing muted, so the
   // first song doesn't silently run ahead and then jump on unlock.
   const audioUnlockedRef = useRef(false);
+  // Server's last-known playback position — used to resume after a
+  // mid-song page refresh instead of restarting from 0.
+  const resumePosRef = useRef(0);
   // Web Audio graph (lazy)
   const audioCtxRef = useRef<AudioContext | null>(null);
   const vocalGainRef = useRef<GainNode | null>(null);
@@ -194,7 +197,14 @@ export default function PlayerView({ roomId }: Props) {
     const video = videoRef.current;
     const vocal = vocalRef.current;
     const instr = instrRef.current;
-    const pos = video?.currentTime ?? 0;
+    // Resume from the server's last position after a mid-song refresh,
+    // else from wherever the video currently is (0 for a fresh song).
+    let pos = video?.currentTime ?? 0;
+    if (resumePosRef.current > 1 && pos < 1) {
+      pos = resumePosRef.current;
+      if (video) video.currentTime = pos;
+    }
+    resumePosRef.current = 0;  // consume — only resume once
     if (vocal) { vocal.currentTime = pos; try { await vocal.play(); } catch { /* ignore */ } }
     if (instr) { instr.currentTime = pos; try { await instr.play(); } catch { /* ignore */ } }
     if (video && video.paused) { try { await video.play(); } catch { /* ignore */ } }
@@ -225,6 +235,10 @@ export default function PlayerView({ roomId }: Props) {
           break;
         case "playback.state":
           setPlayback(event.state);
+          // Remember server's last position so a mid-song refresh can resume
+          if (typeof event.state?.position_sec === "number" && event.state.position_sec > 1) {
+            resumePosRef.current = event.state.position_sec;
+          }
           break;
         case "song.processing":
           setProcessing({ stage: event.stage, percent: event.percent });
@@ -308,10 +322,15 @@ export default function PlayerView({ roomId }: Props) {
   sendRef.current = sendCommand as never;
 
   // ── Position broadcast timer ─────────────────────────────────────────────
+  // Only broadcasts when the video is genuinely playing — never while paused
+  // (e.g. waiting for the unlock tap), so we don't spam position 0 and
+  // corrupt every Remote's progress on a mid-song refresh.
   useEffect(() => {
     if (!playback.is_playing || !currentSong) return;
     const id = setInterval(() => {
-      const pos = videoRef.current?.currentTime ?? 0;
+      const v = videoRef.current;
+      if (!v || v.paused || v.currentTime <= 0) return;
+      const pos = v.currentTime;
       setVideoPosition(pos);
       updatePosition(pos);
       sendRef.current?.({ type: "player.playing", positionSec: pos } as never);
@@ -321,13 +340,15 @@ export default function PlayerView({ roomId }: Props) {
   }, [playback.is_playing, currentSong, updatePosition]);
 
   // ── Initial data load — also restore currently-playing song on page load ──
+  // Note: we do NOT force is_playing=true here. The song-change effect
+  // pauses at 0 until the unlock tap; handlePlaying flips is_playing once
+  // the video actually starts. This prevents the mid-refresh "stuck at 0".
   useEffect(() => {
     getQueue(roomId).then((q) => {
       setQueue(q);
       const playing = q.find((item) => item.status === "playing");
       if (playing?.song) {
         setCurrentSong(playing.song, playing);
-        setIsPlayingRef.current(true);
       }
     }).catch(() => {});
     getRoom(roomId).then(setRoom).catch(() => {});
@@ -532,9 +553,12 @@ export default function PlayerView({ roomId }: Props) {
                   <circle cx="12" cy="12" r="1.5" fill="white"/>
                 </svg>
               </div>
-              <span className={`font-bold text-2xl tracking-tight ${themeStyle.headerText}`}>
-                {room?.name ?? "Home KTV"}
-              </span>
+              <div className="flex flex-col">
+                <span className={`font-bold text-2xl tracking-tight leading-none ${themeStyle.headerText}`}>
+                  {room?.name ?? "響窩"}
+                </span>
+                <span className="text-white/30 text-[10px] tracking-widest mt-0.5">響窩 ECHONEST</span>
+              </div>
             </div>
             <div className="flex items-center gap-6">
               {guests.length > 0 && (
@@ -607,6 +631,13 @@ export default function PlayerView({ roomId }: Props) {
                 </>
               )}
             </div>
+          </div>
+
+          {/* Credit */}
+          <div className="absolute bottom-5 left-0 right-0 text-center pointer-events-none">
+            <p className="text-white/20 text-xs tracking-wide">
+              響窩 Echonest · 由 CBC 製作
+            </p>
           </div>
         </>
       )}
@@ -741,17 +772,20 @@ export default function PlayerView({ roomId }: Props) {
         </div>
       )}
 
-      {/* Audio unlock overlay */}
+      {/* Tap-to-start overlay — just a single play button */}
       {audioBlocked && isPlaying && (
         <div
-          className="absolute inset-0 z-50 flex items-center justify-center cursor-pointer"
+          className="absolute inset-0 z-50 flex items-center justify-center cursor-pointer bg-black/80 backdrop-blur-sm"
           onClick={() => void unlockAudio()}
         >
-          <div className="bg-black/70 backdrop-blur-md rounded-3xl px-10 py-8 text-center border border-white/10">
-            <div className="text-5xl mb-3">▶️</div>
-            <p className="text-white text-xl font-semibold">點擊開始播放</p>
-            <p className="text-white/50 text-sm mt-1">已暫停等待 — 點一下從頭播放（含聲音）</p>
-          </div>
+          <button
+            className="w-28 h-28 rounded-full bg-white/95 flex items-center justify-center shadow-2xl active:scale-95 transition-transform"
+            aria-label="開始播放"
+          >
+            <svg viewBox="0 0 24 24" fill="#0a0a0a" className="w-12 h-12 ml-1.5">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          </button>
         </div>
       )}
     </div>

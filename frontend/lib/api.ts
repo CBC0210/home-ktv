@@ -408,6 +408,21 @@ export const adminClearCache = (what: "all" | "cache" | "tmp" = "all") =>
     { method: "POST", body: JSON.stringify({ what }) }
   );
 
+export interface SavedSong {
+  id: string; title: string; artist: string | null; status: string;
+  play_count: number; has_timing: boolean; lyrics_source: string | null;
+  duration_sec: number | null; last_played_at: string | null;
+  bytes: number; human: string;
+}
+export const adminListSavedSongs = () =>
+  adminApiFetch<{ songs: SavedSong[]; count: number; total_bytes: number; total_human: string }>(
+    "/api/admin/songs"
+  );
+export const adminDeleteSavedSong = (songId: string) =>
+  adminApiFetch<{ status: string; deleted: string }>(
+    `/api/admin/songs/${songId}`, { method: "DELETE" }
+  );
+
 export const adminGetSystemStatus = () =>
   adminApiFetch<SystemStatus>("/api/admin/system-status");
 

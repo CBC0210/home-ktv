@@ -12,7 +12,10 @@ import {
   adminResolveAllErrorLogs,
   adminGetCacheStats,
   adminClearCache,
+  adminListSavedSongs,
+  adminDeleteSavedSong,
   adminGetSystemStatus,
+  type SavedSong,
   adminGetRoomDetail,
   adminGetGuestDetail,
   AdminAuthError,
@@ -599,10 +602,37 @@ function CacheTab() {
   const [stats, setStats] = useState<CacheStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [clearing, setClearing] = useState(false);
+  const [songs, setSongs] = useState<SavedSong[] | null>(null);
+  const [songsTotal, setSongsTotal] = useState("");
+  const [delId, setDelId] = useState<string | null>(null);
+
+  const loadSongs = useCallback(async () => {
+    try {
+      const r = await adminListSavedSongs();
+      setSongs(r.songs);
+      setSongsTotal(r.total_human);
+    } catch (e) {
+      if (!(e instanceof AdminAuthError)) setSongs([]);
+    }
+  }, []);
 
   useEffect(() => {
     adminGetCacheStats().then(setStats).catch(() => {}).finally(() => setLoading(false));
-  }, []);
+    loadSongs();
+  }, [loadSongs]);
+
+  async function handleDeleteSong(s: SavedSong) {
+    if (!confirm(`永久刪除「${s.title}」？\n會移除資料庫記錄與 ${s.human} 的媒體檔，無法復原。`)) return;
+    setDelId(s.id);
+    try {
+      await adminDeleteSavedSong(s.id);
+      setSongs((cur) => cur?.filter((x) => x.id !== s.id) ?? null);
+      adminGetCacheStats().then(setStats).catch(() => {});
+    } catch {
+      alert("刪除失敗");
+    }
+    setDelId(null);
+  }
 
   async function handleClear(what: "all" | "cache" | "tmp") {
     if (!confirm(`確定清除 ${what}？`)) return;
@@ -623,6 +653,11 @@ function CacheTab() {
   return (
     <div className="p-4 flex flex-col gap-4">
       <h2 className="text-white font-semibold text-lg">磁碟用量</h2>
+      <div className="bg-gray-900/60 border border-gray-800 rounded-lg p-3 text-xs text-gray-400 leading-relaxed">
+        <p><span className="text-gray-300">media</span>：每首歌的成品（轉碼後影片、字幕 .ass/.txt、各來源歌詞快取）— 刪了該首歌要重新處理。</p>
+        <p><span className="text-gray-300">cache</span>：原始下載（yt-dlp 原片）與 Demucs 人聲分離的 WAV/Opus — 最佔空間，刪了會重新下載/分離。</p>
+        <p><span className="text-gray-300">tmp / logs</span>：暫存與日誌，可安全清除。</p>
+      </div>
       {loading ? <p className="text-gray-500">載入中…</p> : stats ? (
         <>
           <div className="grid grid-cols-2 gap-3">
@@ -655,6 +690,48 @@ function CacheTab() {
           </div>
         </>
       ) : <p className="text-gray-500">載入失敗</p>}
+
+      {/* Saved songs — per-song footprint + delete */}
+      <div className="mt-2">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-white font-semibold text-lg">已保存歌曲</h2>
+          {songs && (
+            <span className="text-gray-400 text-sm">
+              {songs.length} 首 · 共 {songsTotal}
+            </span>
+          )}
+        </div>
+        {!songs ? (
+          <p className="text-gray-500">載入中…</p>
+        ) : songs.length === 0 ? (
+          <p className="text-gray-500">尚無保存的歌曲</p>
+        ) : (
+          <div className="flex flex-col divide-y divide-gray-800 border border-gray-800 rounded-lg overflow-hidden">
+            {songs.map((s) => (
+              <div key={s.id} className="flex items-center gap-3 px-3 py-2.5 bg-gray-900">
+                <div className="flex-1 min-w-0">
+                  <p className="text-white text-sm truncate">{s.title}</p>
+                  <p className="text-gray-500 text-xs truncate">
+                    {s.artist ?? "—"} · {s.status}
+                    {s.play_count > 0 && ` · 播 ${s.play_count} 次`}
+                    {s.has_timing ? " · 有字幕" : ""}
+                  </p>
+                </div>
+                <span className="text-gray-400 text-sm font-mono w-20 text-right flex-shrink-0">
+                  {s.human}
+                </span>
+                <button
+                  onClick={() => handleDeleteSong(s)}
+                  disabled={delId === s.id}
+                  className="text-red-400 hover:text-red-300 text-sm px-3 py-1 border border-red-900/50 rounded flex-shrink-0 disabled:opacity-50"
+                >
+                  {delId === s.id ? "刪除中…" : "刪除"}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
