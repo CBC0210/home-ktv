@@ -97,6 +97,11 @@ export default function PlayerView({ roomId }: Props) {
   setIsPlayingRef.current = setIsPlaying;
   const playbackRef = useRef(playback);
   playbackRef.current = playback;
+  // Reported-problem songs play the video's own embedded audio (perfect A/V
+  // sync, no Demucs artefacts); the split vocal/instr graph is bypassed and
+  // vocal-mix is inert. Ref so callbacks read the live value.
+  const useOrigAudioRef = useRef(false);
+  useOrigAudioRef.current = !!currentSong?.use_original_audio;
 
   useEffect(() => {
     setRemoteUrl(window.location.origin + `/r/${roomId}/remote`);
@@ -161,6 +166,12 @@ export default function PlayerView({ roomId }: Props) {
   const syncVolumes = useCallback((main: number, vocal: number) => {
     const m = Math.max(0, Math.min(1, main));
     const vv = Math.max(0, Math.min(2, vocal));
+    if (useOrigAudioRef.current) {
+      // Original embedded audio: only main volume applies (no vocal track).
+      const video = videoRef.current;
+      if (video) { video.muted = false; video.volume = m; }
+      return;
+    }
     if (vocalGainRef.current && instrGainRef.current) {
       vocalGainRef.current.gain.value = m * vv;
       instrGainRef.current.gain.value = m;
@@ -177,6 +188,7 @@ export default function PlayerView({ roomId }: Props) {
   // Auto-play attempt for HTMLAudioElement (without Web Audio). Will fail on
   // first run due to autoplay policy → triggers the unlock overlay.
   const tryPlayAudio = useCallback(async (atPosition?: number) => {
+    if (useOrigAudioRef.current) return;  // audio rides the video element
     const vocal = vocalRef.current;
     const instr = instrRef.current;
     if (!vocal || !instr) return;
@@ -193,6 +205,23 @@ export default function PlayerView({ roomId }: Props) {
   // This is synchronously inside a user gesture so Web Audio can be created
   // and resumed reliably.
   const unlockAudio = useCallback(async () => {
+    if (useOrigAudioRef.current) {
+      // No Web Audio graph — just start the video (carries its own audio).
+      const video = videoRef.current;
+      let pos = video?.currentTime ?? 0;
+      if (resumePosRef.current > 1 && pos < 1) {
+        pos = resumePosRef.current;
+        if (video) video.currentTime = pos;
+      }
+      resumePosRef.current = 0;
+      if (video) {
+        video.muted = false;
+        video.volume = Math.max(0, Math.min(1, playbackRef.current.main_volume));
+        try { await video.play(); audioUnlockedRef.current = true; setAudioBlocked(false); }
+        catch { setAudioBlocked(true); }
+      }
+      return;
+    }
     const ok = await ensureAudioGraph();
     const video = videoRef.current;
     const vocal = vocalRef.current;
@@ -379,9 +408,18 @@ export default function PlayerView({ roomId }: Props) {
 
     // Direct swap to new song — no intermediate empty src
     const base = process.env.NEXT_PUBLIC_API_URL ?? "";
+    const orig = !!currentSong.use_original_audio;
     video.src = `${base}/songs/${currentSong.id}/video.mp4`;
-    if (vocal) vocal.src = `${base}/songs/${currentSong.id}/audio/vocals.wav`;
-    if (instr) instr.src = `${base}/songs/${currentSong.id}/audio/no_vocals.wav`;
+    if (orig) {
+      // Play the video's embedded audio; bypass the split tracks entirely.
+      video.muted = false;
+      if (vocal?.src) { vocal.pause(); vocal.removeAttribute("src"); vocal.load(); }
+      if (instr?.src) { instr.pause(); instr.removeAttribute("src"); instr.load(); }
+    } else {
+      video.muted = true;
+      if (vocal) vocal.src = `${base}/songs/${currentSong.id}/audio/vocals.wav`;
+      if (instr) instr.src = `${base}/songs/${currentSong.id}/audio/no_vocals.wav`;
+    }
 
     syncVolumes(playbackRef.current.main_volume, playbackRef.current.vocal_volume);
 

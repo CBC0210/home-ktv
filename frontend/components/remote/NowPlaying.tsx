@@ -6,7 +6,15 @@ import type { Song, PlaybackState, ClientCommand, QueueItem } from "@/lib/types"
 import {
   getLyricsText, getLyricsSource, setLyricsSource,
   getFavoriteStatus, addFavorite, removeFavorite,
+  reportSongIssue, clearSongReport, type SongIssue,
 } from "@/lib/api";
+
+const ISSUE_OPTIONS: { value: SongIssue; label: string }[] = [
+  { value: "clipping", label: "爆音 / 破音" },
+  { value: "av_desync", label: "音畫不同步" },
+  { value: "separation_noise", label: "人聲分離有雜訊" },
+  { value: "other", label: "其他問題" },
+];
 
 const LYRICS_SOURCE_LABEL: Record<string, string> = {
   youtube_subtitle: "YouTube 字幕",
@@ -308,7 +316,7 @@ export default function NowPlaying({
               {Math.round(mainVol * 100)}%
             </span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className={`flex items-center gap-3 ${currentSong?.use_original_audio ? "opacity-40" : ""}`}>
             <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-violet-400/60 flex-shrink-0">
               <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/>
             </svg>
@@ -318,18 +326,24 @@ export default function NowPlaying({
               max={1}
               step={0.05}
               value={vocalVol}
+              disabled={!!currentSong?.use_original_audio}
               onChange={(e) => {
                 const v = parseFloat(e.target.value);
                 setVocalVol(v);
                 sendCommand({ type: "playback.setVolume", vocal: v });
               }}
-              className="flex-1"
+              className="flex-1 disabled:cursor-not-allowed"
               style={{ background: `linear-gradient(to right, #7c3aed ${vocalVol * 100}%, rgba(255,255,255,0.15) ${vocalVol * 100}%)` }}
             />
             <span className="text-white/40 text-xs w-12 text-right flex-shrink-0 font-mono tabular-nums">
               {Math.round(vocalVol * 100)}%
             </span>
           </div>
+          {currentSong?.use_original_audio && (
+            <p className="text-amber-400/70 text-[11px] px-1">
+              ⚠ 此曲已回報問題，使用原始影片音訊播放，人聲調整停用。
+            </p>
+          )}
         </div>
 
         {/* Autoplay — admin only */}
@@ -374,6 +388,11 @@ export default function NowPlaying({
             </button>
           ))}
         </div>
+
+        {/* Report a playback problem */}
+        {currentSong && (
+          <ReportProblem song={currentSong} adminMode={adminMode} />
+        )}
 
         {/* Plain-text lyrics fallback (when no word timing) */}
         {currentSong && !currentSong.has_timing && (
@@ -512,6 +531,97 @@ function PlainTextLyrics({ song, text }: { song: Song; text: string }) {
           </a>
         ))}
       </div>
+    </div>
+  );
+}
+
+function ReportProblem({ song, adminMode }: { song: Song; adminMode: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  // Live: this play is already in original-audio mode (set on a prior report).
+  const inOrigMode = !!song.use_original_audio;
+
+  // Reset transient UI when the song changes.
+  useEffect(() => { setOpen(false); setDone(false); }, [song.id]);
+
+  async function submit(issue: SongIssue) {
+    setBusy(true);
+    try {
+      await reportSongIssue(song.id, issue);
+      setDone(true);
+      setOpen(false);
+    } catch {
+      alert("回報失敗，請稍後再試");
+    }
+    setBusy(false);
+  }
+
+  async function revert() {
+    if (!confirm("還原成分離音軌播放？（下次播放此曲生效）")) return;
+    setBusy(true);
+    try {
+      await clearSongReport(song.id);
+      setDone(false);
+      alert("已還原，下次播放此曲將使用分離音軌");
+    } catch {
+      alert("還原失敗（需要管理員）");
+    }
+    setBusy(false);
+  }
+
+  return (
+    <div className="bg-white/4 border border-white/8 rounded-2xl px-4 py-3">
+      {inOrigMode ? (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-amber-400/80 text-xs leading-relaxed">
+            🔊 已回報問題，使用原始音訊播放（人聲調整停用）。
+          </p>
+          {adminMode && (
+            <button
+              onClick={revert}
+              disabled={busy}
+              className="text-white/60 text-xs px-3 py-1.5 rounded-lg border border-white/15 flex-shrink-0 disabled:opacity-50"
+            >
+              還原
+            </button>
+          )}
+        </div>
+      ) : done ? (
+        <p className="text-emerald-400/80 text-xs leading-relaxed">
+          ✓ 已回報，下次播放此曲將改用原始影片音訊（修正爆音 / 不同步）。
+        </p>
+      ) : !open ? (
+        <button
+          onClick={() => setOpen(true)}
+          className="flex items-center gap-2 text-white/55 text-xs"
+        >
+          <span className="text-base leading-none">⚠️</span>
+          這首歌有問題？回報一下
+        </button>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <p className="text-white/60 text-xs">是什麼問題？回報後下次播放會改用原始影片音訊。</p>
+          <div className="grid grid-cols-2 gap-2">
+            {ISSUE_OPTIONS.map((o) => (
+              <button
+                key={o.value}
+                onClick={() => submit(o.value)}
+                disabled={busy}
+                className="bg-white/6 hover:bg-white/10 border border-white/10 text-white/85 text-xs rounded-lg px-3 py-2 disabled:opacity-50"
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => setOpen(false)}
+            className="text-white/40 text-[11px] self-start mt-0.5"
+          >
+            取消
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -213,6 +213,33 @@ export const setLyricsSource = (songId: string, source: string) =>
     { method: "POST", body: JSON.stringify({ source }) },
   );
 
+// ── Per-song problem report → original-audio playback override ──────────────
+
+export type SongIssue = "clipping" | "av_desync" | "separation_noise" | "other";
+
+export interface SongReportInfo {
+  song_id: string;
+  use_original_audio: boolean;
+  reports: { at: string; nickname: string | null; issue: string }[];
+  report_count: number;
+}
+
+export const getSongReport = (songId: string) =>
+  apiFetch<SongReportInfo>(`/api/songs/${songId}/report`);
+
+export const reportSongIssue = (songId: string, issue: SongIssue) =>
+  apiFetch<{ ok: boolean; use_original_audio: boolean; report_count: number }>(
+    `/api/songs/${songId}/report`,
+    { method: "POST", body: JSON.stringify({ issue }) },
+  );
+
+/** Admin only — revert to separated-audio playback (history kept). */
+export const clearSongReport = (songId: string) =>
+  apiFetch<{ ok: boolean; use_original_audio: boolean }>(
+    `/api/songs/${songId}/report`,
+    { method: "DELETE" },
+  );
+
 export async function getLyricsText(songId: string): Promise<string> {
   const base = process.env.NEXT_PUBLIC_API_URL ?? "";
   const res = await fetch(`${base}/songs/${songId}/lyrics.txt`, { credentials: "include" });

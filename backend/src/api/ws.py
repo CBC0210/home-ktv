@@ -458,6 +458,9 @@ async def _start_next_song(room_id: str) -> None:
             "lyrics_source": song.lyrics_source,
             "error_message": song.error_message,
             "subtitle_offset_ms": (song.extra_metadata or {}).get("subtitle_offset_ms", 0),
+            "use_original_audio": bool(
+                ((song.extra_metadata or {}).get("playback") or {}).get("use_original_audio")
+            ),
         } if song else {}
 
         qi_dict = _qi_to_dict(item, song, guest)
@@ -772,6 +775,9 @@ def _qi_to_dict(qi, song, guest) -> dict:
             "status": song.status,
             "has_timing": song.has_timing,
             "lyrics_source": song.lyrics_source,
+            "use_original_audio": bool(
+                ((song.extra_metadata or {}).get("playback") or {}).get("use_original_audio")
+            ),
         } if song else None,
         "guest": {
             "id": guest.id,

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from ktv_pipeline.database import get_db_session
-from ktv_pipeline.models import Song, QueueItem, Room, PlayHistory
+from ktv_pipeline.models import Song, QueueItem, Room, PlayHistory, Guest
 from ktv_pipeline.schemas import SongCreate, SongOut, QueueItemOut
 from ktv_pipeline.deps import get_current_guest, get_optional_guest_dep
 from ktv_pipeline.queue_manager import QueueManager
@@ -621,3 +621,151 @@ async def _broadcast_lyrics_changed(song_id: str) -> None:
         ]
     for room_id in rooms or []:
         await manager.broadcast_lyrics_updated(room_id, song_id)
+
+
+# ── Per-song problem report → playback strategy override ────────────────────
+#
+# A song whose separated audio glitches (爆音/破音), drifts out of sync, or
+# has Demucs noise can be reported by anyone. Every issue type maps to the
+# one robust remediation we have without re-processing: play the ORIGINAL
+# video's embedded audio next time instead of the Demucs split tracks —
+# perfect A/V sync, no separation artefacts. Vocal-mix control is then inert
+# (there is no separate vocal track), which the UI makes explicit. Only an
+# admin can revert (history is kept either way).
+
+_ISSUE_LABELS = {
+    "clipping": "爆音/破音",
+    "av_desync": "音畫不同步",
+    "separation_noise": "人聲分離雜訊",
+    "other": "其他問題",
+}
+
+
+def _playback_profile(song) -> dict:
+    p = dict((song.extra_metadata or {}).get("playback") or {})
+    p.setdefault("use_original_audio", False)
+    p.setdefault("reports", [])
+    return p
+
+
+def _save_playback_profile(session, song, profile: dict) -> None:
+    meta = dict(song.extra_metadata or {})
+    meta["playback"] = profile
+    song.extra_metadata = meta
+    session.commit()
+
+
+class ReportIssueBody(_BaseModel):
+    issue: str  # clipping | av_desync | separation_noise | other
+
+
+@router.get("/{song_id}/report")
+def get_song_report(song_id: str, session: Session = Depends(get_session)):
+    """Return the playback profile + report history for a song."""
+    song = session.query(Song).filter_by(id=song_id).first()
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+    p = _playback_profile(song)
+    return {
+        "song_id": song_id,
+        "use_original_audio": bool(p["use_original_audio"]),
+        "reports": p["reports"],
+        "report_count": len(p["reports"]),
+    }
+
+
+@router.post("/{song_id}/report")
+async def report_song_issue(
+    song_id: str,
+    body: ReportIssueBody,
+    session: Session = Depends(get_session),
+    payload: dict | None = Depends(get_optional_guest_dep),
+):
+    """Report a playback problem. Anyone may report. Switches the song to
+    original-audio mode for its next play."""
+    issue = body.issue if body.issue in _ISSUE_LABELS else "other"
+    song = session.query(Song).filter_by(id=song_id).first()
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+
+    guest_id = (payload or {}).get("sub")
+    nickname = None
+    if guest_id:
+        g = session.query(Guest).filter_by(id=guest_id).first()
+        nickname = g.nickname if g else None
+
+    p = _playback_profile(song)
+    p["use_original_audio"] = True
+    p["reports"] = (p["reports"] + [{
+        "at": datetime.now(timezone.utc).isoformat(),
+        "guest_id": guest_id,
+        "nickname": nickname,
+        "issue": issue,
+    }])[-50:]  # cap history
+    p.pop("reverted_at", None)
+    _save_playback_profile(session, song, p)
+
+    from ktv_pipeline.models import ErrorLog
+    session.add(ErrorLog(
+        category="playback", severity="warning",
+        message=f"Song reported ({_ISSUE_LABELS[issue]}): {song.title}",
+        context={"song_id": song_id, "issue": issue,
+                 "by": nickname or guest_id or "anon"},
+    ))
+    session.commit()
+
+    # Tell the room (toast on Player, refresh report state on Remote).
+    from ktv_pipeline.ws_manager import manager
+    from ktv_pipeline.models import QueueItem as _QI
+    rooms = [
+        r[0] for r in session.query(_QI.room_id)
+        .filter_by(song_id=song_id).filter(_QI.status.in_(("playing", "pending")))
+        .distinct().all()
+    ]
+    for room_id in set(rooms):
+        await manager.broadcast_activity(
+            room_id, f"回報了問題（{_ISSUE_LABELS[issue]}）— 下次將用原始音訊",
+            nickname or "有人",
+        )
+        await manager.send_to_room(room_id, {
+            "type": "song.profile_updated",
+            "song_id": song_id,
+            "use_original_audio": True,
+        })
+    return {
+        "ok": True, "song_id": song_id, "use_original_audio": True,
+        "issue": issue, "report_count": len(p["reports"]),
+    }
+
+
+@router.delete("/{song_id}/report")
+async def revert_song_report(
+    song_id: str,
+    session: Session = Depends(get_session),
+    payload: dict = Depends(get_current_guest),
+):
+    """Revert to separated-audio mode (admin only). Report history is kept."""
+    if not payload.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin only")
+    song = session.query(Song).filter_by(id=song_id).first()
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+    p = _playback_profile(song)
+    p["use_original_audio"] = False
+    p["reverted_at"] = datetime.now(timezone.utc).isoformat()
+    _save_playback_profile(session, song, p)
+
+    from ktv_pipeline.ws_manager import manager
+    from ktv_pipeline.models import QueueItem as _QI
+    rooms = [
+        r[0] for r in session.query(_QI.room_id)
+        .filter_by(song_id=song_id).filter(_QI.status.in_(("playing", "pending")))
+        .distinct().all()
+    ]
+    for room_id in set(rooms):
+        await manager.send_to_room(room_id, {
+            "type": "song.profile_updated",
+            "song_id": song_id,
+            "use_original_audio": False,
+        })
+    return {"ok": True, "song_id": song_id, "use_original_audio": False}

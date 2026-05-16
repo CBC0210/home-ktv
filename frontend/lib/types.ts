@@ -33,6 +33,9 @@ export interface Song {
   files: Record<string, string> | null;
   metadata: Record<string, unknown> | null;
   subtitle_offset_ms?: number;
+  /** Reported problematic: play the original video's embedded audio instead
+   *  of the Demucs split tracks (vocal-mix control inert). */
+  use_original_audio?: boolean;
 }
 
 export interface Guest {
