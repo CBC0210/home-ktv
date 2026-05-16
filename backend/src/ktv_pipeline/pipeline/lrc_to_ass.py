@@ -73,6 +73,13 @@ class AssConfig:
     # Fade-in per subtitle event
     fade_in_ms: int = 100
 
+    # Romanisation sub-line (Japanese / Korean songs): a smaller Latin
+    # reading shown directly under the current & next native lines. When a
+    # window carries romaji we drop the "next2" preview to make room.
+    romaji_font_size_cur: int = 46
+    romaji_font_size_next: int = 38
+    romaji_alpha: str = "&H40&"          # ~25% transparent — secondary to native
+
     # Single-line fit: never auto-wrap; shrink a too-wide line instead.
     # max_width_ratio = fraction of PlayResX a line may occupy before it
     # gets scaled down; min_font_scale = floor (× base size) so very long
@@ -375,6 +382,19 @@ def _line_positions(cfg: AssConfig) -> dict:
     }
 
 
+def _line_positions_romaji(cfg: AssConfig) -> dict:
+    """Layout when the window has a romaji reading: native + romaji pairs
+    for current & next, no next2 (no room)."""
+    cy = cfg.play_res_y // 2
+    return {
+        "prev":      cy - 200,   # ~340
+        "cur":       cy - 75,    # ~465 native
+        "cur_rom":   cy + 2,     # ~542 reading, just under native
+        "next":      cy + 100,   # ~640 native
+        "next_rom":  cy + 162,   # ~702 reading
+    }
+
+
 def _render_header(cfg: AssConfig) -> str:
     bold_flag = "-1" if cfg.bold else "0"
     return (
@@ -394,16 +414,34 @@ def _render_header(cfg: AssConfig) -> str:
     )
 
 
-def _render_events(lines: List[_Line], cfg: AssConfig) -> str:
-    """Per timing window emit 4 stacked lines: prev / current / next / next2.
+def _romaji_for(text: str) -> Optional[str]:
+    """Latin reading for a JP/KR line, or None (Chinese/English/failure).
 
-    Uses \\an5 + \\pos for exact vertical placement (independent of timing
-    accuracy) so a slightly-off LRC still reads naturally as a rolling block.
+    Best-effort: import is lazy and any error degrades to "original only".
+    """
+    try:
+        from .romaji import romanize
+
+        return romanize(text)
+    except Exception:
+        return None
+
+
+def _render_events(lines: List[_Line], cfg: AssConfig) -> str:
+    """Per timing window emit a stacked block of lines.
+
+    Default: prev / current / next / next2. When the current or next line
+    is Japanese/Korean, switch that window to a native+romaji layout
+    (prev / cur / cur-reading / next / next-reading, no next2) so singers
+    get the pronunciation. \\an5 + \\pos gives exact vertical placement so a
+    slightly-off LRC still reads as a rolling block.
     """
     fade = f"\\fad({cfg.fade_in_ms},0)"
-    pos = _line_positions(cfg)
+    plain = _line_positions(cfg)
+    rpos = _line_positions_romaji(cfg)
     cx = cfg.play_res_x // 2
     parts: List[str] = []
+    n = len(lines)
 
     for i, line in enumerate(lines):
         t_start = fmt_ass_time(line.start_ms)
@@ -416,17 +454,37 @@ def _render_events(lines: List[_Line], cfg: AssConfig) -> str:
             )
             return f"Dialogue: 0,{t_start},{t_end},Default,,0,0,0,,{ov}{text}"
 
-        if i - 1 >= 0:
-            parts.append(_ev(lines[i - 1].full_text, pos["prev"],
-                             cfg.font_size_preview2, "&H80&"))
-        parts.append(_ev(_build_k_text(line), pos["cur"],
-                          cfg.font_size, "&H00&"))
-        if i + 1 < len(lines):
-            parts.append(_ev(lines[i + 1].full_text, pos["next"],
-                             cfg.font_size_preview, "&H50&"))
-        if i + 2 < len(lines):
-            parts.append(_ev(lines[i + 2].full_text, pos["next2"],
-                             cfg.font_size_preview2, "&H80&"))
+        cur_text = _build_k_text(line)
+        next_text = lines[i + 1].full_text if i + 1 < n else None
+        cur_rom = _romaji_for(cur_text)
+        next_rom = _romaji_for(next_text) if next_text else None
+
+        if cur_rom or next_rom:
+            # Native + romaji layout (no next2 — no vertical room)
+            if i - 1 >= 0:
+                parts.append(_ev(lines[i - 1].full_text, rpos["prev"],
+                                  cfg.font_size_preview2, "&H80&"))
+            parts.append(_ev(cur_text, rpos["cur"], cfg.font_size, "&H00&"))
+            if cur_rom:
+                parts.append(_ev(cur_rom, rpos["cur_rom"],
+                                  cfg.romaji_font_size_cur, cfg.romaji_alpha))
+            if next_text is not None:
+                parts.append(_ev(next_text, rpos["next"],
+                                  cfg.font_size_preview, "&H50&"))
+                if next_rom:
+                    parts.append(_ev(next_rom, rpos["next_rom"],
+                                      cfg.romaji_font_size_next, cfg.romaji_alpha))
+        else:
+            if i - 1 >= 0:
+                parts.append(_ev(lines[i - 1].full_text, plain["prev"],
+                                  cfg.font_size_preview2, "&H80&"))
+            parts.append(_ev(cur_text, plain["cur"], cfg.font_size, "&H00&"))
+            if next_text is not None:
+                parts.append(_ev(next_text, plain["next"],
+                                  cfg.font_size_preview, "&H50&"))
+            if i + 2 < n:
+                parts.append(_ev(lines[i + 2].full_text, plain["next2"],
+                                  cfg.font_size_preview2, "&H80&"))
 
     return "\n".join(parts) + "\n"
 

@@ -665,7 +665,37 @@ async def _fetch_genius(title: str, artist: str) -> Optional[LyricsResult]:
 # ---------------------------------------------------------------------------
 
 # Preferred subtitle language order (manual first, then auto-generated)
-_YT_SUB_LANGS = ["zh", "zh-Hant", "zh-Hans", "zh-TW", "zh-CN", "zh-HK", "en"]
+_YT_SUB_LANGS = [
+    "zh", "zh-Hant", "zh-Hans", "zh-TW", "zh-CN", "zh-HK",
+    "ja", "ja-JP", "ko", "ko-KR", "en",
+]
+
+
+def _detect_song_lang(text: str) -> Optional[str]:
+    """Coarse language of a song title: 'zh' | 'ja' | 'ko' | None.
+
+    Kana presence => Japanese; hangul => Korean; otherwise Han characters
+    => Chinese. Used to refuse a wrong-language YouTube track (a mistaken
+    English auto-translation is worse than falling through to NetEase/QQ,
+    which cover JP/KR well).
+    """
+    for ch in text:
+        o = ord(ch)
+        if 0x3040 <= o <= 0x30FF:          # hiragana / katakana
+            return "ja"
+        if 0xAC00 <= o <= 0xD7A3 or 0x1100 <= o <= 0x11FF:  # hangul
+            return "ko"
+    if re.search(r"[一-鿿]", text):        # Han (no kana/hangul) => Chinese
+        return "zh"
+    return None
+
+
+# Per-language YouTube track preference (manual + auto share these keys)
+_LANG_TRACKS = {
+    "zh": ("zh", "zh-Hant", "zh-Hans", "zh-TW", "zh-CN", "zh-HK"),
+    "ja": ("ja", "ja-JP"),
+    "ko": ("ko", "ko-KR"),
+}
 
 
 def _vtt_to_lrc(vtt_content: str) -> Optional[str]:
@@ -738,31 +768,28 @@ def _vtt_to_lrc(vtt_content: str) -> Optional[str]:
     return "\n".join(f"{tag}{text}" for tag, text in deduped)
 
 
-_ZH_LANGS = ("zh", "zh-Hant", "zh-Hans", "zh-TW", "zh-CN", "zh-HK")
-
-
 def _pick_best_subtitle(
-    subs: dict, auto_subs: dict, cjk_only: bool = False
+    subs: dict, auto_subs: dict, song_lang: Optional[str] = None
 ) -> Optional[tuple[str, bool]]:
     """Return (lang_key, is_auto) for the best available subtitle track.
 
-    Prefers manual subtitles over auto-generated, and Chinese over English.
-    When *cjk_only* is True (the song title is Chinese), never fall back to
-    a non-Chinese track — a wrong English auto-translation is worse than
-    using NetEase/QQ lyrics instead.
+    Prefers a manual native-language track, then auto native. When the song
+    is zh/ja/ko, a non-native track (e.g. an English auto-translation) is
+    *refused* — falling through to NetEase/QQ, which cover CJK well, beats
+    showing wrong-language captions. Only language-neutral songs fall back
+    to English / first-available.
     """
-    # Manual zh first
-    for lang in _ZH_LANGS:
-        if lang in subs:
-            return (lang, False)
-    # Auto zh next
-    for lang in _ZH_LANGS:
-        if lang in auto_subs:
-            return (lang, True)
-    if cjk_only:
-        # No Chinese track — refuse English; let NetEase/QQ handle it
+    native = _LANG_TRACKS.get(song_lang or "")
+    if native:
+        for lang in native:                 # manual native
+            if lang in subs:
+                return (lang, False)
+        for lang in native:                 # auto native
+            if lang in auto_subs:
+                return (lang, True)
+        # CJK song without a native track — refuse English mistranslation
         return None
-    # Non-CJK song: allow English then anything
+    # Language-neutral song: English, then anything available
     if "en" in subs:
         return ("en", False)
     if "en" in auto_subs:
@@ -775,7 +802,7 @@ def _pick_best_subtitle(
 
 
 def _download_youtube_subs_sync(
-    youtube_id: str, tmpdir: str, cjk_only: bool = False
+    youtube_id: str, tmpdir: str, song_lang: Optional[str] = None
 ) -> Optional[str]:
     """Synchronous yt_dlp subtitle download.  Run in a thread via asyncio.to_thread."""
     try:
@@ -802,9 +829,9 @@ def _download_youtube_subs_sync(
             info = ydl.extract_info(url, download=False)
             subs = info.get("subtitles", {}) if info else {}
             auto_subs = info.get("automatic_captions", {}) if info else {}
-            pick = _pick_best_subtitle(subs, auto_subs, cjk_only=cjk_only)
+            pick = _pick_best_subtitle(subs, auto_subs, song_lang=song_lang)
             if not pick:
-                log.info("No suitable YouTube subtitle for %s (cjk_only=%s)", youtube_id, cjk_only)
+                log.info("No suitable YouTube subtitle for %s (song_lang=%s)", youtube_id, song_lang)
                 return None
             lang, is_auto = pick
             # Now download just the chosen subtitle track
@@ -838,12 +865,12 @@ async def fetch_youtube_subtitles(
     auto-translation is worse than falling through to NetEase/QQ).
     Returns None if no suitable subtitles are available.
     """
-    cjk_only = bool(re.search(r"[一-鿿]", title))
-    log.info("Trying YouTube subtitles for %s (cjk_only=%s)", youtube_id, cjk_only)
+    song_lang = _detect_song_lang(title)
+    log.info("Trying YouTube subtitles for %s (song_lang=%s)", youtube_id, song_lang)
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
             vtt_content = await asyncio.to_thread(
-                _download_youtube_subs_sync, youtube_id, tmpdir, cjk_only
+                _download_youtube_subs_sync, youtube_id, tmpdir, song_lang
             )
             if not vtt_content:
                 return None
