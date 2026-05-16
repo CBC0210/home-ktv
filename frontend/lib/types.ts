@@ -36,6 +36,9 @@ export interface Song {
   /** Reported problematic: play the original video's embedded audio instead
    *  of the Demucs split tracks (vocal-mix control inert). */
   use_original_audio?: boolean;
+  /** Manual A/V fine-tune (ms): how far the separated audio leads the video,
+   *  on top of automatic AudioContext-latency compensation. */
+  av_offset_ms?: number;
 }
 
 export interface Guest {
@@ -90,6 +93,7 @@ export type ServerEvent =
   | { type: "system.restarted" }
   | { type: "lyrics.updated"; songId: string }
   | { type: "lyrics.offset"; songId: string; offsetMs: number }
+  | { type: "av.offset"; songId: string; offsetMs: number }
   | { type: "guest.kicked"; guestId: string }
   // Commands forwarded from Remote → Server → Player
   | { type: "playback.play" }
@@ -114,6 +118,7 @@ export type ClientCommand =
   | { type: "reaction.send"; emoji: string }
   | { type: "lyrics.edit"; songId: string; ass: string }
   | { type: "lyrics.offset"; songId: string; offsetMs: number }
+  | { type: "av.offset"; songId: string; offsetMs: number }
   | { type: "guest.kick"; guestId: string }
   | { type: "autoplay.set"; enabled: boolean }
   | { type: "guest.updateNickname"; nickname: string };

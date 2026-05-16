@@ -93,6 +93,7 @@ export default function NowPlaying({
   const [vocalVol, setVocalVol] = useState(playback.vocal_volume);
   const [lyricsEditorOpen, setLyricsEditorOpen] = useState(false);
   const [offsetMs, setOffsetMs] = useState(0);
+  const [avMs, setAvMs] = useState(0);
   const [plainLyrics, setPlainLyrics] = useState<string>("");
 
   // Sync volume local state when server echoes back changes (e.g., another remote adjusted it)
@@ -103,6 +104,18 @@ export default function NowPlaying({
   useEffect(() => {
     setOffsetMs(currentSong?.subtitle_offset_ms ?? 0);
   }, [currentSong?.id, currentSong?.subtitle_offset_ms]);
+
+  // Initialise the A/V fine-tune from the song's saved offset
+  useEffect(() => {
+    setAvMs(currentSong?.av_offset_ms ?? 0);
+  }, [currentSong?.id, currentSong?.av_offset_ms]);
+
+  const applyAv = useCallback((next: number) => {
+    if (!currentSong) return;
+    const clamped = Math.max(-2000, Math.min(2000, Math.round(next / 10) * 10));
+    setAvMs(clamped);
+    sendCommand({ type: "av.offset", songId: currentSong.id, offsetMs: clamped });
+  }, [currentSong, sendCommand]);
 
   // Fetch plain-text lyrics when song lacks word-level timing
   useEffect(() => {
@@ -415,6 +428,43 @@ export default function NowPlaying({
           >
             ⏱️ 調整字幕延遲（管理員）
           </button>
+        )}
+
+        {/* A/V fine-tune — admin, only when using separated audio */}
+        {adminMode && currentSong && !currentSong.use_original_audio && (
+          <div className="bg-white/4 border border-white/8 rounded-2xl px-4 py-3 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <p className="text-white/70 text-xs">🎬 影音同步微調（管理員）</p>
+              <span className="text-white/40 text-[11px] font-mono tabular-nums">
+                {avMs > 0 ? "+" : ""}{avMs} ms
+              </span>
+            </div>
+            <p className="text-white/35 text-[11px] leading-relaxed">
+              影片比音樂慢就調＋，音樂比影片慢就調－。已自動補償音訊延遲，這裡只做細修。
+            </p>
+            <div className="flex items-center gap-2">
+              <button onClick={() => applyAv(avMs - 100)}
+                className="flex-1 bg-white/6 hover:bg-white/10 border border-white/10 text-white/85 text-sm rounded-lg py-2">
+                −100
+              </button>
+              <button onClick={() => applyAv(avMs - 20)}
+                className="flex-1 bg-white/6 hover:bg-white/10 border border-white/10 text-white/85 text-sm rounded-lg py-2">
+                −20
+              </button>
+              <button onClick={() => applyAv(0)}
+                className="px-3 bg-white/6 hover:bg-white/10 border border-white/10 text-white/60 text-xs rounded-lg py-2">
+                歸零
+              </button>
+              <button onClick={() => applyAv(avMs + 20)}
+                className="flex-1 bg-white/6 hover:bg-white/10 border border-white/10 text-white/85 text-sm rounded-lg py-2">
+                ＋20
+              </button>
+              <button onClick={() => applyAv(avMs + 100)}
+                className="flex-1 bg-white/6 hover:bg-white/10 border border-white/10 text-white/85 text-sm rounded-lg py-2">
+                ＋100
+              </button>
+            </div>
+          </div>
         )}
       </div>
 

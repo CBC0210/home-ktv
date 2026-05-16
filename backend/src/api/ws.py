@@ -253,6 +253,9 @@ async def dispatch_message(
         elif msg_type == "lyrics.offset":
             await _handle_lyrics_offset(room_id, msg)
 
+        elif msg_type == "av.offset":
+            await _handle_av_offset(room_id, msg)
+
         elif msg_type == "guest.kick":
             await _handle_guest_kick(room_id, guest_id, msg)
 
@@ -458,6 +461,7 @@ async def _start_next_song(room_id: str) -> None:
             "lyrics_source": song.lyrics_source,
             "error_message": song.error_message,
             "subtitle_offset_ms": (song.extra_metadata or {}).get("subtitle_offset_ms", 0),
+            "av_offset_ms": (song.extra_metadata or {}).get("av_offset_ms", 0),
             "use_original_audio": bool(
                 ((song.extra_metadata or {}).get("playback") or {}).get("use_original_audio")
             ),
@@ -720,6 +724,34 @@ async def _handle_lyrics_offset(room_id: str, msg: dict) -> None:
         })
     except Exception as exc:
         await manager.broadcast_system_error(room_id, f"lyrics.offset failed: {exc}")
+
+
+async def _handle_av_offset(room_id: str, msg: dict) -> None:
+    """Persist a per-song A/V fine-tune (ms = how far audio leads video) and
+    live-push it to the Player. Stacks on top of automatic AudioContext
+    output-latency compensation."""
+    song_id = msg.get("songId")
+    try:
+        offset_ms = int(msg.get("offsetMs", 0))
+    except (TypeError, ValueError):
+        offset_ms = 0
+    if not song_id:
+        return
+    offset_ms = max(-2000, min(2000, offset_ms))
+    try:
+        from ktv_pipeline.models import Song
+        with get_db_session() as s:
+            song = s.query(Song).filter_by(id=song_id).first()
+            if song:
+                meta = dict(song.extra_metadata or {})
+                meta["av_offset_ms"] = offset_ms
+                song.extra_metadata = meta
+                s.commit()
+        await manager.send_to_role(room_id, ClientRole.PLAYER, {
+            "type": "av.offset", "songId": song_id, "offsetMs": offset_ms,
+        })
+    except Exception as exc:
+        await manager.broadcast_system_error(room_id, f"av.offset failed: {exc}")
 
 
 async def _handle_guest_kick(room_id: str, requester_id: str, msg: dict) -> None:

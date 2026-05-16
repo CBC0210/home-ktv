@@ -102,6 +102,12 @@ export default function PlayerView({ roomId }: Props) {
   // vocal-mix is inert. Ref so callbacks read the live value.
   const useOrigAudioRef = useRef(false);
   useOrigAudioRef.current = !!currentSong?.use_original_audio;
+  // Web Audio output is delayed by the device's audio buffer; the *heard*
+  // sound trails the displayed video frame even when currentTime matches.
+  // We lead the audio by (auto AudioContext latency + manual per-song tune)
+  // so picture & music line up. Refs so softSync reads live values.
+  const audioLatencyRef = useRef(0);
+  const avOffsetMsRef = useRef(0);
 
   useEffect(() => {
     setRemoteUrl(window.location.origin + `/r/${roomId}/remote`);
@@ -134,6 +140,12 @@ export default function PlayerView({ roomId }: Props) {
       vSrc.connect(vGain).connect(ctx.destination);
       iSrc.connect(iGain).connect(ctx.destination);
       audioCtxRef.current = ctx;
+      // outputLatency = full DAC buffer (best estimate of perceived delay);
+      // baseLatency is the floor. Cap to a sane range to avoid bad UA values.
+      type LatCtx = AudioContext & { outputLatency?: number };
+      const lat = (ctx as LatCtx).outputLatency || ctx.baseLatency || 0;
+      audioLatencyRef.current = Math.max(0, Math.min(0.4, lat));
+      console.info(`[Player] audio latency comp = ${(audioLatencyRef.current * 1000).toFixed(0)}ms`);
       vocalGainRef.current = vGain;
       instrGainRef.current = iGain;
       v.volume = 1;
@@ -253,6 +265,7 @@ export default function PlayerView({ roomId }: Props) {
         case "song.started":
           setCurrentSong(event.song, event.queueItem);
           setSubtitleOffsetMs(event.song?.subtitle_offset_ms ?? 0);
+          avOffsetMsRef.current = event.song?.av_offset_ms ?? 0;
           setProcessing(null);
           break;
         case "song.progress":
@@ -312,6 +325,9 @@ export default function PlayerView({ roomId }: Props) {
           break;
         case "lyrics.updated":
           setSubtitleRevision((r) => r + 1);
+          break;
+        case "av.offset":
+          avOffsetMsRef.current = event.offsetMs;
           break;
         case "lyrics.offset":
           setSubtitleOffsetMs(event.offsetMs);
@@ -469,10 +485,13 @@ export default function PlayerView({ roomId }: Props) {
     // gets a single hard seek.
     const softSync = (el: HTMLAudioElement | null, vt: number) => {
       if (!el || el.readyState < 2 || el.paused) return;
-      const drift = el.currentTime - vt;        // +ve = audio ahead
+      // Target = video time + audio-path latency + manual tune, so the
+      // *audible* sound aligns with the *displayed* frame.
+      const target = vt + audioLatencyRef.current + avOffsetMsRef.current / 1000;
+      const drift = el.currentTime - target;    // +ve = audio ahead
       const ad = Math.abs(drift);
       if (ad > 0.45) {
-        el.currentTime = vt;                    // real desync — snap once
+        el.currentTime = target;                // real desync — snap once
         el.playbackRate = 1;
       } else if (ad > 0.04) {
         // Converge over ~1-2s; clamp so pitch shift is inaudible
