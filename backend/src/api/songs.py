@@ -119,6 +119,77 @@ def search_songs(q: str = "", limit: int = 20, session: Session = Depends(get_se
     return query.order_by(Song.play_count.desc()).limit(limit).all()
 
 
+_LANG_ORDER = ["zh", "en", "tw", "ja", "ko", "other"]
+
+
+def _song_lang(song) -> str:
+    """Exact catalog lang if the song was preinstalled, else best-effort
+    text detection (台語 can't be told from 華語 by text → counts as zh)."""
+    m = song.extra_metadata or {}
+    lg = m.get("lang")
+    if lg in _LANG_ORDER:
+        return lg
+    from ktv_pipeline.pipeline.lyrics import _detect_song_lang
+    d = _detect_song_lang((song.title or "") + " " + (song.artist or ""))
+    return d if d in ("zh", "ja", "ko") else ("en" if d is None else "other")
+
+
+@router.get("/library")
+def browse_library(
+    lang: str = "all",
+    q: str = "",
+    limit: int = 150,
+    offset: int = 0,
+    session: Session = Depends(get_session),
+):
+    """Browse every ready (instant-play) song, groupable by language.
+
+    Separate from the leaderboard (which ranks by plays) — this is the
+    discovery/song-bank view. Language is exact for preinstalled songs
+    (catalog tag persisted on the Song) and detected otherwise.
+    """
+    rows = (
+        session.query(Song)
+        .filter(Song.status == "ready")
+        .order_by(Song.play_count.desc(), Song.processed_at.desc())
+        .all()
+    )
+    counts = {k: 0 for k in _LANG_ORDER}
+    tagged = []
+    for s in rows:
+        lg = _song_lang(s)
+        counts[lg] = counts.get(lg, 0) + 1
+        tagged.append((s, lg))
+
+    if q:
+        ql = q.lower()
+        tagged = [t for t in tagged
+                  if ql in (t[0].title or "").lower()
+                  or ql in (t[0].artist or "").lower()]
+    if lang != "all":
+        tagged = [t for t in tagged if t[1] == lang]
+
+    total = len(tagged)
+    page = tagged[max(0, offset): max(0, offset) + max(1, min(limit, 300))]
+    return {
+        "total": total,
+        "counts": counts,
+        "songs": [
+            {
+                "id": s.id,
+                "title": s.title,
+                "artist": s.artist,
+                "duration_sec": s.duration_sec,
+                "thumbnail_url": s.thumbnail_url,
+                "has_timing": s.has_timing,
+                "play_count": s.play_count,
+                "lang": lg,
+            }
+            for s, lg in page
+        ],
+    }
+
+
 @router.get("/youtube-search")
 def youtube_search(q: str, limit: int = 10):
     """Search YouTube via yt-dlp and return video metadata (no processing)."""
@@ -157,6 +228,25 @@ def youtube_search(q: str, limit: int = 10):
                 return f"https://i.ytimg.com/vi/{vid}/mqdefault.jpg"
             return None
 
+        from ktv_pipeline.config import settings as _cfg
+        lo, hi = _cfg.search_min_duration_sec, _cfg.search_max_duration_sec
+        _NONMUSIC = re.compile(
+            r"(合輯|合集|精選輯|完整專輯|全專|串[燒烧]|演唱會完整|完整版演唱會|"
+            r"直播回放|直播檔|reaction|react |開箱|教學|教程|訪談|采访|採訪|"
+            r"playlist|full album|mix \d|nonstop|live stream|podcast|"
+            r"一小時|1\s*hour|2\s*hours)",
+            re.I,
+        )
+
+        def _ok(e: dict) -> bool:
+            d = e.get("duration")
+            # No duration (livestream/premiere) → drop. Out of song range → drop.
+            if not isinstance(d, (int, float)) or d < lo or d > hi:
+                return False
+            if _NONMUSIC.search(e.get("title") or ""):
+                return False
+            return True
+
         return [
             {
                 "id": entry.get("id"),
@@ -168,7 +258,7 @@ def youtube_search(q: str, limit: int = 10):
                 "cached": False,  # will be updated by frontend using local search
             }
             for entry in result.get("entries", [])
-            if entry and entry.get("id")
+            if entry and entry.get("id") and _ok(entry)
         ]
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"YouTube search unavailable: {exc}")

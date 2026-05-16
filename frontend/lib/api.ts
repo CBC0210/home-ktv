@@ -43,6 +43,26 @@ export const createRoom = (data: {
 export const searchSongs = (q: string) =>
   apiFetch<Song[]>(`/api/songs/search?q=${encodeURIComponent(q)}`);
 
+export interface BankSong {
+  id: string;
+  title: string;
+  artist: string | null;
+  duration_sec: number | null;
+  thumbnail_url: string | null;
+  has_timing: boolean;
+  play_count: number;
+  lang: string;
+}
+export interface SongBank {
+  total: number;
+  counts: Record<string, number>;
+  songs: BankSong[];
+}
+export const browseLibrary = (lang = "all", q = "", limit = 150, offset = 0) =>
+  apiFetch<SongBank>(
+    `/api/songs/library?lang=${lang}&q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}`
+  );
+
 export interface YoutubeResult {
   id: string;
   title: string;

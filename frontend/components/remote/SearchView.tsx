@@ -5,6 +5,7 @@ import Image from "next/image";
 import { youtubeSearch, searchSongs, addSong, isYoutubeUrl, type YoutubeResult } from "@/lib/api";
 import LeaderboardView from "./LeaderboardView";
 import LibraryView from "./LibraryView";
+import SongBankView from "./SongBankView";
 
 interface Props {
   roomId: string;
@@ -19,10 +20,11 @@ function formatDuration(sec: number | null): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-type SubTab = "search" | "library" | "leaderboard";
+type SubTab = "search" | "bank" | "library" | "leaderboard";
 
 const SUBTAB_LABEL: Record<SubTab, string> = {
   search: "搜尋",
+  bank: "曲庫",
   library: "資料庫",
   leaderboard: "排行榜",
 };
@@ -122,7 +124,7 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
     <div className="flex flex-col h-full">
       {/* Sub-tabs */}
       <div className="flex border-b border-white/8 sticky top-0 bg-[#0a0a0a]/95 backdrop-blur-md z-10">
-        {(["search", "library", "leaderboard"] as SubTab[]).map((t) => (
+        {(["search", "bank", "library", "leaderboard"] as SubTab[]).map((t) => (
           <button
             key={t}
             onClick={() => setSubTab(t)}
@@ -140,6 +142,10 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
 
       {subTab === "leaderboard" && (
         <LeaderboardView roomId={roomId} token={token} onAdded={onAdded} />
+      )}
+
+      {subTab === "bank" && (
+        <SongBankView roomId={roomId} onAdded={onAdded} />
       )}
 
       {subTab === "library" && (

@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     pipeline_max_retries: int = 3
     pipeline_heartbeat_sec: int = 30
     prefetch_count: int = 2
+    # YouTube search result filter — drop non-song videos. A track is
+    # normally 1–10 min; longer = compilation / live / concert / talk,
+    # shorter = clip. Direct-pasted links bypass this.
+    search_min_duration_sec: int = 60
+    search_max_duration_sec: int = 600
     log_level: str = "INFO"
     log_dir: Path = Path("/data/ktv/logs")
     dev_mode: bool = False

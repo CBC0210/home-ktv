@@ -672,6 +672,25 @@ def _entry_key(s: dict) -> str:
     return f"{s['lang']}|{s['artist'].strip()}|{s['title'].strip()}"
 
 
+def _tag_preinstalled(sid: str, lang: str) -> None:
+    """Stamp the catalog language onto a Song so the 曲庫 browser can group
+    it exactly (text detection can't tell 華語 from 台語)."""
+    try:
+        with get_db_session() as db:
+            sg = db.query(Song).filter_by(id=sid).first()
+            if not sg:
+                return
+            m = dict(sg.extra_metadata or {})
+            if m.get("lang") == lang and m.get("preinstalled"):
+                return
+            m["lang"] = lang
+            m["preinstalled"] = True
+            sg.extra_metadata = m
+            db.commit()
+    except Exception:
+        pass
+
+
 def _resolve_query_sync(query: str) -> Optional[str]:
     """First YouTube result's video id for *query*, or None."""
     try:
@@ -717,6 +736,8 @@ async def _preload_worker(songs: list[dict], lang_label: str) -> None:
                     with get_db_session() as db:
                         sg = db.query(Song).filter_by(id=sid).first()
                         if sg and sg.status == "ready":
+                            _tag_preinstalled(sid, entry["lang"])
+                            state[key] = {"youtube_id": sid, "status": "loaded"}
                             _preload_progress["skipped"] += 1
                             continue
 
@@ -733,12 +754,14 @@ async def _preload_worker(songs: list[dict], lang_label: str) -> None:
                         db.add(Song(id=sid, title=f"YouTube:{sid}", artist="", status="pending"))
                         db.commit()
                     elif sg.status == "ready":
+                        _tag_preinstalled(sid, entry["lang"])
                         state[key] = {"youtube_id": sid, "status": "loaded"}
                         _preload_progress["skipped"] += 1
                         continue
 
                 result = await orch.run(sid)
                 if result.get("ok"):
+                    _tag_preinstalled(sid, entry["lang"])
                     state[key] = {"youtube_id": sid, "status": "loaded"}
                     _preload_progress["ok"] += 1
                     try:
