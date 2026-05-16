@@ -70,12 +70,19 @@ export default function QueueList({ queue, currentQueueItemId, sendCommand, admi
   return (
     <div className="flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/6">
-        <span className="text-white/50 text-sm font-medium">{pending.length} 首待播</span>
-        {adminMode && (
-          <span className="text-amber-300 text-[10px] uppercase tracking-wider font-bold">
-            可拖曳排序 / 永久刪除
-          </span>
+      <div className="px-5 py-3 border-b border-white/6">
+        <div className="flex items-center justify-between">
+          <span className="text-white/50 text-sm font-medium">{pending.length} 首待播</span>
+          {adminMode && (
+            <span className="text-amber-300 text-[10px] uppercase tracking-wider font-bold">
+              可拖曳排序 / 永久刪除
+            </span>
+          )}
+        </div>
+        {pending.length > 1 && (
+          <p className="text-white/30 text-[11px] mt-1">
+            🔁 同一人連續點的歌會自動錯開，輪流唱（手動拖曳排序後就不再自動調整）
+          </p>
         )}
       </div>
 

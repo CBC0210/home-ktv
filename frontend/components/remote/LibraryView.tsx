@@ -6,6 +6,7 @@ import {
   addSong, getHistory, getFavorites, getRecommendations,
   removeFavorite, type LibrarySong,
 } from "@/lib/api";
+import AddButtons from "./AddButtons";
 
 interface Props {
   roomId: string;
@@ -144,20 +145,11 @@ export default function LibraryView({ roomId, onAdded }: Props) {
                     )}
                   </div>
                 </div>
-                <div className="flex flex-col gap-1 flex-shrink-0">
-                  <button
-                    onClick={() => handleAdd(song, "end")}
-                    disabled={adding === song.id}
-                    className={`text-base w-9 h-9 rounded-xl transition-all font-bold flex items-center justify-center ${
-                      addedId === song.id
-                        ? "bg-emerald-600 text-white"
-                        : "bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-40"
-                    }`}
-                    title="加入隊列"
-                  >
-                    {adding === song.id ? "…" : addedId === song.id ? "✓" : "+"}
-                  </button>
-                  {view === "favorites" && (
+                <AddButtons
+                  adding={adding === song.id}
+                  added={addedId === song.id}
+                  onAdd={(pos) => handleAdd(song, pos)}
+                  extra={view === "favorites" ? (
                     <button
                       onClick={() => unfav(song.id)}
                       className="text-[10px] w-9 h-6 rounded-lg bg-white/8 hover:bg-rose-500/20 text-rose-300/70 hover:text-rose-300 transition-colors"
@@ -165,8 +157,8 @@ export default function LibraryView({ roomId, onAdded }: Props) {
                     >
                       ♥
                     </button>
-                  )}
-                </div>
+                  ) : undefined}
+                />
               </div>
             ))}
           </div>

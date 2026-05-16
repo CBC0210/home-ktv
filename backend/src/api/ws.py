@@ -500,13 +500,13 @@ def _autoplay_guest_id(session) -> str:
 
 
 async def _handle_autoplay_set(room_id: str, requester_id: str, msg: dict) -> None:
-    """Admin-only toggle of the room's autoplay flag."""
+    """Toggle the room's autoplay flag — any connected guest may do this."""
     from ktv_pipeline.models import Guest
+    actor = "有人"
     with get_db_session() as s:
         r = s.query(Guest).filter_by(id=requester_id).first()
-        if not r or not r.is_admin:
-            await manager.broadcast_system_error(room_id, "autoplay: 需要管理員權限")
-            return
+        if r and r.nickname:
+            actor = r.nickname
     enabled = bool(msg.get("enabled"))
     manager.set_autoplay(room_id, enabled)
     state = manager.get_playback_state(room_id)
@@ -514,7 +514,7 @@ async def _handle_autoplay_set(room_id: str, requester_id: str, msg: dict) -> No
         "type": "playback.state", "state": state,
     })
     await manager.broadcast_activity(
-        room_id, f"🔀 自動播放{'開啟' if enabled else '關閉'}", "管理員",
+        room_id, f"🔀 自動播放{'開啟' if enabled else '關閉'}", actor,
     )
     if enabled:
         await _maybe_autopick(room_id)

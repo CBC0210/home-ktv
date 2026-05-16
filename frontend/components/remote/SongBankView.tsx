@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import { addSong, browseLibrary, type BankSong } from "@/lib/api";
+import AddButtons from "./AddButtons";
 
 interface Props {
   roomId: string;
@@ -51,10 +52,10 @@ export default function SongBankView({ roomId, onAdded }: Props) {
     return () => clearTimeout(id);
   }, [lang, q, load]);
 
-  async function handleAdd(song: BankSong) {
+  async function handleAdd(song: BankSong, position: "end" | "next") {
     setAdding(song.id);
     try {
-      await addSong({ youtube_url: song.id, room_id: roomId, position: "end" });
+      await addSong({ youtube_url: song.id, room_id: roomId, position });
       setAddedId(song.id);
       setTimeout(() => setAddedId(null), 2000);
       onAdded?.();
@@ -113,11 +114,9 @@ export default function SongBankView({ roomId, onAdded }: Props) {
         ) : (
           <div className="flex flex-col gap-1.5">
             {data.songs.map((s) => (
-              <button
+              <div
                 key={s.id}
-                onClick={() => handleAdd(s)}
-                disabled={adding === s.id}
-                className="flex items-center gap-3 bg-white/4 hover:bg-white/8 border border-white/8 rounded-xl p-2 text-left transition-colors disabled:opacity-50"
+                className="flex items-center gap-3 bg-white/4 border border-white/8 rounded-xl p-2"
               >
                 <div className="relative w-14 h-14 flex-shrink-0 rounded-lg overflow-hidden bg-white/5">
                   {s.thumbnail_url && (
@@ -133,12 +132,12 @@ export default function SongBankView({ roomId, onAdded }: Props) {
                     {s.artist || "—"}{s.has_timing ? " · 有字幕" : ""}
                   </p>
                 </div>
-                <span className={`text-xs flex-shrink-0 px-2.5 py-1 rounded-full ${
-                  addedId === s.id ? "bg-emerald-600/30 text-emerald-300" : "bg-violet-600/20 text-violet-300"
-                }`}>
-                  {adding === s.id ? "…" : addedId === s.id ? "已加入" : "＋ 點歌"}
-                </span>
-              </button>
+                <AddButtons
+                  adding={adding === s.id}
+                  added={addedId === s.id}
+                  onAdd={(pos) => handleAdd(s, pos)}
+                />
+              </div>
             ))}
           </div>
         )}

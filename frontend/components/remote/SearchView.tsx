@@ -6,6 +6,7 @@ import { youtubeSearch, searchSongs, addSong, isYoutubeUrl, type YoutubeResult }
 import LeaderboardView from "./LeaderboardView";
 import LibraryView from "./LibraryView";
 import SongBankView from "./SongBankView";
+import AddButtons from "./AddButtons";
 
 interface Props {
   roomId: string;
@@ -260,34 +261,11 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
                     </div>
                   </div>
 
-                  {/* Actions — only the + button stays inline; insert-next via secondary tap */}
-                  <div className="flex flex-col gap-1 flex-shrink-0">
-                    <button
-                      onClick={() => handleAdd(item.url, "end")}
-                      disabled={adding === item.url}
-                      className={`text-base w-9 h-9 rounded-xl transition-all font-bold flex items-center justify-center ${
-                        addedId === item.url
-                          ? "bg-emerald-600 text-white"
-                          : "bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-40"
-                      }`}
-                      title="加入隊列"
-                    >
-                      {adding === item.url ? (
-                        <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                        </svg>
-                      ) : addedId === item.url ? "✓" : "+"}
-                    </button>
-                    <button
-                      onClick={() => handleAdd(item.url, "next")}
-                      disabled={adding === item.url}
-                      title="插播"
-                      className="text-[10px] w-9 h-6 rounded-lg bg-white/8 hover:bg-white/15 text-white/55 hover:text-white transition-colors disabled:opacity-40 font-medium"
-                    >
-                      插播
-                    </button>
-                  </div>
+                  <AddButtons
+                    adding={adding === item.url}
+                    added={addedId === item.url}
+                    onAdd={(pos) => handleAdd(item.url, pos)}
+                  />
                 </div>
               ))}
             </div>

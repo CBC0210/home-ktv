@@ -8,6 +8,7 @@ import {
   type LeaderboardItem,
   type LeaderboardCategory,
 } from "@/lib/api";
+import AddButtons from "./AddButtons";
 
 interface Props {
   roomId: string;
@@ -181,28 +182,11 @@ export default function LeaderboardView({ roomId, token, onAdded }: Props) {
                   </div>
                 </div>
 
-                {/* Actions */}
-                <div className="flex gap-1 flex-shrink-0">
-                  <button
-                    onClick={() => handleAdd(item, "next")}
-                    disabled={adding === item.song_id}
-                    title="插播（下一首）"
-                    className="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-2 py-1.5 rounded-lg transition-colors"
-                  >
-                    插播
-                  </button>
-                  <button
-                    onClick={() => handleAdd(item, "end")}
-                    disabled={adding === item.song_id}
-                    className={`text-sm px-3 py-1.5 rounded-lg transition-colors font-medium min-w-10 ${
-                      addedId === item.song_id
-                        ? "bg-green-600 text-white"
-                        : "bg-purple-600 hover:bg-purple-500 text-white disabled:opacity-50"
-                    }`}
-                  >
-                    {adding === item.song_id ? "…" : addedId === item.song_id ? "✓" : "+"}
-                  </button>
-                </div>
+                <AddButtons
+                  adding={adding === item.song_id}
+                  added={addedId === item.song_id}
+                  onAdd={(pos) => handleAdd(item, pos)}
+                />
               </div>
             ))}
           </div>

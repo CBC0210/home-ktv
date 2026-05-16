@@ -360,35 +360,29 @@ export default function NowPlaying({
           )}
         </div>
 
-        {/* Autoplay — admin only */}
-        {adminMode && (
-          <button
-            onClick={() => sendCommand({ type: "autoplay.set", enabled: !playback.autoplay })}
-            className={`flex items-center justify-between rounded-2xl px-4 py-3 border transition-colors ${
-              playback.autoplay
-                ? "bg-violet-600/20 border-violet-500/40"
-                : "bg-white/4 border-white/8"
+        {/* Autoplay — compact, anyone can toggle */}
+        <button
+          onClick={() => sendCommand({ type: "autoplay.set", enabled: !playback.autoplay })}
+          title="隊列快空時依最後一首的曲風自動推薦並預先處理"
+          className={`flex items-center justify-center gap-2 rounded-full px-3 py-1.5 text-xs border transition-colors self-center ${
+            playback.autoplay
+              ? "bg-violet-600/20 border-violet-500/40 text-violet-200"
+              : "bg-white/4 border-white/8 text-white/50"
+          }`}
+        >
+          <span>🔀 自動播放</span>
+          <span
+            className={`w-8 h-4 rounded-full flex-shrink-0 relative transition-colors ${
+              playback.autoplay ? "bg-violet-500" : "bg-white/15"
             }`}
           >
-            <div className="text-left">
-              <p className="text-white text-sm font-medium">🔀 自動播放</p>
-              <p className="text-white/40 text-[11px] mt-0.5">
-                隊列快空時依最後一首的曲風自動推薦並預先處理
-              </p>
-            </div>
             <span
-              className={`w-11 h-6 rounded-full flex-shrink-0 relative transition-colors ${
-                playback.autoplay ? "bg-violet-500" : "bg-white/15"
+              className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${
+                playback.autoplay ? "left-[18px]" : "left-0.5"
               }`}
-            >
-              <span
-                className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${
-                  playback.autoplay ? "left-[22px]" : "left-0.5"
-                }`}
-              />
-            </span>
-          </button>
-        )}
+            />
+          </span>
+        </button>
 
         {/* Reactions */}
         <div className="flex justify-around px-4">
