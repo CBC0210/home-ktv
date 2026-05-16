@@ -616,3 +616,184 @@ def _human_size(num_bytes: int) -> str:
             return f"{num_bytes:.1f} {unit}"
         num_bytes /= 1024
     return f"{num_bytes:.1f} PB"
+
+
+# ── Preinstalled songlist + batch preload ───────────────────────────────────
+#
+# The catalog stores search queries (artist+title), never video IDs, so links
+# never rot. Preload resolves each via YouTube search then runs the normal
+# pipeline (GPU-serialized inside the orchestrator) and caches it permanently —
+# idempotent: an entry whose resolved song is already `ready` is skipped.
+# Per-entry outcome is persisted to a sidecar so the admin page shows progress
+# instantly without re-resolving ~300 queries over the network.
+
+import json as _json
+import asyncio as _asyncio
+from pathlib import Path as _Path
+
+_CATALOG_PATH = _Path(__file__).resolve().parent.parent / "ktv_pipeline" / "preinstalled_songlist.json"
+
+_preload_progress: dict = {
+    "running": False, "lang": "", "total": 0, "done": 0,
+    "ok": 0, "failed": 0, "skipped": 0, "current": "",
+}
+_preload_task = None  # asyncio.Task guard — only one batch at a time
+
+
+def _load_catalog() -> list[dict]:
+    try:
+        return _json.loads(_CATALOG_PATH.read_text(encoding="utf-8")).get("songs", [])
+    except Exception:
+        return []
+
+
+def _state_path():
+    from ktv_pipeline.config import settings as cfg
+    return cfg.data_dir / "preinstalled_state.json"
+
+
+def _load_state() -> dict:
+    try:
+        return _json.loads(_state_path().read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_state(state: dict) -> None:
+    try:
+        p = _state_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(_json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _entry_key(s: dict) -> str:
+    return f"{s['lang']}|{s['artist'].strip()}|{s['title'].strip()}"
+
+
+def _resolve_query_sync(query: str) -> Optional[str]:
+    """First YouTube result's video id for *query*, or None."""
+    try:
+        import yt_dlp
+        with yt_dlp.YoutubeDL({
+            "quiet": True, "no_warnings": True,
+            "extract_flat": "in_playlist", "noplaylist": True,
+            "default_search": "ytsearch",
+        }) as ydl:
+            r = ydl.extract_info(f"ytsearch1:{query}", download=False)
+        for e in (r or {}).get("entries", []):
+            if e and e.get("id"):
+                return e["id"]
+    except Exception:
+        return None
+    return None
+
+
+async def _preload_worker(songs: list[dict], lang_label: str) -> None:
+    from ktv_pipeline.pipeline_orchestrator import PipelineOrchestrator, PipelineConfig
+    from ktv_pipeline.config import settings as s
+    from ktv_pipeline.lyrics_prefetch import prefetch_all_lyrics
+
+    state = _load_state()
+    orch = PipelineOrchestrator(config=PipelineConfig(
+        max_retries=s.pipeline_max_retries,
+        heartbeat_interval_sec=s.pipeline_heartbeat_sec,
+        total_timeout_sec=s.song_total_timeout_sec,
+    ))
+    _preload_progress.update({
+        "running": True, "lang": lang_label, "total": len(songs),
+        "done": 0, "ok": 0, "failed": 0, "skipped": 0, "current": "",
+    })
+    try:
+        for entry in songs:
+            key = _entry_key(entry)
+            q = f"{entry['artist']} {entry['title']}".strip()
+            _preload_progress["current"] = q
+            try:
+                prev = state.get(key) or {}
+                sid = prev.get("youtube_id")
+                if sid:
+                    with get_db_session() as db:
+                        sg = db.query(Song).filter_by(id=sid).first()
+                        if sg and sg.status == "ready":
+                            _preload_progress["skipped"] += 1
+                            continue
+
+                if not sid:
+                    sid = await _asyncio.to_thread(_resolve_query_sync, q)
+                if not sid:
+                    state[key] = {"status": "failed", "error": "no_search_result"}
+                    _preload_progress["failed"] += 1
+                    continue
+
+                with get_db_session() as db:
+                    sg = db.query(Song).filter_by(id=sid).first()
+                    if not sg:
+                        db.add(Song(id=sid, title=f"YouTube:{sid}", artist="", status="pending"))
+                        db.commit()
+                    elif sg.status == "ready":
+                        state[key] = {"youtube_id": sid, "status": "loaded"}
+                        _preload_progress["skipped"] += 1
+                        continue
+
+                result = await orch.run(sid)
+                if result.get("ok"):
+                    state[key] = {"youtube_id": sid, "status": "loaded"}
+                    _preload_progress["ok"] += 1
+                    try:
+                        await prefetch_all_lyrics(sid)
+                    except Exception:
+                        pass
+                else:
+                    state[key] = {"youtube_id": sid, "status": "failed",
+                                  "error": result.get("error", "pipeline_failed")}
+                    _preload_progress["failed"] += 1
+            except Exception as exc:  # one bad song must not kill the batch
+                state[key] = {"status": "failed", "error": str(exc)[:200]}
+                _preload_progress["failed"] += 1
+            finally:
+                _preload_progress["done"] += 1
+                _save_state(state)
+    finally:
+        _preload_progress["running"] = False
+        _preload_progress["current"] = ""
+        _save_state(state)
+
+
+@router.get("/songlist")
+def get_songlist(_=Depends(require_admin)):
+    """Catalog grouped by language + per-entry cached status + live progress."""
+    catalog = _load_catalog()
+    state = _load_state()
+    by_lang: dict[str, dict] = {}
+    items = []
+    for sg in catalog:
+        st = (state.get(_entry_key(sg)) or {}).get("status", "pending")
+        b = by_lang.setdefault(sg["lang"], {"total": 0, "loaded": 0, "failed": 0})
+        b["total"] += 1
+        if st == "loaded":
+            b["loaded"] += 1
+        elif st == "failed":
+            b["failed"] += 1
+        items.append({"lang": sg["lang"], "artist": sg["artist"].strip(),
+                       "title": sg["title"], "status": st})
+    return {"total": len(catalog), "by_lang": by_lang,
+            "progress": _preload_progress, "songs": items}
+
+
+@router.post("/songlist/preload")
+async def preload_songlist(
+    lang: str = Query("all", description="all | zh | en | tw | ja | ko"),
+    _=Depends(require_admin),
+):
+    """Kick a background batch preload (GPU-serialized, idempotent)."""
+    global _preload_task
+    if _preload_progress["running"]:
+        raise HTTPException(status_code=409, detail="A preload batch is already running")
+    catalog = _load_catalog()
+    songs = [s for s in catalog if lang == "all" or s["lang"] == lang]
+    if not songs:
+        raise HTTPException(status_code=404, detail=f"No songs for lang '{lang}'")
+    _preload_task = _asyncio.create_task(_preload_worker(songs, lang))
+    return {"started": True, "lang": lang, "count": len(songs)}

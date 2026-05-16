@@ -27,6 +27,9 @@ import {
   type SystemStatus,
   type AdminRoomDetail,
   type AdminGuestDetail,
+  adminGetSonglist,
+  adminPreloadSonglist,
+  type SonglistInfo,
 } from "@/lib/api";
 
 // ── Login Screen ───────────────────────────────────────────────────────────────
@@ -855,9 +858,125 @@ function SystemStatusTab() {
   );
 }
 
+// ── Preinstalled Songlist Tab ─────────────────────────────────────────────────
+
+const LANG_LABEL: Record<string, string> = {
+  zh: "華語", en: "西洋", tw: "台語", ja: "日文", ko: "韓文",
+};
+
+function SonglistTab() {
+  const [info, setInfo] = useState<SonglistInfo | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      setInfo(await adminGetSonglist());
+      setErr(null);
+    } catch (e) {
+      if (!(e instanceof AdminAuthError)) setErr("載入失敗");
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    // Poll while a batch is running so progress is live.
+    const id = setInterval(() => {
+      if (info?.progress.running) load();
+    }, 4000);
+    return () => clearInterval(id);
+  }, [load, info?.progress.running]);
+
+  async function preload(lang: string) {
+    const label = lang === "all" ? "全部" : LANG_LABEL[lang];
+    const n = lang === "all" ? info?.total : info?.by_lang[lang]?.total;
+    if (!confirm(`開始預載入「${label}」共 ${n ?? "?"} 首？\n會在背景逐首下載＋分離＋抓歌詞（GPU 序列化，數小時級），已快取的自動跳過，可關閉此頁。`)) return;
+    setBusy(true);
+    try {
+      await adminPreloadSonglist(lang);
+      await load();
+    } catch (e) {
+      alert(e instanceof Error && e.message.includes("409") ? "已有預載入批次在執行中" : "啟動失敗");
+    }
+    setBusy(false);
+  }
+
+  if (err) return <p className="p-4 text-gray-500">{err}</p>;
+  if (!info) return <p className="p-4 text-gray-500">載入中…</p>;
+
+  const p = info.progress;
+  const pct = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
+  const langs = ["zh", "en", "tw", "ja", "ko"];
+
+  return (
+    <div className="p-4 flex flex-col gap-4">
+      <div>
+        <h2 className="text-white font-semibold text-lg">預裝歌單</h2>
+        <p className="text-gray-500 text-xs mt-1 leading-relaxed">
+          KTV 常見曲（共 {info.total} 首）。預載入會即時用 YouTube 搜尋解析→跑完整 pipeline→永久快取，
+          下次點播秒開。GPU 序列化、已快取自動跳過、可隨時關閉本頁，背景續跑。
+        </p>
+      </div>
+
+      {/* Live progress */}
+      {p.running && (
+        <div className="bg-purple-900/20 border border-purple-700/40 rounded-lg p-3">
+          <div className="flex justify-between text-xs text-purple-200 mb-1.5">
+            <span>預載入中（{p.lang === "all" ? "全部" : LANG_LABEL[p.lang] ?? p.lang}）</span>
+            <span className="font-mono">{p.done}/{p.total} · ✓{p.ok} ⤼{p.skipped} ✗{p.failed}</span>
+          </div>
+          <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+            <div className="h-full bg-purple-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+          </div>
+          <p className="text-purple-300/70 text-[11px] mt-1.5 truncate">
+            目前：{p.current || "…"}
+          </p>
+        </div>
+      )}
+
+      {/* Per-language cards */}
+      <div className="grid grid-cols-2 gap-3">
+        {langs.map((lg) => {
+          const b = info.by_lang[lg];
+          if (!b) return null;
+          return (
+            <div key={lg} className="bg-gray-900 border border-gray-800 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-white font-medium">{LANG_LABEL[lg]}</span>
+                <span className="text-gray-500 text-xs">{b.loaded}/{b.total} 已快取</span>
+              </div>
+              <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden mb-3">
+                <div className="h-full bg-emerald-600 rounded-full"
+                  style={{ width: `${b.total ? (b.loaded / b.total) * 100 : 0}%` }} />
+              </div>
+              <button
+                onClick={() => preload(lg)}
+                disabled={busy || p.running}
+                className="w-full bg-purple-700 hover:bg-purple-600 disabled:opacity-40 text-white text-sm py-2 rounded font-medium"
+              >
+                預載入{LANG_LABEL[lg]}
+                {b.failed > 0 && <span className="text-red-300/80 text-xs"> · {b.failed} 失敗</span>}
+              </button>
+            </div>
+          );
+        })}
+        <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 flex flex-col justify-center">
+          <button
+            onClick={() => preload("all")}
+            disabled={busy || p.running}
+            className="w-full bg-purple-800 hover:bg-purple-700 disabled:opacity-40 text-white text-sm py-2 rounded font-semibold"
+          >
+            預載入全部（{info.total}）
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Admin Page ───────────────────────────────────────────────────────────
 
-type Tab = "rooms" | "errors" | "cache" | "system";
+type Tab = "rooms" | "errors" | "cache" | "system" | "songlist";
 
 export default function AdminPage() {
   const [token, setToken] = useState<string | null>(null);
@@ -879,6 +998,7 @@ export default function AdminPage() {
     { id: "rooms", label: "房間", icon: "🚪" },
     { id: "errors", label: "錯誤日誌", icon: "📋" },
     { id: "cache", label: "緩存", icon: "💾" },
+    { id: "songlist", label: "預裝歌單", icon: "🎵" },
     { id: "system", label: "系統", icon: "🖥️" },
   ];
 
@@ -919,6 +1039,7 @@ export default function AdminPage() {
         {tab === "rooms" && <RoomsTab />}
         {tab === "errors" && <ErrorLogsTab />}
         {tab === "cache" && <CacheTab />}
+        {tab === "songlist" && <SonglistTab />}
         {tab === "system" && <SystemStatusTab />}
       </main>
     </div>

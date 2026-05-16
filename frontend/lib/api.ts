@@ -426,6 +426,25 @@ export const adminResolveAllErrorLogs = () =>
     { method: "POST" }
   );
 
+export interface SonglistInfo {
+  total: number;
+  by_lang: Record<string, { total: number; loaded: number; failed: number }>;
+  progress: {
+    running: boolean; lang: string; total: number; done: number;
+    ok: number; failed: number; skipped: number; current: string;
+  };
+  songs: { lang: string; artist: string; title: string; status: string }[];
+}
+
+export const adminGetSonglist = () =>
+  adminApiFetch<SonglistInfo>("/api/admin/songlist");
+
+export const adminPreloadSonglist = (lang: string) =>
+  adminApiFetch<{ started: boolean; lang: string; count: number }>(
+    `/api/admin/songlist/preload?lang=${encodeURIComponent(lang)}`,
+    { method: "POST" }
+  );
+
 export const adminGetCacheStats = () =>
   adminApiFetch<CacheStats>("/api/admin/cache-stats");
 
