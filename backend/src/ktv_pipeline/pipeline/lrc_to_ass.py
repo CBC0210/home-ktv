@@ -73,6 +73,13 @@ class AssConfig:
     # Fade-in per subtitle event
     fade_in_ms: int = 100
 
+    # Single-line fit: never auto-wrap; shrink a too-wide line instead.
+    # max_width_ratio = fraction of PlayResX a line may occupy before it
+    # gets scaled down; min_font_scale = floor (× base size) so very long
+    # lines stay readable rather than becoming microscopic.
+    max_width_ratio: float = 0.92
+    min_font_scale: float = 0.55
+
 
 # ---------------------------------------------------------------------------
 # Internal data model
@@ -376,7 +383,7 @@ def _render_header(cfg: AssConfig) -> str:
         f"PlayResX: {cfg.play_res_x}\n"
         f"PlayResY: {cfg.play_res_y}\n"
         f"ScaledBorderAndShadow: yes\n"
-        f"WrapStyle: 0\n"
+        f"WrapStyle: 2\n"  # no auto word-wrap; lines kept single via \\fs auto-fit
         f"\n"
         f"[V4+ Styles]\n"
         f"Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
@@ -404,7 +411,7 @@ def _render_events(lines: List[_Line], cfg: AssConfig) -> str:
 
         def _ev(text: str, y: int, fs: int, alpha: str) -> str:
             ov = (
-                f"{{\\an5\\pos({cx},{y})\\fs{fs}"
+                f"{{\\an5\\pos({cx},{y})\\fs{_fit_fs(text, fs, cfg)}"
                 f"\\1a{alpha}\\3a&H40&{fade}}}"
             )
             return f"Dialogue: 0,{t_start},{t_end},Default,,0,0,0,,{ov}{text}"
@@ -472,6 +479,44 @@ def fmt_ass_time(ms: float) -> str:
     mins = total_m % 60
     hours = total_m // 60
     return f"{hours}:{mins:02d}:{secs:02d}.{cs:02d}"
+
+
+def _est_width_em(text: str) -> float:
+    """Rough rendered width of *text* in em units (1 em ≈ one full-width glyph).
+
+    Bold black-body CJK glyphs are ~1 em wide; ASCII letters/digits ~0.55;
+    spaces ~0.30. Good enough to decide when a line must be shrunk to stay
+    on one row — exact metrics aren't needed, only the overflow ratio.
+    """
+    w = 0.0
+    for ch in text:
+        o = ord(ch)
+        if ch == " ":
+            w += 0.30
+        elif o < 0x2E80 and (ch.isalnum() or ch in "+-.,'\"!?:;()[]/"):
+            w += 0.55  # Latin / digits / common ASCII punctuation
+        elif 0x2E80 <= o <= 0x9FFF or 0xAC00 <= o <= 0xD7A3 or 0xFF00 <= o <= 0xFFEF:
+            w += 1.0   # CJK / Hangul / full-width forms
+        else:
+            w += 0.6
+    return w
+
+
+def _fit_fs(text: str, base_fs: int, cfg: AssConfig) -> int:
+    """Return a font size that keeps *text* on a single line.
+
+    Scales *base_fs* down only when the estimated width exceeds
+    ``max_width_ratio × PlayResX``; clamped at ``min_font_scale × base_fs``
+    so extreme lines stay legible (a hair of overflow beats a wrap).
+    """
+    if not text:
+        return base_fs
+    max_w = cfg.play_res_x * cfg.max_width_ratio
+    est_w = _est_width_em(text) * base_fs
+    if est_w <= max_w:
+        return base_fs
+    scaled = int(base_fs * (max_w / est_w))
+    return max(scaled, int(base_fs * cfg.min_font_scale))
 
 
 def _is_cjk(tokens: List[_Token]) -> bool:
