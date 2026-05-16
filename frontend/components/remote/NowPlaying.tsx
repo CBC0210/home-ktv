@@ -18,6 +18,7 @@ const ISSUE_OPTIONS: { value: SongIssue; label: string }[] = [
 
 const LYRICS_SOURCE_LABEL: Record<string, string> = {
   youtube_subtitle: "YouTube 字幕",
+  bilibili_subtitle: "Bilibili 字幕",
   amll_ttml: "AMLL TTML",
   amll_ttml_fallback_netease: "NetEase 雲音樂",
   netease: "NetEase 雲音樂",
@@ -678,6 +679,9 @@ function ReportProblem({ song, adminMode }: { song: Song; adminMode: boolean }) 
 
 const SOURCE_LABELS: Record<string, string> = {
   youtube: "YouTube 字幕",
+  youtube_subtitle: "YouTube 字幕",
+  bilibili: "Bilibili 字幕",
+  bilibili_subtitle: "Bilibili 字幕",
   amll_ttml: "AMLL 逐字",
   netease: "NetEase",
   qq: "QQ 音樂",
@@ -733,6 +737,13 @@ function LyricsSourcePicker({ song }: { song: Song }) {
   // Only show sources that were actually pre-fetched, plus "none"
   const options = [...Object.keys(available), "none"];
 
+  // Bilibili videos: the embedded-captions slot reads "Bilibili 字幕".
+  const isBili = song.id.length === 12 && song.id.startsWith("BV");
+  const srcLabel = (s: string) =>
+    isBili && (s === "youtube" || s === "youtube_subtitle")
+      ? "Bilibili 字幕"
+      : (SOURCE_LABELS[s] ?? s);
+
   return (
     <div className="bg-white/4 backdrop-blur rounded-2xl border border-white/8 overflow-hidden">
       <button
@@ -740,7 +751,7 @@ function LyricsSourcePicker({ song }: { song: Song }) {
         className="w-full flex items-center justify-between px-4 py-3 text-left"
       >
         <span className="text-white/60 text-xs">
-          字幕來源：<span className="text-violet-300">{current ? (SOURCE_LABELS[current] ?? current) : "—"}</span>
+          字幕來源：<span className="text-violet-300">{current ? srcLabel(current) : "—"}</span>
         </span>
         <span className="text-white/30 text-xs">{open ? "▲" : "▼ 切換"}</span>
       </button>
@@ -765,7 +776,7 @@ function LyricsSourcePicker({ song }: { song: Song }) {
                       : "bg-white/8 text-white/60 hover:bg-white/15"
                   }`}
                 >
-                  {busy === s ? "…" : (SOURCE_LABELS[s] ?? s)}
+                  {busy === s ? "…" : srcLabel(s)}
                   {s !== "none" && (
                     <span className="block text-[9px] opacity-60">
                       {timed ? "時間軸" : "純文字"}

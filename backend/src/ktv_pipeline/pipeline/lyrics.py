@@ -811,7 +811,8 @@ def _download_youtube_subs_sync(
         log.warning("yt_dlp not installed — skipping YouTube subtitle extraction")
         return None
 
-    url = f"https://www.youtube.com/watch?v={youtube_id}"
+    from ktv_pipeline.video_source import video_url
+    url = video_url(youtube_id)
     ydl_opts = {
         "skip_download": True,
         "writesubtitles": True,
@@ -858,15 +859,18 @@ def _download_youtube_subs_sync(
 async def fetch_youtube_subtitles(
     youtube_id: str, title: str = ""
 ) -> Optional[LyricsResult]:
-    """Phase 0: extract subtitles directly from the YouTube video.
+    """Phase 0: extract subtitles directly from the source video.
 
-    Uses yt_dlp in a thread pool (sync) so it doesn't block the event loop.
-    For Chinese-titled songs we refuse non-Chinese tracks (a wrong English
-    auto-translation is worse than falling through to NetEase/QQ).
+    Works for both YouTube and Bilibili (yt-dlp handles each); the lyrics
+    source is labelled ``bilibili_subtitle`` for a Bilibili id so the
+    "video captions" slot reads correctly. For CJK-titled songs we refuse
+    non-native tracks (a wrong auto-translation is worse than NetEase/QQ).
     Returns None if no suitable subtitles are available.
     """
+    from ktv_pipeline.video_source import subtitle_source_name
+    src_name = subtitle_source_name(youtube_id)
     song_lang = _detect_song_lang(title)
-    log.info("Trying YouTube subtitles for %s (song_lang=%s)", youtube_id, song_lang)
+    log.info("Trying %s for %s (song_lang=%s)", src_name, youtube_id, song_lang)
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
             vtt_content = await asyncio.to_thread(
@@ -876,8 +880,8 @@ async def fetch_youtube_subtitles(
                 return None
             lrc = _vtt_to_lrc(vtt_content)
             if lrc and _has_timing_markers(lrc):
-                log.info("YouTube subtitles found for %s", youtube_id)
-                return _build_result(lrc, source="youtube_subtitle", quality="official_line")
+                log.info("%s found for %s", src_name, youtube_id)
+                return _build_result(lrc, source=src_name, quality="official_line")
     except Exception as exc:
         log.warning("YouTube subtitle extraction failed for %s: %s", youtube_id, exc)
     return None

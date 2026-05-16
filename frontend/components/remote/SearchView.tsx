@@ -160,7 +160,7 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
                   value={query}
                   onChange={handleChange}
                   onPaste={handlePaste}
-                  placeholder="搜尋歌曲或貼上 YouTube 連結"
+                  placeholder="搜尋歌曲或貼上 YouTube / Bilibili 連結"
                   autoComplete="off"
                   autoCorrect="off"
                   className="w-full bg-white/8 border border-white/10 rounded-2xl pl-10 pr-4 py-3 text-white placeholder-white/25 focus:outline-none focus:border-violet-500/50 focus:bg-white/10 transition-all text-sm"
@@ -205,7 +205,7 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
                 <div>
                   <p className="text-white/50 font-medium">搜尋歌曲</p>
                   <p className="text-white/25 text-sm mt-1">支援關鍵字、歌名、演唱者</p>
-                  <p className="text-white/20 text-xs mt-0.5">或貼上 YouTube 連結直接加入</p>
+                  <p className="text-white/20 text-xs mt-0.5">或貼上 YouTube / Bilibili 連結直接加入</p>
                 </div>
               </div>
             )}

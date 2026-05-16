@@ -272,22 +272,26 @@ export const getLeaderboard = (category: LeaderboardCategory = "all_time", limit
     `/api/songs/leaderboard?category=${category}&limit=${limit}`
   );
 
-// YouTube URL detection
+// Video URL/ID detection — YouTube or Bilibili
 export function extractYoutubeId(input: string): string | null {
+  const s = input.trim();
+  const bv = s.match(/(BV[0-9A-Za-z]{10})/);
+  if (bv) return bv[1];
   const patterns = [
     /(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/,
     /youtube\.com\/shorts\/([A-Za-z0-9_-]{11})/,
     /^([A-Za-z0-9_-]{11})$/,
   ];
   for (const p of patterns) {
-    const m = input.match(p);
+    const m = s.match(p);
     if (m) return m[1];
   }
   return null;
 }
 
+/** True for a YouTube *or* Bilibili link/id — i.e. a direct-add, not a search. */
 export function isYoutubeUrl(input: string): boolean {
-  return /youtube\.com|youtu\.be/.test(input);
+  return /youtube\.com|youtu\.be|bilibili\.com|(?:^|\/)BV[0-9A-Za-z]{10}/.test(input);
 }
 // ── Admin API ─────────────────────────────────────────────────────────────────
 

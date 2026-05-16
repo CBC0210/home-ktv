@@ -350,7 +350,8 @@ class PipelineOrchestrator:
             return _build_result(song_id, info, video_path)
 
         # Run download (use self._ytdlp so cache_dir is consistent)
-        url = f"https://www.youtube.com/watch?v={song_id}"
+        from ktv_pipeline.video_source import video_url
+        url = video_url(song_id)
         for attempt in range(self.config.max_retries):
             try:
                 result = await self._ytdlp.download(url)
@@ -722,15 +723,11 @@ async def process_song(youtube_url: str, position: str = "end") -> dict:
     """
     init_db()
 
-    # Extract youtube_id
-    import re
-    _YOUTUBE_ID_RE = re.compile(
-        r"(?:v=|youtu\.be/|embed/|/v/|/shorts/)([a-zA-Z0-9_-]{11})"
-    )
-    m = _YOUTUBE_ID_RE.search(youtube_url)
-    if not m:
-        return {"ok": False, "error": "invalid_youtube_url", "perm": True}
-    youtube_id = m.group(1)
+    # Extract video id (YouTube or Bilibili)
+    from ktv_pipeline.video_source import extract_video_id
+    youtube_id = extract_video_id(youtube_url)
+    if not youtube_id:
+        return {"ok": False, "error": "invalid_video_url", "perm": True}
 
     # Ensure Song record exists in DB
     with get_db_session() as db:

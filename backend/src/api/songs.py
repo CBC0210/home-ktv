@@ -23,19 +23,17 @@ def get_session():
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-YOUTUBE_ID_RE = re.compile(
-    r"(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/shorts/)([a-zA-Z0-9_-]{11})"
-)
-
-
 def extract_youtube_id(url_or_id: str) -> str:
-    """Return the 11-char YouTube video ID from a URL or bare ID."""
-    m = YOUTUBE_ID_RE.search(url_or_id)
-    if m:
-        return m.group(1)
-    if len(url_or_id) == 11 and re.match(r"^[a-zA-Z0-9_-]+$", url_or_id):
-        return url_or_id
-    raise HTTPException(status_code=400, detail=f"Invalid YouTube ID: {url_or_id}")
+    """Bare video id (YouTube *or* Bilibili) from a URL or id.
+
+    Name kept for call-site stability; now source-agnostic — the returned
+    id doubles as the song PK / cache dir regardless of source.
+    """
+    from ktv_pipeline.video_source import extract_video_id
+    vid = extract_video_id(url_or_id)
+    if vid:
+        return vid
+    raise HTTPException(status_code=400, detail=f"Invalid video URL/ID: {url_or_id}")
 
 
 async def _try_start_if_idle(room_id: str) -> None:

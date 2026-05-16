@@ -38,9 +38,6 @@ _PERM_SUBSTRINGS = (
     "this video contains content",
 )
 
-_YOUTUBE_ID_RE = re.compile(
-    r"(?:v=|youtu\.be/|embed/|/v/|/shorts/)([a-zA-Z0-9_-]{11})"
-)
 
 
 # ---------------------------------------------------------------------------
@@ -89,8 +86,9 @@ def _classify_ytdlp_error(exc: Exception) -> YtDlpError:
 
 
 def _extract_youtube_id(url: str) -> Optional[str]:
-    m = _YOUTUBE_ID_RE.search(url)
-    return m.group(1) if m else None
+    # Source-agnostic: YouTube id or Bilibili BVID (used as cache dir name).
+    from ktv_pipeline.video_source import extract_video_id
+    return extract_video_id(url)
 
 
 def _build_result(youtube_id: str, info: dict, video_path: Path) -> DownloadResult:
