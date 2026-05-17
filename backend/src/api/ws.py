@@ -187,8 +187,9 @@ async def dispatch_message(
     elif role == ClientRole.REMOTE:
         if msg_type == "reaction.send":
             emoji = msg.get("emoji", "👍")
+            # Floating emoji on the Player is feedback enough — no extra
+            # "X reacted" toast (it just clutters the screen).
             await manager.broadcast_reaction(room_id, emoji, nickname)
-            await manager.broadcast_activity(room_id, f"{emoji}", nickname)
 
         elif msg_type == "playback.play":
             manager.update_playback_state(room_id, is_playing=True)
@@ -251,10 +252,10 @@ async def dispatch_message(
             await _handle_lyrics_edit(room_id, msg)
 
         elif msg_type == "lyrics.offset":
-            await _handle_lyrics_offset(room_id, msg)
+            await _handle_lyrics_offset(room_id, nickname, msg)
 
         elif msg_type == "av.offset":
-            await _handle_av_offset(room_id, msg)
+            await _handle_av_offset(room_id, nickname, msg)
 
         elif msg_type == "guest.kick":
             await _handle_guest_kick(room_id, guest_id, msg)
@@ -700,8 +701,9 @@ async def _handle_lyrics_edit(room_id: str, msg: dict) -> None:
         await manager.broadcast_system_error(room_id, f"lyrics.edit failed: {exc}")
 
 
-async def _handle_lyrics_offset(room_id: str, msg: dict) -> None:
-    """Persist a per-song subtitle delay (ms) and live-push it to the Player."""
+async def _handle_lyrics_offset(room_id: str, actor: str, msg: dict) -> None:
+    """Persist a per-song subtitle delay (ms), live-push it to the Player,
+    and toast a confirmation so the operator knows it landed."""
     song_id = msg.get("songId")
     try:
         offset_ms = int(msg.get("offsetMs", 0))
@@ -722,14 +724,19 @@ async def _handle_lyrics_offset(room_id: str, msg: dict) -> None:
         await manager.send_to_role(room_id, ClientRole.PLAYER, {
             "type": "lyrics.offset", "songId": song_id, "offsetMs": offset_ms,
         })
+        sign = "+" if offset_ms > 0 else ""
+        await manager.broadcast_activity(
+            room_id,
+            f"🕐 字幕延遲 {sign}{offset_ms / 1000:.1f}s" if offset_ms else "🕐 字幕延遲歸零",
+            actor or "有人",
+        )
     except Exception as exc:
         await manager.broadcast_system_error(room_id, f"lyrics.offset failed: {exc}")
 
 
-async def _handle_av_offset(room_id: str, msg: dict) -> None:
-    """Persist a per-song A/V fine-tune (ms = how far audio leads video) and
-    live-push it to the Player. Stacks on top of automatic AudioContext
-    output-latency compensation."""
+async def _handle_av_offset(room_id: str, actor: str, msg: dict) -> None:
+    """Persist a per-song A/V fine-tune (ms = how far audio leads video),
+    live-push it to the Player, and toast a confirmation."""
     song_id = msg.get("songId")
     try:
         offset_ms = int(msg.get("offsetMs", 0))
@@ -750,6 +757,12 @@ async def _handle_av_offset(room_id: str, msg: dict) -> None:
         await manager.send_to_role(room_id, ClientRole.PLAYER, {
             "type": "av.offset", "songId": song_id, "offsetMs": offset_ms,
         })
+        sign = "+" if offset_ms > 0 else ""
+        await manager.broadcast_activity(
+            room_id,
+            f"🎬 影音微調 {sign}{offset_ms}ms" if offset_ms else "🎬 影音微調歸零",
+            actor or "有人",
+        )
     except Exception as exc:
         await manager.broadcast_system_error(room_id, f"av.offset failed: {exc}")
 

@@ -13,8 +13,12 @@ const ISSUE_OPTIONS: { value: SongIssue; label: string }[] = [
   { value: "clipping", label: "爆音 / 破音" },
   { value: "av_desync", label: "音畫不同步" },
   { value: "separation_noise", label: "人聲分離有雜訊" },
+  { value: "subtitle_timing", label: "字幕對不上時間" },
   { value: "other", label: "其他問題" },
 ];
+const AUDIO_ISSUES = new Set<SongIssue>([
+  "clipping", "av_desync", "separation_noise", "other",
+]);
 
 const LYRICS_SOURCE_LABEL: Record<string, string> = {
   youtube_subtitle: "YouTube 字幕",
@@ -93,6 +97,7 @@ export default function NowPlaying({
   const [mainVol, setMainVol] = useState(playback.main_volume);
   const [vocalVol, setVocalVol] = useState(playback.vocal_volume);
   const [lyricsEditorOpen, setLyricsEditorOpen] = useState(false);
+  const [avEditorOpen, setAvEditorOpen] = useState(false);
   const [offsetMs, setOffsetMs] = useState(0);
   const [avMs, setAvMs] = useState(0);
   const [plainLyrics, setPlainLyrics] = useState<string>("");
@@ -384,18 +389,8 @@ export default function NowPlaying({
           </span>
         </button>
 
-        {/* Reactions */}
-        <div className="flex justify-around px-4">
-          {["🔥", "👏", "😂", "❤️", "🎉"].map((emoji) => (
-            <button
-              key={emoji}
-              onClick={() => sendCommand({ type: "reaction.send", emoji })}
-              className="text-2xl hover:scale-125 active:scale-110 transition-transform p-2"
-            >
-              {emoji}
-            </button>
-          ))}
-        </div>
+        {/* Reactions — recents + custom picker */}
+        <EmojiReactions onSend={(emoji) => sendCommand({ type: "reaction.send", emoji })} />
 
         {/* Report a playback problem */}
         {currentSong && (
@@ -415,50 +410,25 @@ export default function NowPlaying({
           <LyricsSourcePicker song={currentSong} />
         )}
 
-        {/* Lyrics timing — admin only */}
-        {adminMode && currentSong?.has_timing && (
-          <button
-            onClick={() => setLyricsEditorOpen(true)}
-            className="text-xs text-amber-300/70 hover:text-amber-300 py-1 transition-colors text-center"
-          >
-            ⏱️ 調整字幕延遲（管理員）
-          </button>
-        )}
-
-        {/* A/V fine-tune — admin, only when using separated audio */}
-        {adminMode && currentSong && !currentSong.use_original_audio && (
-          <div className="bg-white/4 border border-white/8 rounded-2xl px-4 py-3 flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <p className="text-white/70 text-xs">🎬 影音同步微調（管理員）</p>
-              <span className="text-white/40 text-[11px] font-mono tabular-nums">
-                {avMs > 0 ? "+" : ""}{avMs} ms
-              </span>
-            </div>
-            <p className="text-white/35 text-[11px] leading-relaxed">
-              影片比音樂慢就調＋，音樂比影片慢就調－。已自動補償音訊延遲，這裡只做細修。
-            </p>
-            <div className="flex items-center gap-2">
-              <button onClick={() => applyAv(avMs - 100)}
-                className="flex-1 bg-white/6 hover:bg-white/10 border border-white/10 text-white/85 text-sm rounded-lg py-2">
-                −100
+        {/* Admin fine-tune triggers — open as panels (like report) */}
+        {adminMode && currentSong && (
+          <div className="flex items-center justify-center gap-4">
+            {currentSong.has_timing && (
+              <button
+                onClick={() => setLyricsEditorOpen(true)}
+                className="text-xs text-amber-300/70 hover:text-amber-300 py-1 transition-colors"
+              >
+                ⏱️ 字幕延遲{offsetMs ? `（${offsetMs > 0 ? "+" : ""}${(offsetMs / 1000).toFixed(1)}s）` : ""}
               </button>
-              <button onClick={() => applyAv(avMs - 20)}
-                className="flex-1 bg-white/6 hover:bg-white/10 border border-white/10 text-white/85 text-sm rounded-lg py-2">
-                −20
+            )}
+            {!currentSong.use_original_audio && (
+              <button
+                onClick={() => setAvEditorOpen(true)}
+                className="text-xs text-amber-300/70 hover:text-amber-300 py-1 transition-colors"
+              >
+                🎬 影音微調{avMs ? `（${avMs > 0 ? "+" : ""}${avMs}ms）` : ""}
               </button>
-              <button onClick={() => applyAv(0)}
-                className="px-3 bg-white/6 hover:bg-white/10 border border-white/10 text-white/60 text-xs rounded-lg py-2">
-                歸零
-              </button>
-              <button onClick={() => applyAv(avMs + 20)}
-                className="flex-1 bg-white/6 hover:bg-white/10 border border-white/10 text-white/85 text-sm rounded-lg py-2">
-                ＋20
-              </button>
-              <button onClick={() => applyAv(avMs + 100)}
-                className="flex-1 bg-white/6 hover:bg-white/10 border border-white/10 text-white/85 text-sm rounded-lg py-2">
-                ＋100
-              </button>
-            </div>
+            )}
           </div>
         )}
       </div>
@@ -530,6 +500,68 @@ export default function NowPlaying({
           </div>
         </div>
       )}
+
+      {/* A/V fine-tune modal (admin) — same UX as the subtitle-delay one */}
+      {avEditorOpen && (
+        <div className="fixed inset-0 bg-black/90 z-50 flex flex-col items-center justify-center p-6">
+          <div className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+            <div className="text-center mb-5">
+              <div className="text-3xl mb-1">🎬</div>
+              <h3 className="text-white font-bold text-lg">影音同步微調</h3>
+              <p className="text-white/40 text-xs mt-1">
+                影片比音樂慢就調＋，音樂比影片慢就調－。已自動補償音訊延遲，這裡只做細修，效果即時。
+              </p>
+            </div>
+
+            <div className="flex items-center justify-center gap-4 mb-2">
+              <button
+                onClick={() => applyAv(avMs - 100)}
+                className="w-14 h-14 rounded-2xl bg-white/8 hover:bg-white/15 text-white text-2xl font-bold active:scale-90 transition-all"
+                title="音樂提前 100ms"
+              >
+                ‹‹
+              </button>
+              <div className="text-center min-w-[110px]">
+                <p className={`text-3xl font-bold tabular-nums ${avMs === 0 ? "text-white/50" : "text-amber-300"}`}>
+                  {avMs > 0 ? "+" : ""}{avMs}<span className="text-base">ms</span>
+                </p>
+                <p className="text-white/30 text-[10px] mt-0.5">
+                  {avMs === 0 ? "未調整" : avMs > 0 ? "音樂提前" : "音樂延後"}
+                </p>
+              </div>
+              <button
+                onClick={() => applyAv(avMs + 100)}
+                className="w-14 h-14 rounded-2xl bg-white/8 hover:bg-white/15 text-white text-2xl font-bold active:scale-90 transition-all"
+                title="音樂延後 100ms"
+              >
+                ››
+              </button>
+            </div>
+
+            <div className="flex justify-center gap-2 mb-5">
+              <button onClick={() => applyAv(avMs - 20)}
+                className="px-3 py-1.5 rounded-lg bg-white/6 text-white/50 text-xs hover:bg-white/12">
+                −20
+              </button>
+              <button onClick={() => applyAv(0)}
+                className="px-3 py-1.5 rounded-lg bg-white/6 text-white/50 text-xs hover:bg-white/12">
+                歸零
+              </button>
+              <button onClick={() => applyAv(avMs + 20)}
+                className="px-3 py-1.5 rounded-lg bg-white/6 text-white/50 text-xs hover:bg-white/12">
+                ＋20
+              </button>
+            </div>
+
+            <button
+              onClick={() => setAvEditorOpen(false)}
+              className="w-full py-3 rounded-2xl bg-violet-600 text-white text-sm font-medium hover:bg-violet-500 transition-colors"
+            >
+              完成（已自動儲存）
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -590,10 +622,13 @@ function ReportProblem({ song, adminMode }: { song: Song; adminMode: boolean }) 
   // Reset transient UI when the song changes.
   useEffect(() => { setOpen(false); setDone(false); }, [song.id]);
 
+  const [lastAudio, setLastAudio] = useState(true);
+
   async function submit(issue: SongIssue) {
     setBusy(true);
     try {
       await reportSongIssue(song.id, issue);
+      setLastAudio(AUDIO_ISSUES.has(issue));
       setDone(true);
       setOpen(false);
     } catch {
@@ -615,6 +650,18 @@ function ReportProblem({ song, adminMode }: { song: Song; adminMode: boolean }) 
     setBusy(false);
   }
 
+  // Collapsed: a small unobtrusive link, not a big card.
+  if (!open && !done && !inOrigMode) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="self-center text-white/35 hover:text-white/60 text-[11px] py-0.5 transition-colors"
+      >
+        ⚠️ 這首歌有問題？回報
+      </button>
+    );
+  }
+
   return (
     <div className="bg-white/4 border border-white/8 rounded-2xl px-4 py-3">
       {inOrigMode ? (
@@ -634,19 +681,15 @@ function ReportProblem({ song, adminMode }: { song: Song; adminMode: boolean }) 
         </div>
       ) : done ? (
         <p className="text-emerald-400/80 text-xs leading-relaxed">
-          ✓ 已回報，下次播放此曲將改用原始影片音訊（修正爆音 / 不同步）。
+          {lastAudio
+            ? "✓ 已回報，下次播放此曲將改用原始影片音訊（修正爆音 / 不同步）。"
+            : "✓ 已回報字幕對不上，已記錄；請管理員用「字幕延遲」微調。"}
         </p>
-      ) : !open ? (
-        <button
-          onClick={() => setOpen(true)}
-          className="flex items-center gap-2 text-white/55 text-xs"
-        >
-          <span className="text-base leading-none">⚠️</span>
-          這首歌有問題？回報一下
-        </button>
       ) : (
         <div className="flex flex-col gap-2">
-          <p className="text-white/60 text-xs">是什麼問題？回報後下次播放會改用原始影片音訊。</p>
+          <p className="text-white/60 text-xs">
+            是什麼問題？音訊類問題下次播放會改用原始影片音訊；字幕對不上則交管理員微調。
+          </p>
           <div className="grid grid-cols-2 gap-2">
             {ISSUE_OPTIONS.map((o) => (
               <button
@@ -665,6 +708,77 @@ function ReportProblem({ song, adminMode }: { song: Song; adminMode: boolean }) 
           >
             取消
           </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const DEFAULT_EMOJI = ["🔥", "👏", "😂", "❤️", "🎉", "🎤", "👍", "🥳"];
+const EMOJI_PALETTE = [
+  "🔥", "👏", "😂", "❤️", "🎉", "🎤", "👍", "🥳",
+  "😍", "🤩", "😭", "🙌", "💯", "✨", "🎸", "🎶",
+  "😎", "🤘", "👑", "💪", "🫶", "😱", "🤣", "🥰",
+  "🍻", "🌟", "💃", "🕺", "👀", "🙏", "😆", "🎊",
+];
+const RECENT_KEY = "ktv_recent_emoji";
+
+function EmojiReactions({ onSend }: { onSend: (e: string) => void }) {
+  const [recents, setRecents] = useState<string[]>(DEFAULT_EMOJI);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(RECENT_KEY);
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr) && arr.length) setRecents(arr.slice(0, 8));
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  function fire(emoji: string) {
+    onSend(emoji);
+    setRecents((cur) => {
+      const next = [emoji, ...cur.filter((e) => e !== emoji)].slice(0, 8);
+      try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }
+
+  return (
+    <div className="px-4">
+      <div className="flex items-center justify-around">
+        {recents.slice(0, 7).map((emoji) => (
+          <button
+            key={emoji}
+            onClick={() => fire(emoji)}
+            className="text-2xl hover:scale-125 active:scale-110 transition-transform p-2"
+          >
+            {emoji}
+          </button>
+        ))}
+        <button
+          onClick={() => setPickerOpen((v) => !v)}
+          title="更多表情"
+          className={`w-9 h-9 rounded-full text-sm transition-colors ${
+            pickerOpen ? "bg-violet-600 text-white" : "bg-white/8 text-white/50 hover:bg-white/15"
+          }`}
+        >
+          ＋
+        </button>
+      </div>
+      {pickerOpen && (
+        <div className="mt-2 grid grid-cols-8 gap-1 bg-white/4 border border-white/8 rounded-2xl p-2">
+          {EMOJI_PALETTE.map((emoji) => (
+            <button
+              key={emoji}
+              onClick={() => { fire(emoji); setPickerOpen(false); }}
+              className="text-xl hover:scale-125 active:scale-110 transition-transform p-1.5"
+            >
+              {emoji}
+            </button>
+          ))}
         </div>
       )}
     </div>

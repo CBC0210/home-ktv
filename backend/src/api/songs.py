@@ -696,19 +696,33 @@ async def set_lyrics_source(
     return {"ok": True, "source": song.lyrics_source, "has_timing": song.has_timing}
 
 
+_SRC_LABELS = {
+    "youtube_subtitle": "YouTube 字幕", "bilibili_subtitle": "Bilibili 字幕",
+    "amll_ttml": "AMLL 逐字", "amll_ttml_fallback_netease": "NetEase",
+    "netease": "NetEase", "qq": "QQ 音樂", "syncedlyrics": "LRCLIB",
+    "mojim": "魔鏡(純文字)", "kkbox": "KKBOX(純文字)", "genius": "Genius(純文字)",
+    "none": "關閉字幕",
+}
+
+
 async def _broadcast_lyrics_changed(song_id: str) -> None:
-    """Tell every room currently playing this song to reload subtitles."""
+    """Tell every room currently playing this song to reload subtitles, and
+    toast which source is now active so the operator sees it worked."""
     from ktv_pipeline.ws_manager import manager
     from ktv_pipeline.models import QueueItem as _QI
     with get_db_session() as s:
+        song = s.query(Song).filter_by(id=song_id).first()
+        src = song.lyrics_source if song else None
         rooms = [
             r[0] for r in s.query(_QI.room_id)
             .filter_by(song_id=song_id, status="playing")
             .distinct()
             .all()
         ]
+    label = _SRC_LABELS.get(src or "", src or "—")
     for room_id in rooms or []:
         await manager.broadcast_lyrics_updated(room_id, song_id)
+        await manager.broadcast_activity(room_id, f"🎵 字幕來源：{label}", "字幕")
 
 
 # ── Per-song problem report → playback strategy override ────────────────────
@@ -725,8 +739,13 @@ _ISSUE_LABELS = {
     "clipping": "爆音/破音",
     "av_desync": "音畫不同步",
     "separation_noise": "人聲分離雜訊",
+    "subtitle_timing": "字幕對不上時間",
     "other": "其他問題",
 }
+# Audio-class issues switch the song to the original embedded audio next
+# play. A subtitle-timing report is NOT an audio problem — it's just logged
+# / flagged so an admin can nudge the per-song delay (the right tool).
+_AUDIO_ISSUES = {"clipping", "av_desync", "separation_noise", "other"}
 
 
 def _playback_profile(song) -> dict:
@@ -782,15 +801,17 @@ async def report_song_issue(
         g = session.query(Guest).filter_by(id=guest_id).first()
         nickname = g.nickname if g else None
 
+    is_audio = issue in _AUDIO_ISSUES
     p = _playback_profile(song)
-    p["use_original_audio"] = True
+    if is_audio:
+        p["use_original_audio"] = True
+        p.pop("reverted_at", None)
     p["reports"] = (p["reports"] + [{
         "at": datetime.now(timezone.utc).isoformat(),
         "guest_id": guest_id,
         "nickname": nickname,
         "issue": issue,
     }])[-50:]  # cap history
-    p.pop("reverted_at", None)
     _save_playback_profile(session, song, p)
 
     from ktv_pipeline.models import ErrorLog
@@ -810,18 +831,20 @@ async def report_song_issue(
         .filter_by(song_id=song_id).filter(_QI.status.in_(("playing", "pending")))
         .distinct().all()
     ]
+    tail = "下次將用原始音訊" if is_audio else "已記錄，請管理員微調字幕延遲"
     for room_id in set(rooms):
         await manager.broadcast_activity(
-            room_id, f"回報了問題（{_ISSUE_LABELS[issue]}）— 下次將用原始音訊",
+            room_id, f"回報了問題（{_ISSUE_LABELS[issue]}）— {tail}",
             nickname or "有人",
         )
         await manager.send_to_room(room_id, {
             "type": "song.profile_updated",
             "song_id": song_id,
-            "use_original_audio": True,
+            "use_original_audio": bool(p["use_original_audio"]),
         })
     return {
-        "ok": True, "song_id": song_id, "use_original_audio": True,
+        "ok": True, "song_id": song_id,
+        "use_original_audio": bool(p["use_original_audio"]),
         "issue": issue, "report_count": len(p["reports"]),
     }
 
