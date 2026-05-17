@@ -5,6 +5,7 @@ import QRCode from "react-qr-code";
 import { useKtvStore, THEME_STYLES } from "@/lib/stores";
 import { useWebSocket } from "@/lib/ws";
 import { getQueue, getRoom } from "@/lib/api";
+import { apiBase } from "@/lib/endpoint";
 import type { ServerEvent } from "@/lib/types";
 import SubtitleLayer from "./SubtitleLayer";
 
@@ -423,7 +424,7 @@ export default function PlayerView({ roomId }: Props) {
     }
 
     // Direct swap to new song — no intermediate empty src
-    const base = process.env.NEXT_PUBLIC_API_URL ?? "";
+    const base = apiBase();
     const orig = !!currentSong.use_original_audio;
     video.src = `${base}/songs/${currentSong.id}/video.mp4`;
     if (orig) {
@@ -539,7 +540,7 @@ export default function PlayerView({ roomId }: Props) {
     const nextSong = next?.song;
     if (!nextSong || preloadedRef.current === nextSong.id) return;
     preloadedRef.current = nextSong.id;
-    const base = process.env.NEXT_PUBLIC_API_URL ?? "";
+    const base = apiBase();
     const urls = [
       `${base}/songs/${nextSong.id}/video.mp4`,
       `${base}/songs/${nextSong.id}/audio/vocals.wav`,

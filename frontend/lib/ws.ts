@@ -2,23 +2,16 @@
 
 import { useEffect, useRef, useCallback } from "react";
 import type { ServerEvent, ClientCommand } from "./types";
+import { wsBase } from "./endpoint";
 
 function buildWsUrl(
   roomId: string,
   token: string | null,
   role: string
 ): string {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
-  let wsBase: string;
-  if (apiUrl) {
-    wsBase = apiUrl.replace(/^https/, "wss").replace(/^http/, "ws");
-  } else {
-    const proto = window.location.protocol === "https:" ? "wss" : "ws";
-    wsBase = `${proto}://${window.location.host}`;
-  }
   const params = new URLSearchParams({ room_id: roomId, role });
   if (token) params.set("token", token);
-  return `${wsBase}/ws?${params}`;
+  return `${wsBase()}/ws?${params}`;
 }
 
 export function useWebSocket(

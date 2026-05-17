@@ -1,6 +1,5 @@
 import type { Room, Song, QueueItem, Guest } from "./types";
-
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
+import { apiBase } from "./endpoint";
 
 // Module-level guest auth token, set after joinRoom succeeds
 let _guestToken: string | null = null;
@@ -17,7 +16,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     ...initHeaders,
   };
   if (_guestToken) headers["Authorization"] = `Bearer ${_guestToken}`;
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(`${apiBase()}${path}`, {
     credentials: "include",
     ...init,
     headers,
@@ -172,16 +171,16 @@ export const getProcessingStats = (roomId: string) =>
 
 // Streaming URLs (client-side construction)
 export function streamUrl(songId: string): string {
-  return `${BASE}/songs/${songId}/stream.m3u8`;
+  return `${apiBase()}/songs/${songId}/stream.m3u8`;
 }
 export function audioUrl(
   songId: string,
   filename: "vocals.wav" | "no_vocals.wav"
 ): string {
-  return `${BASE}/songs/${songId}/audio/${filename}`;
+  return `${apiBase()}/songs/${songId}/audio/${filename}`;
 }
 export function lyricsUrl(songId: string): string {
-  return `${BASE}/songs/${songId}/lyrics.ass`;
+  return `${apiBase()}/songs/${songId}/lyrics.ass`;
 }
 
 // Room admin mode
@@ -205,7 +204,7 @@ export async function deleteSong(songId: string): Promise<void> {
 
 // Lyrics
 export async function getLyricsAss(songId: string): Promise<string> {
-  const base = process.env.NEXT_PUBLIC_API_URL ?? "";
+  const base = apiBase();
   // Cache-bust so live ASS edits via WS show immediately on next subtitle init
   const res = await fetch(`${base}/songs/${songId}/lyrics.ass?t=${Date.now()}`, {
     credentials: "include",
@@ -262,7 +261,7 @@ export const clearSongReport = (songId: string) =>
   );
 
 export async function getLyricsText(songId: string): Promise<string> {
-  const base = process.env.NEXT_PUBLIC_API_URL ?? "";
+  const base = apiBase();
   const res = await fetch(`${base}/songs/${songId}/lyrics.txt`, { credentials: "include" });
   if (!res.ok) return "";
   return res.text();
@@ -324,7 +323,7 @@ export async function adminApiFetch<T>(path: string, init?: RequestInit): Promis
     init?.headers && typeof init.headers === "object" && !Array.isArray(init.headers)
       ? (init.headers as Record<string, string>)
       : {};
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(`${apiBase()}${path}`, {
     credentials: "include",
     ...init,
     headers: {

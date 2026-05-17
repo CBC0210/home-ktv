@@ -42,15 +42,20 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    admin_password: str = "BCktv210"
+    admin_password: str = "admin"          # CHANGE in .env — gates /admin
     admin_cookie_secret: str = "change-me-32chars-minimum!!"
-    public_base_url: str = "https://ktv.bc-verse.com"
+    public_base_url: str = ""              # optional; QR uses page origin
     local_port: int = 8000
-    data_dir: Path = Path("/data/ktv")
-    cf_tunnel_name: str = "ktv"
+    data_dir: Path = Path("./data")        # repo-local by default (LAN/dev)
+    # Auth cookie. Bearer (localStorage) is the primary mechanism; the
+    # cookie is secondary. Keep secure=False so it also works on a plain
+    # HTTP LAN; set true only when always served over HTTPS.
+    cookie_secure: bool = False
+    # Cloudflare Tunnel is OPTIONAL — only needed for public/off-LAN access.
+    cf_tunnel_name: str = ""
     cf_tunnel_uuid: str = ""
-    cf_domain: str = "bc-verse.com"
-    cf_subdomain: str = "ktv"
+    cf_domain: str = ""
+    cf_subdomain: str = ""
     enable_gpu: bool = True
     whisperx_model: str = "small"
     demucs_model: str = "htdemucs"

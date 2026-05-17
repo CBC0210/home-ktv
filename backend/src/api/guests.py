@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, Depends, Response
 from sqlalchemy.orm import Session
 
 from ktv_pipeline.database import get_db_session
+from ktv_pipeline.config import settings
 from ktv_pipeline.models import Guest, Room
 from ktv_pipeline.schemas import GuestJoin, GuestOut, SessionOut
 from ktv_pipeline.auth import (
@@ -71,7 +72,7 @@ def join_room(data: GuestJoin, response: Response, session: Session = Depends(ge
         key="ktv_session",
         value=token,
         httponly=True,
-        secure=True,           # HTTPS only
+        secure=settings.cookie_secure,  # False = also works on plain-HTTP LAN
         samesite="lax",
         max_age=60 * 60 * 24 * 7,  # 1 week
     )
