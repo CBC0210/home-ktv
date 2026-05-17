@@ -504,6 +504,22 @@ export const adminClearLeaderboard = (roomId?: string) =>
     { method: "DELETE" }
   );
 
+export interface CleanupStatus {
+  running: boolean;
+  total: number;
+  done: number;
+  removed: number;
+  kept: number;
+  current: string;
+  removed_titles: string[];
+}
+export const adminCleanupNonmusic = () =>
+  adminApiFetch<{ started: boolean }>(
+    "/api/admin/songs/cleanup-nonmusic", { method: "POST" }
+  );
+export const adminGetCleanupStatus = () =>
+  adminApiFetch<CleanupStatus>("/api/admin/songs/cleanup-status");
+
 export const adminGetSystemStatus = () =>
   adminApiFetch<SystemStatus>("/api/admin/system-status");
 

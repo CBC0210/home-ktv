@@ -16,6 +16,9 @@ import {
   adminDeleteSavedSong,
   adminClearAllSongs,
   adminClearLeaderboard,
+  adminCleanupNonmusic,
+  adminGetCleanupStatus,
+  type CleanupStatus,
   adminGetSystemStatus,
   type SavedSong,
   adminGetRoomDetail,
@@ -611,6 +614,8 @@ function CacheTab() {
   const [songsTotal, setSongsTotal] = useState("");
   const [delId, setDelId] = useState<string | null>(null);
 
+  const [cleanup, setCleanup] = useState<CleanupStatus | null>(null);
+
   const loadSongs = useCallback(async () => {
     try {
       const r = await adminListSavedSongs();
@@ -624,7 +629,36 @@ function CacheTab() {
   useEffect(() => {
     adminGetCacheStats().then(setStats).catch(() => {}).finally(() => setLoading(false));
     loadSongs();
+    adminGetCleanupStatus().then(setCleanup).catch(() => {});
   }, [loadSongs]);
+
+  // Poll while a cleanup is running; refresh the list when it finishes.
+  useEffect(() => {
+    if (!cleanup?.running) return;
+    const id = setInterval(async () => {
+      try {
+        const st = await adminGetCleanupStatus();
+        setCleanup(st);
+        if (!st.running) {
+          clearInterval(id);
+          loadSongs();
+          adminGetCacheStats().then(setStats).catch(() => {});
+        }
+      } catch { /* ignore */ }
+    }, 3000);
+    return () => clearInterval(id);
+  }, [cleanup?.running, loadSongs]);
+
+  async function handleCleanupNonmusic() {
+    if (!confirm("用 LLM 掃描所有已快取(非預裝)歌曲，刪除判定為「非音樂」的(訪談/教學/合輯/直播等)。\n背景執行，無法復原。要繼續嗎？")) return;
+    try {
+      await adminCleanupNonmusic();
+      setCleanup(await adminGetCleanupStatus());
+    } catch (e) {
+      alert(e instanceof Error && e.message.includes("400")
+        ? "LLM 未設定(MINIMAX_API_KEY 空)，無法判斷" : "啟動失敗(可能已在執行)");
+    }
+  }
 
   async function handleDeleteSong(s: SavedSong) {
     if (!confirm(`永久刪除「${s.title}」？\n會移除資料庫記錄與 ${s.human} 的媒體檔，無法復原。`)) return;
@@ -735,6 +769,14 @@ function CacheTab() {
                 {songs.length} 首 · 共 {songsTotal}
               </span>
             )}
+            <button
+              onClick={handleCleanupNonmusic}
+              disabled={cleanup?.running}
+              title="用 LLM 判斷標題，刪除非音樂(訪談/教學/合輯/直播…)。預裝歌單不掃。"
+              className="bg-teal-700 hover:bg-teal-600 disabled:opacity-50 text-white px-3 py-1.5 rounded text-sm font-medium flex-shrink-0"
+            >
+              {cleanup?.running ? "清理中…" : "🧹 清理非音樂"}
+            </button>
             {songs && songs.length > 0 && (
               <button
                 onClick={handleClearAllSongs}
@@ -746,6 +788,29 @@ function CacheTab() {
             )}
           </div>
         </div>
+
+        {cleanup && (cleanup.running || cleanup.removed > 0) && (
+          <div className="mb-3 bg-teal-900/20 border border-teal-700/40 rounded-lg p-3 text-xs">
+            <div className="flex justify-between text-teal-200">
+              <span>{cleanup.running ? "🧹 LLM 掃描中…" : "🧹 上次清理結果"}</span>
+              <span className="font-mono">
+                {cleanup.done}/{cleanup.total} · 刪 {cleanup.removed} · 保留 {cleanup.kept}
+              </span>
+            </div>
+            {cleanup.running && cleanup.total > 0 && (
+              <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden mt-1.5">
+                <div className="h-full bg-teal-500 rounded-full transition-all"
+                  style={{ width: `${Math.round((cleanup.done / cleanup.total) * 100)}%` }} />
+              </div>
+            )}
+            {cleanup.removed_titles.length > 0 && (
+              <p className="text-teal-300/60 mt-1.5 leading-relaxed">
+                已刪：{cleanup.removed_titles.slice(0, 12).join("、")}
+                {cleanup.removed_titles.length > 12 ? " …" : ""}
+              </p>
+            )}
+          </div>
+        )}
         {!songs ? (
           <p className="text-gray-500">載入中…</p>
         ) : songs.length === 0 ? (

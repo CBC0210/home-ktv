@@ -820,3 +820,100 @@ async def preload_songlist(
         raise HTTPException(status_code=404, detail=f"No songs for lang '{lang}'")
     _preload_task = _asyncio.create_task(_preload_worker(songs, lang))
     return {"started": True, "lang": lang, "count": len(songs)}
+
+
+# ── Clean up non-music cached songs (LLM-judged) ────────────────────────────
+#
+# User-pasted / searched videos sometimes aren't songs (interviews, mixes,
+# tutorials…). This scans READY songs the LLM flags as non-music and deletes
+# them (DB rows + queue items + on-disk media/cache). Curated preinstalled
+# songs are skipped — known music, and it saves a lot of LLM calls. Runs in
+# the background with progress; never deletes on LLM uncertainty.
+
+_cleanup_progress: dict = {
+    "running": False, "total": 0, "done": 0,
+    "removed": 0, "kept": 0, "current": "", "removed_titles": [],
+}
+_cleanup_task = None
+
+
+def _purge_song(db, song_id: str) -> None:
+    db.query(QueueItem).filter_by(song_id=song_id).delete()
+    sg = db.query(Song).filter_by(id=song_id).first()
+    if sg:
+        db.delete(sg)
+    db.commit()
+    from ktv_pipeline.config import settings as cfg
+    import shutil
+    for sub in ("media", "cache", "cache/demucs"):
+        p = cfg.data_dir / sub / song_id
+        if p.exists():
+            try:
+                shutil.rmtree(p)
+            except OSError:
+                pass
+
+
+async def _cleanup_worker() -> None:
+    from ktv_pipeline.llm import classify_nonmusic_llm
+
+    with get_db_session() as db:
+        rows = [
+            (s.id, s.title or "")
+            for s in db.query(Song).filter(Song.status == "ready").all()
+            # Skip curated preinstalled songs — known music, saves LLM calls.
+            if not ((s.extra_metadata or {}).get("preinstalled"))
+            and (s.title or "").strip()
+            and not (s.title or "").startswith("YouTube:")
+        ]
+    _cleanup_progress.update({
+        "running": True, "total": len(rows), "done": 0,
+        "removed": 0, "kept": 0, "current": "", "removed_titles": [],
+    })
+    try:
+        BATCH = 25
+        for i in range(0, len(rows), BATCH):
+            batch = rows[i:i + BATCH]
+            _cleanup_progress["current"] = batch[0][1][:40]
+            titles = [t for _, t in batch]
+            flagged = await classify_nonmusic_llm(titles)
+            if flagged is None:
+                # LLM unavailable / unsure for this batch — keep everything.
+                _cleanup_progress["kept"] += len(batch)
+                _cleanup_progress["done"] += len(batch)
+                continue
+            for j, (sid, title) in enumerate(batch):
+                if j in flagged:
+                    try:
+                        with get_db_session() as db:
+                            _purge_song(db, sid)
+                        _cleanup_progress["removed"] += 1
+                        rt = _cleanup_progress["removed_titles"]
+                        if len(rt) < 100:
+                            rt.append(title[:60])
+                    except Exception:
+                        _cleanup_progress["kept"] += 1
+                else:
+                    _cleanup_progress["kept"] += 1
+                _cleanup_progress["done"] += 1
+    finally:
+        _cleanup_progress["running"] = False
+        _cleanup_progress["current"] = ""
+
+
+@router.get("/songs/cleanup-status")
+def cleanup_status(_=Depends(require_admin)):
+    return _cleanup_progress
+
+
+@router.post("/songs/cleanup-nonmusic")
+async def cleanup_nonmusic(_=Depends(require_admin)):
+    """Background scan: delete READY songs the LLM judges to be non-music."""
+    global _cleanup_task
+    if _cleanup_progress["running"]:
+        raise HTTPException(status_code=409, detail="A cleanup is already running")
+    from ktv_pipeline.config import settings as cfg
+    if not cfg.minimax_api_key:
+        raise HTTPException(status_code=400, detail="LLM 未設定（MINIMAX_API_KEY 空），無法判斷")
+    _cleanup_task = _asyncio.create_task(_cleanup_worker())
+    return {"started": True}
