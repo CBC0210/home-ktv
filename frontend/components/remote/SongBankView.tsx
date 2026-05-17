@@ -127,8 +127,8 @@ export default function SongBankView({ roomId, onAdded }: Props) {
                   </span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-white text-sm truncate">{s.title}</p>
-                  <p className="text-white/45 text-xs truncate">
+                  <p className="text-white text-sm leading-snug line-clamp-2 break-words">{s.title}</p>
+                  <p className="text-white/45 text-xs truncate mt-0.5">
                     {s.artist || "—"}{s.has_timing ? " · 有字幕" : ""}
                   </p>
                 </div>
