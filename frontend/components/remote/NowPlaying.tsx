@@ -714,71 +714,114 @@ function ReportProblem({ song, adminMode }: { song: Song; adminMode: boolean }) 
   );
 }
 
-const DEFAULT_EMOJI = ["🔥", "👏", "😂", "❤️", "🎉", "🎤", "👍", "🥳"];
-const EMOJI_PALETTE = [
-  "🔥", "👏", "😂", "❤️", "🎉", "🎤", "👍", "🥳",
-  "😍", "🤩", "😭", "🙌", "💯", "✨", "🎸", "🎶",
+// Row 1 is these five, fixed forever. Row 2 is up to 5 user-added
+// custom emoji (FIFO — a 6th evicts the oldest), persisted locally.
+const DEFAULT_EMOJI = ["🔥", "👏", "😂", "❤️", "🎉"];
+const QUICK_PALETTE = [
+  "😍", "🤩", "😭", "🙌", "💯", "✨", "🎤", "🎸",
   "😎", "🤘", "👑", "💪", "🫶", "😱", "🤣", "🥰",
-  "🍻", "🌟", "💃", "🕺", "👀", "🙏", "😆", "🎊",
+  "🍻", "🌟", "💃", "🕺", "👀", "🙏", "🥳", "🎊",
 ];
-const RECENT_KEY = "ktv_recent_emoji";
+const CUSTOM_KEY = "ktv_custom_emoji";
+const MAX_CUSTOM = 5;
 
 function EmojiReactions({ onSend }: { onSend: (e: string) => void }) {
-  const [recents, setRecents] = useState<string[]>(DEFAULT_EMOJI);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [customs, setCustoms] = useState<string[]>([]);
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(RECENT_KEY);
-      if (raw) {
-        const arr = JSON.parse(raw);
-        if (Array.isArray(arr) && arr.length) setRecents(arr.slice(0, 8));
-      }
+      const arr = JSON.parse(localStorage.getItem(CUSTOM_KEY) || "[]");
+      if (Array.isArray(arr)) setCustoms(arr.slice(-MAX_CUSTOM));
     } catch { /* ignore */ }
   }, []);
 
-  function fire(emoji: string) {
-    onSend(emoji);
-    setRecents((cur) => {
-      const next = [emoji, ...cur.filter((e) => e !== emoji)].slice(0, 8);
-      try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+  function addCustom(raw: string) {
+    const e = (raw || "").trim();
+    // Accept a single emoji (possibly ZWJ/skin-tone); reject empty / pasted text.
+    if (!e || e.length > 8 || DEFAULT_EMOJI.includes(e)) return;
+    setCustoms((cur) => {
+      const next = [...cur.filter((x) => x !== e), e].slice(-MAX_CUSTOM);
+      try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(next)); } catch { /* ignore */ }
       return next;
     });
+    setDraft("");
+    setAdding(false);
   }
 
   return (
-    <div className="px-4">
+    <div className="px-4 flex flex-col gap-2">
+      {/* Row 1 — fixed defaults */}
       <div className="flex items-center justify-around">
-        {recents.slice(0, 7).map((emoji) => (
+        {DEFAULT_EMOJI.map((emoji) => (
           <button
             key={emoji}
-            onClick={() => fire(emoji)}
+            onClick={() => onSend(emoji)}
             className="text-2xl hover:scale-125 active:scale-110 transition-transform p-2"
           >
             {emoji}
           </button>
         ))}
+      </div>
+
+      {/* Row 2 — custom slots + add */}
+      <div className="flex items-center justify-around">
+        {customs.map((emoji) => (
+          <button
+            key={emoji}
+            onClick={() => onSend(emoji)}
+            className="text-2xl hover:scale-125 active:scale-110 transition-transform p-2"
+            title="長按可在「＋」重新管理"
+          >
+            {emoji}
+          </button>
+        ))}
+        {Array.from({ length: Math.max(0, MAX_CUSTOM - customs.length) }).map((_, i) => (
+          <span key={`ph${i}`} className="text-2xl p-2 opacity-15 select-none">·</span>
+        ))}
         <button
-          onClick={() => setPickerOpen((v) => !v)}
-          title="更多表情"
-          className={`w-9 h-9 rounded-full text-sm transition-colors ${
-            pickerOpen ? "bg-violet-600 text-white" : "bg-white/8 text-white/50 hover:bg-white/15"
+          onClick={() => setAdding((v) => !v)}
+          title="加入自己的表情（最多 5 個，滿了會擠掉最舊的）"
+          className={`w-9 h-9 rounded-full text-sm flex-shrink-0 transition-colors ${
+            adding ? "bg-violet-600 text-white" : "bg-white/8 text-white/50 hover:bg-white/15"
           }`}
         >
           ＋
         </button>
       </div>
-      {pickerOpen && (
-        <div className="mt-2 grid grid-cols-8 gap-1 bg-white/4 border border-white/8 rounded-2xl p-2">
-          {EMOJI_PALETTE.map((emoji) => (
+
+      {adding && (
+        <div className="bg-white/4 border border-white/8 rounded-2xl p-3 flex flex-col gap-2">
+          <div className="flex gap-2">
+            <input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") addCustom(draft); }}
+              placeholder="貼上或用鍵盤選一個表情"
+              maxLength={8}
+              autoFocus
+              className="flex-1 bg-white/6 border border-white/10 rounded-lg px-3 py-2 text-lg text-white outline-none focus:border-violet-500/50"
+            />
             <button
-              key={emoji}
-              onClick={() => { fire(emoji); setPickerOpen(false); }}
-              className="text-xl hover:scale-125 active:scale-110 transition-transform p-1.5"
+              onClick={() => addCustom(draft)}
+              disabled={!draft.trim()}
+              className="px-4 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-medium"
             >
-              {emoji}
+              加入
             </button>
-          ))}
+          </div>
+          <div className="grid grid-cols-8 gap-1">
+            {QUICK_PALETTE.map((emoji) => (
+              <button
+                key={emoji}
+                onClick={() => addCustom(emoji)}
+                className="text-xl hover:scale-125 active:scale-110 transition-transform p-1.5"
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>
