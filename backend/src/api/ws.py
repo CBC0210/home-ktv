@@ -1,5 +1,6 @@
 """WebSocket endpoint — connection, authentication, message dispatch."""
 import logging
+import re
 import uuid
 from typing import List, Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, HTTPException
@@ -521,6 +522,14 @@ async def _handle_autoplay_set(room_id: str, requester_id: str, msg: dict) -> No
         await _maybe_autopick(room_id)
 
 
+def _norm_title(t: str) -> str:
+    """Loose title key for "is this the same song" — drops bracketed noise
+    (Official MV / 動態歌詞 …), spaces and punctuation, case-folded."""
+    t = re.sub(r"[\(\[【（』『「」].*?[\)\]】）]", "", t or "")
+    t = re.sub(r"[\s\-_–—|｜・,，.。!！?？\"'`~]+", "", t)
+    return t.strip().lower()
+
+
 async def _maybe_autopick(room_id: str) -> None:
     """If autoplay is on and the queue is nearly empty, pick a song by the
     LAST queued song's artist/genre, enqueue + process it (cached ahead)."""
@@ -560,6 +569,15 @@ async def _maybe_autopick(room_id: str) -> None:
         seed_title = seed_song.title or ""
         seed_artist = seed_song.artist or ""
         existing_ids = {qi.song_id for qi in active}
+        # Never pick the song that's playing right now (same title).
+        playing_qi = next((qi for qi in active if qi.status == "playing"), None)
+        playing_song = (
+            s.query(Song).filter_by(id=playing_qi.song_id).first()
+            if playing_qi else None
+        )
+        ban_titles = {_norm_title(seed_title)}
+        if playing_song and playing_song.title:
+            ban_titles.add(_norm_title(playing_song.title))
 
     # Clean the seed to an artist via the LLM (cached) → regex fallback
     try:
@@ -581,6 +599,46 @@ async def _maybe_autopick(room_id: str) -> None:
         query = f"{artist} {genre}".strip()
     if not query:
         return
+
+    # ── Step A: prefer the 曲庫 — a cached (ready) song by the same artist
+    # plays instantly, no re-download/processing. Exclude the playing/seed
+    # title and anything already queued; favour least / longest-not played.
+    artist_l = (artist or "").strip().lower()
+    if artist_l:
+        with get_db_session() as s:
+            ap_gid = _autoplay_guest_id(s)
+            ready = (
+                s.query(Song)
+                .filter(Song.status == "ready")
+                .order_by(Song.play_count.asc())
+                .all()
+            )
+            chosen = None
+            for c in ready:
+                if c.id in existing_ids:
+                    continue
+                if _norm_title(c.title or "") in ban_titles:
+                    continue
+                hay = f"{c.artist or ''} {c.title or ''}".lower()
+                if artist_l not in hay:
+                    continue
+                chosen = c
+                break
+            if chosen:
+                ctitle = chosen.title or chosen.id
+                mgr = QueueManager(s)
+                try:
+                    mgr.add_song(room_id=room_id, song_id=chosen.id,
+                                 guest_id=ap_gid, position="end")
+                except ValueError:
+                    chosen = None
+        if chosen:
+            log.info("[autopick] room=%s seed=%r → 曲庫 %s (%s)",
+                     room_id, artist, chosen.id, ctitle[:40])
+            await manager.broadcast_activity(
+                room_id, f"🎲 自動推薦（曲庫）：{ctitle[:24]}", "自動播放")
+            await _broadcast_queue_update_safe(room_id)
+            return
 
     # YouTube-search a fresh song by the seed artist/genre
     try:
@@ -605,17 +663,33 @@ async def _maybe_autopick(room_id: str) -> None:
             continue
         if dur and (dur < 60 or dur > 600):  # skip clips / hour-long mixes
             continue
+        if _norm_title(e.get("title") or "") in ban_titles:
+            continue  # don't repeat the song that's playing / just queued
         pick_id = vid
         pick_title = e.get("title") or vid
         break
     if not pick_id:
         return
 
-    # Enqueue under the autoplay guest + kick its pipeline
+    # Enqueue under the autoplay guest + kick its pipeline. If the 曲庫
+    # already has a READY song with this same title, reuse it (instant,
+    # no duplicate processing) instead of the freshly-searched video.
     from ktv_pipeline.models import Song as SongM
+    needs_pipeline = True
     with get_db_session() as s:
         ap_gid = _autoplay_guest_id(s)
-        if not s.query(SongM).filter_by(id=pick_id).first():
+        pick_norm = _norm_title(pick_title)
+        cached = next(
+            (c for c in s.query(SongM).filter(SongM.status == "ready").all()
+             if c.id not in existing_ids
+             and _norm_title(c.title or "") == pick_norm),
+            None,
+        )
+        if cached:
+            pick_id = cached.id
+            pick_title = cached.title or cached.id
+            needs_pipeline = False
+        elif not s.query(SongM).filter_by(id=pick_id).first():
             s.add(SongM(id=pick_id, title=f"YouTube:{pick_id}", artist="", status="pending"))
             s.commit()
         mgr = QueueManager(s)
@@ -625,11 +699,14 @@ async def _maybe_autopick(room_id: str) -> None:
         except ValueError:
             return
         qid = qi.id
-    log.info("[autopick] room=%s seed=%r → %s (%s)", room_id, artist, pick_id, pick_title[:40])
-    import asyncio
-    from api.songs import _run_pipeline_task
-    asyncio.create_task(_run_pipeline_task(qid, room_id))
-    await manager.broadcast_activity(room_id, f"🎲 自動推薦：{pick_title[:24]}", "自動播放")
+    log.info("[autopick] room=%s seed=%r → %s (%s)%s", room_id, artist,
+             pick_id, pick_title[:40], "" if needs_pipeline else " [曲庫]")
+    if needs_pipeline:
+        import asyncio
+        from api.songs import _run_pipeline_task
+        asyncio.create_task(_run_pipeline_task(qid, room_id))
+    label = "🎲 自動推薦" + ("" if needs_pipeline else "（曲庫）")
+    await manager.broadcast_activity(room_id, f"{label}：{pick_title[:24]}", "自動播放")
     await _broadcast_queue_update_safe(room_id)
 
 
