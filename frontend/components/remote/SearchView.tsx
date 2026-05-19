@@ -159,6 +159,12 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
           <form onSubmit={onSubmit} className="p-4 sticky top-[49px] bg-[#0a0a0a]/95 backdrop-blur-md z-10">
             <div className="flex gap-2">
               <div className="flex-1 relative">
+                {(loading || (adding && results.length === 0)) && (
+                  <svg className="animate-spin absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-violet-400" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                  </svg>
+                )}
                 <svg viewBox="0 0 24 24" fill="currentColor" className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 pointer-events-none">
                   <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
                 </svg>
@@ -173,28 +179,10 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
                   className="w-full bg-white/8 border border-white/10 rounded-2xl pl-10 pr-4 py-3 text-white placeholder-white/25 focus:outline-none focus:border-violet-500/50 focus:bg-white/10 transition-all text-sm"
                 />
               </div>
-              <button
-                type="submit"
-                disabled={loading || !!adding || !query.trim()}
-                className={`px-4 rounded-2xl transition-all font-medium text-sm min-w-14 h-full ${
-                  addedUrl
-                    ? "bg-emerald-600 text-white"
-                    : "bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white"
-                }`}
-              >
-                {adding && results.length === 0 ? (
-                  <svg className="animate-spin w-4 h-4 mx-auto" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                  </svg>
-                ) : addedUrl ? "✓ 已加入" : loading ? (
-                  <svg className="animate-spin w-4 h-4 mx-auto" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                  </svg>
-                ) : isYoutubeUrl(query) ? "加入" : "搜尋"}
-              </button>
             </div>
+            {addedUrl && (
+              <p className="text-emerald-400 text-xs mt-2 pl-1">✓ 已加入</p>
+            )}
             {error && (
               <p className="text-red-400 text-xs mt-2 pl-1">{error}</p>
             )}

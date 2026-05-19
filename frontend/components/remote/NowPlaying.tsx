@@ -280,6 +280,24 @@ export default function NowPlaying({
               <span>{formatTime(playback.position_sec)}</span>
               <span>{formatTime(duration)}</span>
             </div>
+            {/* Skip buttons — easier than dragging the bar */}
+            <div className="flex items-center justify-center gap-2 mt-1.5">
+              {([-10, -5, 5, 10] as const).map((d) => (
+                <button
+                  key={d}
+                  onClick={() => {
+                    const t = Math.max(
+                      0,
+                      Math.min(duration || 1e9, playback.position_sec + d),
+                    );
+                    sendCommand({ type: "playback.seek", positionSec: t });
+                  }}
+                  className="flex-1 max-w-20 bg-white/6 hover:bg-white/12 text-white/80 text-sm rounded-lg py-1.5 transition-colors"
+                >
+                  {d > 0 ? `+${d}s` : `${d}s`}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -410,8 +428,9 @@ export default function NowPlaying({
           <LyricsSourcePicker song={currentSong} />
         )}
 
-        {/* Admin fine-tune triggers — open as panels (like report) */}
-        {adminMode && currentSong && (
+        {/* Fine-tune triggers. Subtitle delay is open to everyone (字幕對不
+            上時人人可調); A/V micro-tune stays admin-only. */}
+        {currentSong && (currentSong.has_timing || (adminMode && !currentSong.use_original_audio)) && (
           <div className="flex items-center justify-center gap-4">
             {currentSong.has_timing && (
               <button
@@ -421,7 +440,7 @@ export default function NowPlaying({
                 ⏱️ 字幕延遲{offsetMs ? `（${offsetMs > 0 ? "+" : ""}${(offsetMs / 1000).toFixed(1)}s）` : ""}
               </button>
             )}
-            {!currentSong.use_original_audio && (
+            {adminMode && !currentSong.use_original_audio && (
               <button
                 onClick={() => setAvEditorOpen(true)}
                 className="text-xs text-amber-300/70 hover:text-amber-300 py-1 transition-colors"

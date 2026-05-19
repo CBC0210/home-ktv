@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import { addSong, browseLibrary, type BankSong } from "@/lib/api";
+import { useKtvStore } from "@/lib/stores";
 import AddButtons from "./AddButtons";
 
 interface Props {
@@ -34,6 +35,7 @@ export default function SongBankView({ roomId, onAdded }: Props) {
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState<string | null>(null);
   const [addedId, setAddedId] = useState<string | null>(null);
+  const currentSong = useKtvStore((s) => s.currentSong);
 
   const load = useCallback(async (lg: string, query: string) => {
     setLoading(true);
@@ -54,8 +56,11 @@ export default function SongBankView({ roomId, onAdded }: Props) {
 
   async function handleAdd(song: BankSong, position: "end" | "next") {
     setAdding(song.id);
+    // Nothing playing? A cached pick should jump ahead of anything still
+    // processing and start immediately, not wait behind it.
+    const pos = position === "end" && !currentSong ? "next" : position;
     try {
-      await addSong({ youtube_url: song.id, room_id: roomId, position });
+      await addSong({ youtube_url: song.id, room_id: roomId, position: pos });
       setAddedId(song.id);
       setTimeout(() => setAddedId(null), 2000);
       onAdded?.();
