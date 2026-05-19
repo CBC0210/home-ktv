@@ -144,6 +144,7 @@ function RoomsTab() {
     try {
       await adminDeleteRoom(roomId);
       setRooms((r) => r.filter((x) => x.id !== roomId));
+      setDetailRoom((d) => (d === roomId ? null : d));
     } catch {
       setOpError("刪除失敗");
     }
@@ -232,50 +233,13 @@ function RoomsTab() {
                   {room.is_default && " · 預設"}
                 </div>
               </div>
-              <div className="flex gap-2 flex-wrap justify-end">
-                <button
-                  onClick={() => copyLink(`p${room.id}`, `/r/${room.id}/player`)}
-                  className="text-sky-300 hover:text-sky-200 text-sm px-3 py-1 border border-sky-800/50 rounded"
-                  title={`${typeof window !== "undefined" ? window.location.origin : ""}/r/${room.id}/player`}
-                >
-                  {copied === `p${room.id}` ? "已複製 ✓" : "📺 Player 連結"}
-                </button>
-                <button
-                  onClick={() => copyLink(`r${room.id}`, `/r/${room.id}/remote`)}
-                  className="text-sky-300 hover:text-sky-200 text-sm px-3 py-1 border border-sky-800/50 rounded"
-                  title={`${typeof window !== "undefined" ? window.location.origin : ""}/r/${room.id}/remote`}
-                >
-                  {copied === `r${room.id}` ? "已複製 ✓" : "📱 Remote 連結"}
-                </button>
-                <button
-                  onClick={() => setDetailRoom(room.id)}
-                  className="text-violet-300 hover:text-violet-200 text-sm px-3 py-1 border border-violet-800/50 rounded"
-                  title="查看房間詳情"
-                >
-                  查看
-                </button>
-                <button
-                  onClick={() => setPasswordEdit({ roomId: room.id, name: room.name, kind: "join" })}
-                  className="text-gray-400 hover:text-white text-sm px-3 py-1 border border-gray-700 rounded"
-                  title="入房密碼"
-                >
-                  入房密碼
-                </button>
-                <button
-                  onClick={() => setPasswordEdit({ roomId: room.id, name: room.name, kind: "admin" })}
-                  className="text-amber-400/80 hover:text-amber-300 text-sm px-3 py-1 border border-amber-900/50 rounded"
-                  title="遙控管理員模式密碼"
-                >
-                  管理員密碼
-                </button>
-                <button
-                  onClick={() => handleDelete(room.id)}
-                  disabled={deleting === room.id}
-                  className="text-red-400 hover:text-red-300 text-sm px-3 py-1 border border-red-900/50 rounded disabled:opacity-50"
-                >
-                  {deleting === room.id ? "刪除中…" : "刪除"}
-                </button>
-              </div>
+              <button
+                onClick={() => setDetailRoom(room.id)}
+                className="text-violet-300 hover:text-violet-200 text-sm px-4 py-1.5 border border-violet-800/50 rounded flex-shrink-0"
+                title="查看房間詳情與管理"
+              >
+                查看
+              </button>
             </div>
           ))}
         </div>
@@ -309,16 +273,38 @@ function RoomsTab() {
         </div>
       )}
 
-      {detailRoom && (
-        <RoomDetailPanel roomId={detailRoom} onClose={() => setDetailRoom(null)} />
-      )}
+      {detailRoom && (() => {
+        const r = rooms.find((x) => x.id === detailRoom);
+        return (
+          <RoomDetailPanel
+            roomId={detailRoom}
+            onClose={() => setDetailRoom(null)}
+            copied={copied}
+            onCopyLink={copyLink}
+            onEditPw={(kind) =>
+              r && setPasswordEdit({ roomId: r.id, name: r.name, kind })}
+            onDelete={() => r && handleDelete(r.id)}
+            deleting={deleting === detailRoom}
+          />
+        );
+      })()}
     </div>
   );
 }
 
 // ── Room detail panel (online users, queue, processing, stats) ─────────────
 
-function RoomDetailPanel({ roomId, onClose }: { roomId: string; onClose: () => void }) {
+function RoomDetailPanel({
+  roomId, onClose, copied, onCopyLink, onEditPw, onDelete, deleting,
+}: {
+  roomId: string;
+  onClose: () => void;
+  copied?: string | null;
+  onCopyLink?: (key: string, path: string) => void;
+  onEditPw?: (kind: "join" | "admin") => void;
+  onDelete?: () => void;
+  deleting?: boolean;
+}) {
   const [data, setData] = useState<AdminRoomDetail | null>(null);
   const [err, setErr] = useState("");
   const [guestId, setGuestId] = useState<string | null>(null);
@@ -347,6 +333,42 @@ function RoomDetailPanel({ roomId, onClose }: { roomId: string; onClose: () => v
           </h3>
           <button onClick={onClose} className="text-gray-400 hover:text-white w-8 h-8 rounded-full hover:bg-gray-800">✕</button>
         </div>
+
+        {onCopyLink && (
+          <div className="flex gap-2 flex-wrap px-5 py-3 border-b border-gray-800 bg-gray-900/60">
+            <button
+              onClick={() => onCopyLink(`p${roomId}`, `/r/${roomId}/player`)}
+              className="text-sky-300 hover:text-sky-200 text-sm px-3 py-1 border border-sky-800/50 rounded"
+            >
+              {copied === `p${roomId}` ? "已複製 ✓" : "📺 Player 連結"}
+            </button>
+            <button
+              onClick={() => onCopyLink(`r${roomId}`, `/r/${roomId}/remote`)}
+              className="text-sky-300 hover:text-sky-200 text-sm px-3 py-1 border border-sky-800/50 rounded"
+            >
+              {copied === `r${roomId}` ? "已複製 ✓" : "📱 Remote 連結"}
+            </button>
+            <button
+              onClick={() => onEditPw?.("join")}
+              className="text-gray-300 hover:text-white text-sm px-3 py-1 border border-gray-700 rounded"
+            >
+              入房密碼
+            </button>
+            <button
+              onClick={() => onEditPw?.("admin")}
+              className="text-amber-400/80 hover:text-amber-300 text-sm px-3 py-1 border border-amber-900/50 rounded"
+            >
+              管理員密碼
+            </button>
+            <button
+              onClick={() => onDelete?.()}
+              disabled={deleting}
+              className="text-red-400 hover:text-red-300 text-sm px-3 py-1 border border-red-900/50 rounded disabled:opacity-50 ml-auto"
+            >
+              {deleting ? "刪除中…" : "刪除房間"}
+            </button>
+          </div>
+        )}
 
         {err && <p className="text-red-400 text-sm p-5">{err}</p>}
         {!data && !err && <p className="text-gray-500 p-5">載入中…</p>}
