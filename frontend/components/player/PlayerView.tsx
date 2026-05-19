@@ -254,6 +254,27 @@ export default function PlayerView({ roomId }: Props) {
     setAudioBlocked(!ok);
   }, [ensureAudioGraph]);
 
+  // TV compatibility: a TV has no mouse — the remote's OK/Enter (and most
+  // keys) must also start playback while the tap-to-start overlay is up.
+  useEffect(() => {
+    if (!(audioBlocked && currentSong)) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      const k = e.key;
+      if (
+        k === "Enter" || k === "NumpadEnter" || k === " " ||
+        k === "Spacebar" || k === "Select" || k === "OK" ||
+        k === "MediaPlayPause" || e.keyCode === 13 || e.keyCode === 32
+      ) {
+        e.preventDefault();
+        void unlockAudio();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioBlocked, currentSong, unlockAudio]);
+
   // ── WS event handler ────────────────────────────────────────────────────────
   const handleEvent = useCallback(
     (event: ServerEvent) => {
@@ -833,17 +854,21 @@ export default function PlayerView({ roomId }: Props) {
       {/* Tap-to-start overlay — just a single play button */}
       {audioBlocked && isPlaying && (
         <div
-          className="absolute inset-0 z-50 flex items-center justify-center cursor-pointer bg-black/80 backdrop-blur-sm"
+          className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-5 cursor-pointer bg-black/80 backdrop-blur-sm"
           onClick={() => void unlockAudio()}
         >
           <button
-            className="w-28 h-28 rounded-full bg-white/95 flex items-center justify-center shadow-2xl active:scale-95 transition-transform"
+            autoFocus
+            onClick={(e) => { e.stopPropagation(); void unlockAudio(); }}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void unlockAudio(); } }}
+            className="w-28 h-28 rounded-full bg-white/95 flex items-center justify-center shadow-2xl active:scale-95 focus:ring-4 focus:ring-violet-400 outline-none transition-transform"
             aria-label="開始播放"
           >
             <svg viewBox="0 0 24 24" fill="#0a0a0a" className="w-12 h-12 ml-1.5">
               <path d="M8 5v14l11-7z" />
             </svg>
           </button>
+          <p className="text-white/70 text-base">按遙控器 OK／Enter 鍵開始播放</p>
         </div>
       )}
     </div>

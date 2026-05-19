@@ -112,7 +112,16 @@ export default function RemoteView({ roomId }: Props) {
     setAdminVerifying(true);
     setAdminError(null);
     try {
-      await verifyRoomAdmin(roomId, adminPassword);
+      const r = await verifyRoomAdmin(roomId, adminPassword);
+      // Swap to the reissued is_admin token so elevated ops work, and
+      // persist it so a refresh stays in admin mode.
+      if (r.access_token && session) {
+        const next = { ...session, token: r.access_token };
+        setSession(next);
+        storeSetSession(next);
+        setGuestToken(r.access_token);
+        localStorage.setItem(`ktv_session_${roomId}`, JSON.stringify(next));
+      }
       setAdminMode(true);
       localStorage.setItem(`ktv_admin_${roomId}`, "1");
       setAdminModalOpen(false);
@@ -229,7 +238,8 @@ export default function RemoteView({ roomId }: Props) {
       <header className="flex items-center justify-between px-5 py-3 border-b border-white/6 bg-[#0a0a0a]/90 backdrop-blur-md sticky top-0 z-30">
         <div className="flex items-center gap-2">
           <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
-          <span className="text-white font-semibold text-sm">{room?.name ?? roomId}</span>
+          <span className="text-white font-semibold text-sm">響窩 Echonest</span>
+          <span className="text-white/35 text-xs">· {room?.name || roomId}</span>
           {adminMode && (
             <span className="ml-2 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-bold uppercase tracking-wider">
               管理員

@@ -97,6 +97,18 @@ function RoomsTab() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [passwordEdit, setPasswordEdit] = useState<{ roomId: string; name: string; kind: "join" | "admin" } | null>(null);
   const [detailRoom, setDetailRoom] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  async function copyLink(key: string, path: string) {
+    const url = `${window.location.origin}${path}`;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      window.prompt("複製此連結：", url);
+    }
+    setCopied(key);
+    setTimeout(() => setCopied((c) => (c === key ? null : c)), 1800);
+  }
   const [newPw, setNewPw] = useState("");
   const [opError, setOpError] = useState("");
 
@@ -220,7 +232,21 @@ function RoomsTab() {
                   {room.is_default && " · 預設"}
                 </div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap justify-end">
+                <button
+                  onClick={() => copyLink(`p${room.id}`, `/r/${room.id}/player`)}
+                  className="text-sky-300 hover:text-sky-200 text-sm px-3 py-1 border border-sky-800/50 rounded"
+                  title={`${typeof window !== "undefined" ? window.location.origin : ""}/r/${room.id}/player`}
+                >
+                  {copied === `p${room.id}` ? "已複製 ✓" : "📺 Player 連結"}
+                </button>
+                <button
+                  onClick={() => copyLink(`r${room.id}`, `/r/${room.id}/remote`)}
+                  className="text-sky-300 hover:text-sky-200 text-sm px-3 py-1 border border-sky-800/50 rounded"
+                  title={`${typeof window !== "undefined" ? window.location.origin : ""}/r/${room.id}/remote`}
+                >
+                  {copied === `r${room.id}` ? "已複製 ✓" : "📱 Remote 連結"}
+                </button>
                 <button
                   onClick={() => setDetailRoom(room.id)}
                   className="text-violet-300 hover:text-violet-200 text-sm px-3 py-1 border border-violet-800/50 rounded"

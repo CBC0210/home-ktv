@@ -183,12 +183,15 @@ export function lyricsUrl(songId: string): string {
   return `${apiBase()}/songs/${songId}/lyrics.ass`;
 }
 
-// Room admin mode
-export async function verifyRoomAdmin(roomId: string, password: string): Promise<{ ok: boolean }> {
-  return apiFetch<{ ok: boolean }>(`/api/rooms/${roomId}/admin/verify`, {
-    method: "POST",
-    body: JSON.stringify({ password }),
-  });
+// Room admin mode — server reissues a JWT with is_admin=true so elevated
+// REST ops (delete song, etc.) stop 403-ing.
+export async function verifyRoomAdmin(
+  roomId: string, password: string,
+): Promise<{ ok: boolean; access_token?: string }> {
+  return apiFetch<{ ok: boolean; access_token?: string }>(
+    `/api/rooms/${roomId}/admin/verify`,
+    { method: "POST", body: JSON.stringify({ password }) },
+  );
 }
 
 export async function setRoomAdminPassword(roomId: string, newPassword: string): Promise<{ ok: boolean }> {

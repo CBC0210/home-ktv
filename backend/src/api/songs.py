@@ -131,7 +131,22 @@ def _song_lang(song) -> str:
         return lg
     from ktv_pipeline.pipeline.lyrics import _detect_song_lang
     d = _detect_song_lang((song.title or "") + " " + (song.artist or ""))
-    return d if d in ("zh", "ja", "ko") else ("en" if d is None else "other")
+    if d in ("zh", "ja", "ko"):
+        return d
+    # Char detection failed (e.g. a JP/KR song with an English/romaji
+    # title like "YOASOBI - Idol"). Fall back to the LLM genre tag.
+    g = (m.get("genre") or "")
+    if any(k in g for k in ("日", "J-Pop", "JPOP", "City Pop", "Anime", "動漫")):
+        return "ja"
+    if any(k in g for k in ("韓", "K-Pop", "KPOP")):
+        return "ko"
+    if any(k in g for k in ("台語", "閩南", "台灣台語")):
+        return "tw"
+    if any(k in g for k in ("華", "國語", "粵", "中文", "C-Pop")):
+        return "zh"
+    if any(k in g for k in ("西洋", "英", "歐美", "Western", "Pop", "Rock")):
+        return "en"
+    return "en" if d is None else "other"
 
 
 @router.get("/library")
@@ -467,6 +482,7 @@ def add_song(
             background_tasks.add_task(_run_pipeline_task, existing_item.id, room_id)
         else:
             background_tasks.add_task(_try_start_if_idle, room_id)
+        background_tasks.add_task(_broadcast_queue_update, room_id)
         return song
 
     # Add to queue
@@ -483,6 +499,9 @@ def add_song(
         # Trigger pipeline; periodic broadcasts + final broadcast happen inside the task.
         background_tasks.add_task(_run_pipeline_task, item.id, room_id)
 
+    # Push the new queue to every connected client immediately (otherwise a
+    # ready/cached add only shows after a manual refresh).
+    background_tasks.add_task(_broadcast_queue_update, room_id)
     session.refresh(song)
     return song
 

@@ -6,7 +6,9 @@ from sqlalchemy.orm import Session
 from ktv_pipeline.database import get_db_session
 from ktv_pipeline.models import Room
 from ktv_pipeline.schemas import RoomCreate, RoomOut
-from ktv_pipeline.auth import hash_password, verify_admin_password, verify_password
+from ktv_pipeline.auth import (
+    hash_password, verify_admin_password, verify_password, create_access_token,
+)
 from ktv_pipeline.deps import get_current_guest
 
 
@@ -273,13 +275,21 @@ def verify_room_admin(
         raise HTTPException(status_code=503, detail="Room admin password not set")
     if not verify_password(body.password, room.admin_password_hash):
         raise HTTPException(status_code=403, detail="Wrong admin password")
-    # Mark this guest as room-admin in DB so subsequent JWTs/operations know
+    # Mark this guest as room-admin in DB AND reissue a JWT with
+    # is_admin=True — admin-gated endpoints check the token payload, not
+    # the DB, so without a fresh token elevated ops (e.g. delete song)
+    # would keep 403-ing.
     from ktv_pipeline.models import Guest
     guest = session.query(Guest).filter_by(id=payload["sub"]).first()
     if guest:
         guest.is_admin = True
         session.commit()
-    return {"ok": True, "room_id": room_id}
+    new_token = create_access_token(
+        guest_id=payload["sub"],
+        room_id=payload.get("room_id", room_id),
+        is_admin=True,
+    )
+    return {"ok": True, "room_id": room_id, "access_token": new_token}
 
 
 @router.patch("/{room_id}/admin-password")
