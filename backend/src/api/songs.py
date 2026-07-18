@@ -781,11 +781,15 @@ _ISSUE_LABELS = {
     "av_desync": "音畫不同步",
     "separation_noise": "人聲分離雜訊",
     "subtitle_timing": "字幕對不上時間",
+    "wrong_lyrics": "字幕不是這首歌",
     "other": "其他問題",
 }
 # Audio-class issues switch the song to the original embedded audio next
 # play. A subtitle-timing report is NOT an audio problem — it's just logged
 # / flagged so an admin can nudge the per-song delay (the right tool).
+# A wrong_lyrics report immediately disables the wrong-song subtitles
+# (same as switching the lyrics source to "none"); the cached alternate
+# sources stay on disk so the picker can switch to the right one.
 _AUDIO_ISSUES = {"clipping", "av_desync", "separation_noise", "other"}
 
 
@@ -853,6 +857,22 @@ async def report_song_issue(
         "nickname": nickname,
         "issue": issue,
     }])[-50:]  # cap history
+
+    if issue == "wrong_lyrics":
+        # The active subtitles belong to a DIFFERENT song — kill them now
+        # rather than karaoke-ing the wrong words all night. Cached alternate
+        # sources (lyrics_<src>.ass) are kept so the 歌詞來源 picker can swap
+        # in the right one instantly.
+        from ktv_pipeline.config import settings as _cfg
+        ass_path = _cfg.data_dir / "media" / song_id / "lyrics.ass"
+        try:
+            if ass_path.exists():
+                ass_path.unlink()
+        except OSError:
+            pass
+        song.has_timing = False
+        song.lyrics_source = "none"
+
     _save_playback_profile(session, song, p)
 
     from ktv_pipeline.models import ErrorLog
@@ -872,7 +892,12 @@ async def report_song_issue(
         .filter_by(song_id=song_id).filter(_QI.status.in_(("playing", "pending")))
         .distinct().all()
     ]
-    tail = "下次將用原始音訊" if is_audio else "已記錄，請管理員微調字幕延遲"
+    if is_audio:
+        tail = "下次將用原始音訊"
+    elif issue == "wrong_lyrics":
+        tail = "已關閉錯誤字幕，可在遙控器選正確歌詞來源"
+    else:
+        tail = "已記錄，請管理員微調字幕延遲"
     for room_id in set(rooms):
         await manager.broadcast_activity(
             room_id, f"回報了問題（{_ISSUE_LABELS[issue]}）— {tail}",
@@ -882,10 +907,17 @@ async def report_song_issue(
             "type": "song.profile_updated",
             "song_id": song_id,
             "use_original_audio": bool(p["use_original_audio"]),
+            "has_timing": bool(song.has_timing),
+            "lyrics_source": song.lyrics_source,
         })
+        if issue == "wrong_lyrics":
+            # Remount the Player's subtitle layer — lyrics.ass is gone, so
+            # the wrong-song karaoke disappears mid-play.
+            await manager.broadcast_lyrics_updated(room_id, song_id)
     return {
         "ok": True, "song_id": song_id,
         "use_original_audio": bool(p["use_original_audio"]),
+        "has_timing": bool(song.has_timing),
         "issue": issue, "report_count": len(p["reports"]),
     }
 

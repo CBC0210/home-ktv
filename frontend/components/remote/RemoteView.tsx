@@ -292,6 +292,20 @@ export default function RemoteView({ roomId }: Props) {
         setReactionToast({ emoji: event.emoji, from: event.from });
         setTimeout(() => setReactionToast(null), 2500);
       }
+      else if (event.type === "song.profile_updated") {
+        // A report changed this song's playback/lyrics profile — patch the
+        // in-memory song so the lyrics area / source picker update live.
+        const st = useKtvStore.getState();
+        const cs = st.currentSong;
+        if (cs && cs.id === event.song_id) {
+          st.setCurrentSong({
+            ...cs,
+            use_original_audio: event.use_original_audio ?? cs.use_original_audio,
+            has_timing: event.has_timing ?? cs.has_timing,
+            lyrics_source: event.lyrics_source !== undefined ? event.lyrics_source : cs.lyrics_source,
+          }, st.currentQueueItem);
+        }
+      }
     },
     [setQueue, setCurrentSong, updatePosition, setPlayback, setGuests, setProcessing, setIsPlaying]
   );

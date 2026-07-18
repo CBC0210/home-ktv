@@ -2,7 +2,7 @@
 
 > 這份檔案是 OpenClaw 與 Claude Code 之間的長期記憶。每個 task 完成或中斷時都必須更新。
 
-## Status: ✅ 字幕校正改版 + 測試資料汙染清理（2026-07-18）
+## Status: ✅ 無字幕提示不擋畫面 + 錯歌字幕回報（2026-07-18）
 
 Last updated: 2026-07-18
 Last heartbeat: 2026-07-18
@@ -16,6 +16,14 @@ Last heartbeat: 2026-07-18
 ---
 
 ## Done
+
+- [x] **無字幕提示改版 + 快速外連 + 「字幕是別首歌」回報** ✅ (2026-07-18)
+  - **Player「無字幕/純文字」提示擋住 MV 內嵌字幕**：原本是常駐在畫面下方（bottom-20/24）的卡片，正壓在原生字幕位置。改為**頂部置中膠囊、顯示 10 秒後淡出移除**（`SubtitleLayer.NoTimingHint`），之後完全不遮擋
+  - **Remote 快速外連搜尋**：原本只有「完全沒歌詞」才顯示搜尋連結；現在**只要沒有時間軸字幕就一律顯示**（有純文字歌詞時附在歌詞卡下方「歌詞不對或不完整？自行搜尋」）— Google / Mojim / Genius / YouTube 預填歌名
+  - **回報新增「字幕是別首歌」**（`wrong_lyrics`）：
+    - 後端：立即刪除 `lyrics.ass`、`has_timing=False`、`lyrics_source='none'`（快取的 `lyrics_<src>.ass` 替代來源保留，供「歌詞來源」picker 秒切正確來源）；廣播 `lyrics.updated` 讓電視上的錯誤卡拉 OK 字幕**當場消失**
+    - 前端：回報選單新增選項；`song.profile_updated` 事件擴充 `has_timing`/`lyrics_source` 並在 Remote/Player 即時 patch currentSong — Remote 立刻顯示純文字/搜尋連結區與來源 picker，Player 立刻切到提示模式（Player 端 use_original_audio 不在播放中途切換，下次播放生效）
+  - **測試**：+2（wrong_lyrics 停用字幕/保留替代來源；音訊類回報不動字幕）；133 passed，基線 11 fail + 6 error 不變；pnpm build ✓；已部署重啟
 
 - [x] **字幕延遲校正改版 + Test Song 汙染清理** ✅ (2026-07-18)
   - **字幕延遲（如五月天〈派對動物〉延遲很重）**：

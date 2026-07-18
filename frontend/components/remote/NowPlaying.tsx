@@ -14,6 +14,7 @@ const ISSUE_OPTIONS: { value: SongIssue; label: string }[] = [
   { value: "av_desync", label: "音畫不同步" },
   { value: "separation_noise", label: "人聲分離有雜訊" },
   { value: "subtitle_timing", label: "字幕對不上時間" },
+  { value: "wrong_lyrics", label: "字幕是別首歌" },
   { value: "other", label: "其他問題" },
 ];
 const AUDIO_ISSUES = new Set<SongIssue>([
@@ -599,9 +600,36 @@ export default function NowPlaying({
   );
 }
 
+function lyricsSearchLinks(song: Song) {
+  const q = encodeURIComponent(`${song.title} ${song.artist ?? ""}`.trim() + " 歌詞");
+  return [
+    { name: "Google", url: `https://www.google.com/search?q=${q}` },
+    { name: "Mojim", url: `https://mojim.com/twh_search.php?keyword=${q}` },
+    { name: "Genius", url: `https://genius.com/search?q=${q}` },
+    { name: "YouTube", url: `https://www.youtube.com/results?search_query=${q}` },
+  ];
+}
+
+function LyricsSearchLinkRow({ song }: { song: Song }) {
+  return (
+    <div className="flex flex-wrap justify-center gap-2">
+      {lyricsSearchLinks(song).map((l) => (
+        <a
+          key={l.name}
+          href={l.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="px-3 py-1.5 rounded-full bg-white/8 hover:bg-white/15 text-white/70 text-xs transition-colors"
+        >
+          {l.name} ↗
+        </a>
+      ))}
+    </div>
+  );
+}
+
 function PlainTextLyrics({ song, text }: { song: Song; text: string }) {
   const sourceLabel = song.lyrics_source ? LYRICS_SOURCE_LABEL[song.lyrics_source] ?? song.lyrics_source : null;
-  const searchQuery = encodeURIComponent(`${song.title} ${song.artist ?? ""}`.trim() + " 歌詞");
 
   if (text) {
     return (
@@ -615,6 +643,12 @@ function PlainTextLyrics({ song, text }: { song: Song; text: string }) {
         <div className="max-h-64 overflow-y-auto">
           <pre className="text-white/80 text-sm whitespace-pre-wrap leading-relaxed font-sans">{text}</pre>
         </div>
+        {/* Quick external search — the fetched text may be incomplete or the
+            wrong song; always leave an escape hatch to look it up yourself. */}
+        <div className="mt-3 pt-3 border-t border-white/8">
+          <p className="text-white/30 text-[10px] text-center mb-2">歌詞不對或不完整？自行搜尋：</p>
+          <LyricsSearchLinkRow song={song} />
+        </div>
       </div>
     );
   }
@@ -623,24 +657,7 @@ function PlainTextLyrics({ song, text }: { song: Song; text: string }) {
   return (
     <div className="bg-white/4 backdrop-blur rounded-2xl p-4 border border-white/8 text-center">
       <p className="text-white/50 text-sm mb-3">沒找到歌詞 — 請自行搜尋</p>
-      <div className="flex flex-wrap justify-center gap-2">
-        {[
-          { name: "Google", url: `https://www.google.com/search?q=${searchQuery}` },
-          { name: "Mojim", url: `https://mojim.com/twh_search.php?keyword=${searchQuery}` },
-          { name: "Genius", url: `https://genius.com/search?q=${searchQuery}` },
-          { name: "YouTube", url: `https://www.youtube.com/results?search_query=${searchQuery}` },
-        ].map((l) => (
-          <a
-            key={l.name}
-            href={l.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-3 py-1.5 rounded-full bg-white/8 hover:bg-white/15 text-white/70 text-xs transition-colors"
-          >
-            {l.name}
-          </a>
-        ))}
-      </div>
+      <LyricsSearchLinkRow song={song} />
     </div>
   );
 }
@@ -655,13 +672,13 @@ function ReportProblem({ song, adminMode }: { song: Song; adminMode: boolean }) 
   // Reset transient UI when the song changes.
   useEffect(() => { setOpen(false); setDone(false); }, [song.id]);
 
-  const [lastAudio, setLastAudio] = useState(true);
+  const [lastIssue, setLastIssue] = useState<SongIssue>("other");
 
   async function submit(issue: SongIssue) {
     setBusy(true);
     try {
       await reportSongIssue(song.id, issue);
-      setLastAudio(AUDIO_ISSUES.has(issue));
+      setLastIssue(issue);
       setDone(true);
       setOpen(false);
     } catch {
@@ -714,14 +731,16 @@ function ReportProblem({ song, adminMode }: { song: Song; adminMode: boolean }) 
         </div>
       ) : done ? (
         <p className="text-emerald-400/80 text-xs leading-relaxed">
-          {lastAudio
+          {AUDIO_ISSUES.has(lastIssue)
             ? "✓ 已回報，下次播放此曲將改用原始影片音訊（修正爆音 / 不同步）。"
-            : "✓ 已回報字幕對不上，已記錄；請管理員用「字幕延遲」微調。"}
+            : lastIssue === "wrong_lyrics"
+            ? "✓ 已回報字幕是別首歌 — 已立即關閉錯誤字幕。可在下方「歌詞來源」挑正確的，或用搜尋連結自行查歌詞。"
+            : "✓ 已回報字幕對不上，已記錄；可用「字幕延遲」按鈕校正。"}
         </p>
       ) : (
         <div className="flex flex-col gap-2">
           <p className="text-white/60 text-xs">
-            是什麼問題？音訊類問題下次播放會改用原始影片音訊；字幕對不上則交管理員微調。
+            是什麼問題？音訊類下次播放改用原始音訊；字幕是別首歌會立即關閉錯誤字幕。
           </p>
           <div className="grid grid-cols-2 gap-2">
             {ISSUE_OPTIONS.map((o) => (

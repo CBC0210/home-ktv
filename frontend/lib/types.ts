@@ -92,6 +92,7 @@ export type ServerEvent =
   | { type: "system.error"; message: string }
   | { type: "system.restarted" }
   | { type: "lyrics.updated"; songId: string }
+  | { type: "song.profile_updated"; song_id: string; use_original_audio?: boolean; has_timing?: boolean; lyrics_source?: string | null }
   | { type: "lyrics.offset"; songId: string; offsetMs: number }
   | { type: "av.offset"; songId: string; offsetMs: number }
   | { type: "guest.kicked"; guestId: string }

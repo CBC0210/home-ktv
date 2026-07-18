@@ -204,6 +204,58 @@ class TestPlayerReadySnapshot:
             assert evt["queueItem"]["id"] == playing_item["item_id"]
 
 
+class TestWrongLyricsReport:
+    def test_wrong_lyrics_report_disables_subtitles(self, playing_item):
+        """「字幕是別首歌」report must kill the wrong-song subtitles at once:
+        has_timing→False, lyrics_source→'none', lyrics.ass removed (cached
+        lyrics_<src>.ass alternates stay for the source picker)."""
+        from fastapi.testclient import TestClient
+        from ktv_pipeline.config import settings
+        from main import app
+
+        media_dir = settings.data_dir / "media" / SONG
+        media_dir.mkdir(parents=True, exist_ok=True)
+        (media_dir / "lyrics.ass").write_text("[Script Info]\n", encoding="utf-8")
+        (media_dir / "lyrics_netease.ass").write_text("[Script Info]\n", encoding="utf-8")
+        with get_db_session() as s:
+            song = s.query(Song).filter_by(id=SONG).first()
+            song.has_timing = True
+            song.lyrics_source = "qq"
+            s.commit()
+
+        client = TestClient(app)
+        resp = client.post(f"/api/songs/{SONG}/report", json={"issue": "wrong_lyrics"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["has_timing"] is False
+        assert body["use_original_audio"] is False  # not an audio-class issue
+
+        assert not (media_dir / "lyrics.ass").exists()
+        assert (media_dir / "lyrics_netease.ass").exists()  # alternates kept
+        with get_db_session() as s:
+            song = s.query(Song).filter_by(id=SONG).first()
+            assert song.has_timing is False
+            assert song.lyrics_source == "none"
+            reports = ((song.extra_metadata or {}).get("playback") or {}).get("reports", [])
+            assert reports and reports[-1]["issue"] == "wrong_lyrics"
+
+    def test_audio_report_keeps_subtitles(self, playing_item):
+        from fastapi.testclient import TestClient
+        from main import app
+
+        with get_db_session() as s:
+            song = s.query(Song).filter_by(id=SONG).first()
+            song.has_timing = True
+            s.commit()
+
+        client = TestClient(app)
+        resp = client.post(f"/api/songs/{SONG}/report", json={"issue": "clipping"})
+        assert resp.status_code == 200
+        assert resp.json()["use_original_audio"] is True
+        with get_db_session() as s:
+            assert s.query(Song).filter_by(id=SONG).first().has_timing is True
+
+
 class TestWsAuthCloseCode:
     def test_invalid_token_closes_with_4001(self):
         """The browser must SEE 4001 — requires accept-then-close, because a

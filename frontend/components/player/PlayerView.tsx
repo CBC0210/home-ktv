@@ -391,6 +391,21 @@ export default function PlayerView({ roomId }: Props) {
         case "lyrics.updated":
           setSubtitleRevision((r) => r + 1);
           break;
+        case "song.profile_updated": {
+          // Lyrics were disabled/switched by a report — patch the subtitle
+          // fields so SubtitleLayer flips mode live. Audio mode is left
+          // untouched mid-song (use_original_audio applies from next play).
+          const st = useKtvStore.getState();
+          const cs = st.currentSong;
+          if (cs && cs.id === event.song_id && typeof event.has_timing === "boolean") {
+            st.setCurrentSong({
+              ...cs,
+              has_timing: event.has_timing,
+              lyrics_source: event.lyrics_source !== undefined ? event.lyrics_source : cs.lyrics_source,
+            }, st.currentQueueItem);
+          }
+          break;
+        }
         case "av.offset":
           avOffsetMsRef.current = event.offsetMs;
           break;

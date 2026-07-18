@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Song } from "@/lib/types";
 import { getLyricsAss } from "@/lib/api";
 
@@ -177,27 +177,41 @@ export default function SubtitleLayer({ song, videoRef, offsetMs = 0 }: Props) {
     );
   }
 
-  if (song.lyrics_source && song.lyrics_source !== "none") {
-    return (
-      <div className="absolute bottom-24 left-0 right-0 flex justify-center pointer-events-none px-8">
-        <div className="bg-black/70 backdrop-blur-sm rounded-xl px-6 py-3 text-center max-w-2xl">
-          <p className="text-white text-base leading-relaxed">
-            純文字歌詞 — 請在手機遙控查看
-          </p>
-          <p className="text-gray-400 text-xs mt-1">
-            來源：{song.lyrics_source}
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const hint =
+    song.lyrics_source && song.lyrics_source !== "none"
+      ? "純文字歌詞 — 請在手機遙控查看"
+      : "無歌詞 — 可在手機遙控用搜尋連結自行查";
+  return <NoTimingHint key={song.id} text={hint} />;
+}
 
+/** Transient no-subtitle notice.
+ *
+ * Top-centre + auto-hide: many MVs carry burned-in subtitles in the lower
+ * third of the picture, and the old persistent bottom-anchored card sat
+ * right on top of them for the whole song. Show briefly, then get out of
+ * the way entirely.
+ */
+const HINT_VISIBLE_MS = 10_000;
+
+function NoTimingHint({ text }: { text: string }) {
+  const [visible, setVisible] = useState(true);
+  const [gone, setGone] = useState(false);
+
+  useEffect(() => {
+    const fade = setTimeout(() => setVisible(false), HINT_VISIBLE_MS);
+    const remove = setTimeout(() => setGone(true), HINT_VISIBLE_MS + 700);
+    return () => { clearTimeout(fade); clearTimeout(remove); };
+  }, []);
+
+  if (gone) return null;
   return (
-    <div className="absolute bottom-20 left-0 right-0 flex justify-center pointer-events-none">
-      <div className="bg-black/50 backdrop-blur-sm rounded-xl px-5 py-2">
-        <p className="text-gray-400 text-sm">
-          無歌詞 — 請在手機遙控自行搜尋
-        </p>
+    <div
+      className={`absolute top-24 left-0 right-0 flex justify-center pointer-events-none z-20 transition-opacity duration-700 ${
+        visible ? "opacity-100" : "opacity-0"
+      }`}
+    >
+      <div className="bg-black/55 backdrop-blur-sm rounded-full px-5 py-2">
+        <p className="text-white/75 text-sm">{text}</p>
       </div>
     </div>
   );

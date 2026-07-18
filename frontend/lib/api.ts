@@ -238,7 +238,8 @@ export const setLyricsSource = (songId: string, source: string) =>
 // ── Per-song problem report → original-audio playback override ──────────────
 
 export type SongIssue =
-  | "clipping" | "av_desync" | "separation_noise" | "subtitle_timing" | "other";
+  | "clipping" | "av_desync" | "separation_noise" | "subtitle_timing"
+  | "wrong_lyrics" | "other";
 
 export interface SongReportInfo {
   song_id: string;
