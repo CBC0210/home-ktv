@@ -2,7 +2,7 @@
 
 > 這份檔案是 OpenClaw 與 Claude Code 之間的長期記憶。每個 task 完成或中斷時都必須更新。
 
-## Status: ✅ 歌詞來源防錯配 + 字幕延遲無上限即時化（2026-07-18）
+## Status: ✅ 公平輪唱順序即時顯示（2026-07-18）
 
 Last updated: 2026-07-18
 Last heartbeat: 2026-07-18
@@ -16,6 +16,12 @@ Last heartbeat: 2026-07-18
 ---
 
 ## Done
+
+- [x] **公平輪唱順序實體化 — 顯示順序 = 實際播放順序** ✅ (2026-07-18)
+  - **問題**：輪唱只在「挑下一首時」套用（`pick_next_ready`），電視「下一首」與手機隊列顯示的是原始加入順序，跟實際播放順序不一致
+  - **修復**：新增 `QueueManager.apply_fair_order()` — 把輪唱結果**直接寫回隊列 position**（確定性、冪等；manually_moved 項目釘在原 rank 不動；「正在唱的人」也算入 recent window）。接線到所有隊列變動點：WS queue.add/remove、REST 加歌的集中廣播 `_broadcast_queue_update`、autopick、以及 `pick_next_ready`（改為「顯示順序中第一首 ready」，保證挑的就是顯示的）
+  - 每次變動即重排並廣播 queue.updated → 手機隊列與電視「下一首」即時反映真實順序
+  - **測試**：+5（錯開、冪等、pin 不動、pick 與顯示一致、現任歌手算 recent）；151 passed，基線 11 fail + 6 error 不變；後端已部署
 
 - [x] **歌詞來源錯配根治（QQ 等來源配到別首歌）+ 字幕延遲改進** ✅ (2026-07-18)
   - **抽樣實測 10 首曲庫真歌**，找到具體病因：

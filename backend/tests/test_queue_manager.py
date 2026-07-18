@@ -243,3 +243,77 @@ class TestMarkPlaying:
         session.expire_all()
         item1_updated = session.query(QueueItem).filter_by(id=item1.id).first()
         assert item1_updated.status == "done"
+
+class TestApplyFairOrder:
+    """apply_fair_order materialises rotation into positions, so what the TV
+    「下一首」HUD and the Remote queue display IS the real play order."""
+
+    def _titles_in_order(self, session, room_id):
+        mgr = QueueManager(session)
+        return [qi.guest_id for qi in mgr.get_queue(room_id) if qi.status != "playing"]
+
+    def test_interleaves_consecutive_songs_from_same_guest(self, session, setup_room):
+        mgr = QueueManager(session)
+        a, b = setup_room["alice"].id, setup_room["bob"].id
+        mgr.add_song(room_id="test-queue-room", song_id="song1", guest_id=a)
+        mgr.add_song(room_id="test-queue-room", song_id="song2", guest_id=a)
+        mgr.add_song(room_id="test-queue-room", song_id="song3", guest_id=b)
+        ordered = mgr.apply_fair_order("test-queue-room")
+        guests = [qi.guest_id for qi in ordered]
+        # Alice's second song must NOT come directly after her first —
+        # Bob's slots in between.
+        assert guests[0] == a
+        assert guests[1] == b
+        assert guests[2] == a
+        # And the stored positions reflect exactly that order.
+        assert self._titles_in_order(session, "test-queue-room") == guests
+
+    def test_idempotent(self, session, setup_room):
+        mgr = QueueManager(session)
+        a, b = setup_room["alice"].id, setup_room["bob"].id
+        mgr.add_song(room_id="test-queue-room", song_id="song1", guest_id=a)
+        mgr.add_song(room_id="test-queue-room", song_id="song2", guest_id=a)
+        mgr.add_song(room_id="test-queue-room", song_id="song3", guest_id=b)
+        first = [qi.id for qi in mgr.apply_fair_order("test-queue-room")]
+        second = [qi.id for qi in mgr.apply_fair_order("test-queue-room")]
+        assert first == second
+
+    def test_manually_moved_stays_pinned(self, session, setup_room):
+        mgr = QueueManager(session)
+        a, b = setup_room["alice"].id, setup_room["bob"].id
+        i1 = mgr.add_song(room_id="test-queue-room", song_id="song1", guest_id=a)
+        i2 = mgr.add_song(room_id="test-queue-room", song_id="song2", guest_id=a)
+        mgr.add_song(room_id="test-queue-room", song_id="song3", guest_id=b)
+        # User dragged Alice's second song to stay right after her first.
+        i2_db = session.query(QueueItem).filter_by(id=i2.id).first()
+        i2_db.manually_moved = True
+        session.commit()
+        ordered = mgr.apply_fair_order("test-queue-room")
+        # Pinned at rank 1 (its current rank) — rotation must not move it.
+        assert ordered[1].id == i2.id
+
+    def test_pick_next_ready_agrees_with_display_order(self, session, setup_room):
+        mgr = QueueManager(session)
+        a, b = setup_room["alice"].id, setup_room["bob"].id
+        i1 = mgr.add_song(room_id="test-queue-room", song_id="song1", guest_id=a)
+        i2 = mgr.add_song(room_id="test-queue-room", song_id="song2", guest_id=a)
+        i3 = mgr.add_song(room_id="test-queue-room", song_id="song3", guest_id=b)
+        for qi_id in (i1.id, i2.id, i3.id):
+            session.query(QueueItem).filter_by(id=qi_id).update({"status": "ready"})
+        session.commit()
+        displayed = mgr.apply_fair_order("test-queue-room")
+        picked = mgr.pick_next_ready("test-queue-room")
+        assert picked.id == displayed[0].id
+
+    def test_current_singer_counts_as_recent(self, session, setup_room):
+        mgr = QueueManager(session)
+        a, b = setup_room["alice"].id, setup_room["bob"].id
+        i1 = mgr.add_song(room_id="test-queue-room", song_id="song1", guest_id=a)
+        mgr.mark_playing(i1.id)
+        mgr.add_song(room_id="test-queue-room", song_id="song2", guest_id=a)
+        mgr.add_song(room_id="test-queue-room", song_id="song3", guest_id=b)
+        ordered = mgr.apply_fair_order("test-queue-room")
+        waiting = [qi for qi in ordered if qi.status != "playing"]
+        # Alice is singing NOW, so Bob's song comes before her next one.
+        assert waiting[0].guest_id == b
+        assert waiting[1].guest_id == a

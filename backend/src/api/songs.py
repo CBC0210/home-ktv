@@ -114,13 +114,18 @@ async def _run_pipeline_task(queue_item_id: int, room_id: str) -> None:
 
 
 async def _broadcast_queue_update(room_id: str) -> None:
-    """Reload and broadcast the current queue for a room."""
+    """Reload and broadcast the current queue for a room.
+
+    Always re-materialises fair rotation first, so every broadcast shows the
+    order songs will ACTUALLY play in (spec §4.3) — this is the central hook
+    for the add-song / pipeline-progress paths."""
     from ktv_pipeline.ws_manager import manager
     from ktv_pipeline.queue_manager import QueueManager
     from ktv_pipeline.models import Song, Guest
     from api.ws import _qi_to_dict
     with get_db_session() as session:
         mgr = QueueManager(session)
+        mgr.apply_fair_order(room_id)
         queue = mgr.get_queue(room_id)
         song_map = {s.id: s for s in session.query(Song).all()}
         guest_map = {g.id: g for g in session.query(Guest).all()}

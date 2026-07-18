@@ -144,28 +144,70 @@ class QueueManager:
         # Fall back to position order (no fair rotation available)
         return queue[0]
 
-    def pick_next_ready(self, room_id: str) -> Optional[QueueItem]:
-        """Pick the next READY item to play using fair rotation (spec §4.3).
+    def apply_fair_order(self, room_id: str) -> List[QueueItem]:
+        """Materialise fair rotation into queue POSITIONS (spec §4.3).
 
-        Ready items are scanned in position order. An item that was manually
-        moved is always honored when reached. Otherwise the earliest item whose
-        requester hasn't sung within the recent window is preferred, so one
-        person can't monopolise the mic; if everyone still waiting is "recent",
-        fall back to strict position order.
+        Rotation used to be applied only at pick time (pick_next_ready), so
+        the TV's「下一首」HUD and every Remote's queue list showed plain
+        insertion order — NOT the order songs would actually play. This
+        rewrites positions so that displayed order == play order; it is
+        deterministic and idempotent, and is re-run (then broadcast) on every
+        queue change.
+
+        Slot rules (same spirit as the old pick-time logic):
+        - Walk the waiting list slot by slot; each slot takes the earliest
+          non-pinned item whose requester is NOT in the recent window
+          (last RECENT_WINDOW completed plays + the current singer, sliding
+          as slots are assigned). If everyone is "recent", position order.
+        - manually_moved items are PINNED to their current rank untouched.
         """
-        ready = (
+        playing = self.get_currently_playing(room_id)
+        items = [qi for qi in self.get_queue(room_id) if qi.status != "playing"]
+
+        if len(items) > 1:
+            pinned = {rank: qi for rank, qi in enumerate(items) if qi.manually_moved}
+            pool = [qi for qi in items if not qi.manually_moved]
+            recent = self._get_recent_guests(room_id, limit=self.RECENT_WINDOW)
+            if playing is not None:
+                recent = [playing.guest_id] + recent
+            ordered: List[QueueItem] = []
+            for rank in range(len(items)):
+                chosen = pinned.get(rank)
+                if chosen is None:
+                    window = set(recent[: self.RECENT_WINDOW])
+                    chosen = next(
+                        (qi for qi in pool if qi.guest_id not in window),
+                        pool[0] if pool else None,
+                    )
+                    pool.remove(chosen)
+                ordered.append(chosen)
+                recent = [chosen.guest_id] + recent  # simulate this play
+            items = ordered
+
+        # Renumber sequentially: playing item first, then the fair order.
+        pos = 1
+        if playing is not None:
+            playing.position = pos
+            pos += 1
+        for qi in items:
+            qi.position = pos
+            pos += 1
+        self.session.commit()
+        return ([playing] if playing else []) + items
+
+    def pick_next_ready(self, room_id: str) -> Optional[QueueItem]:
+        """Pick the next item to play: the first READY one in display order.
+
+        Fair rotation lives in apply_fair_order (re-applied here right before
+        picking), so what plays is exactly what the queue displays showed.
+        """
+        self.apply_fair_order(room_id)
+        return (
             self.session.query(QueueItem)
             .filter_by(room_id=room_id, status="ready")
             .order_by(QueueItem.position)
-            .all()
+            .first()
         )
-        if not ready:
-            return None
-        recent = set(self._get_recent_guests(room_id, limit=self.RECENT_WINDOW))
-        for item in ready:
-            if item.manually_moved or item.guest_id not in recent:
-                return item
-        return ready[0]
 
     def mark_playing(self, item_id: int) -> Optional[QueueItem]:
         """Mark a queue item as 'playing'."""

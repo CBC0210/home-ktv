@@ -348,7 +348,9 @@ async def _handle_queue_add(room_id: str, guest_id: str, nickname: str, msg: dic
             except ValueError as exc:
                 await manager.broadcast_system_error(room_id, str(exc))
                 return
-            # Reload song + guest for broadcast
+            # Reload song + guest for broadcast (fair order re-applied so the
+            # pushed queue shows the real play order)
+            mgr.apply_fair_order(room_id)
             from ktv_pipeline.models import Song, Guest
             song = session.query(Song).filter_by(id=song_id).first()
             guest = session.query(Guest).filter_by(id=guest_id).first()
@@ -387,6 +389,7 @@ async def _handle_queue_remove(room_id: str, guest_id: str, nickname: str, is_ad
             song_title = s.title if s else None
             removed = mgr.remove_item(int(item_id))
             if removed:
+                mgr.apply_fair_order(room_id)
                 queue = mgr.get_queue(room_id)
                 from ktv_pipeline.models import Song, Guest
                 song_map = {s.id: s for s in session.query(Song).all()}
@@ -785,6 +788,7 @@ async def _broadcast_queue_update_safe(room_id: str) -> None:
         from ktv_pipeline.models import Song, Guest
         with get_db_session() as s:
             mgr = QueueManager(s)
+            mgr.apply_fair_order(room_id)
             q = mgr.get_queue(room_id)
             sm = {x.id: x for x in s.query(Song).all()}
             gm = {x.id: x for x in s.query(Guest).all()}
