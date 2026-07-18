@@ -2,7 +2,7 @@
 
 > 這份檔案是 OpenClaw 與 Claude Code 之間的長期記憶。每個 task 完成或中斷時都必須更新。
 
-## Status: ✅ 無字幕提示不擋畫面 + 錯歌字幕回報（2026-07-18）
+## Status: ✅ 歌詞來源防錯配 + 字幕延遲無上限即時化（2026-07-18）
 
 Last updated: 2026-07-18
 Last heartbeat: 2026-07-18
@@ -16,6 +16,21 @@ Last heartbeat: 2026-07-18
 ---
 
 ## Done
+
+- [x] **歌詞來源錯配根治（QQ 等來源配到別首歌）+ 字幕延遲改進** ✅ (2026-07-18)
+  - **抽樣實測 10 首曲庫真歌**，找到具體病因：
+    1. `fetch_qq` **盲拿搜尋結果第一筆**，零驗證 → 迷因影片配到「啊啊啊玩玩看【滚」(49s vs 249s)、私人歌配到梁詠琪、甚至同歌手配到別首歌（最陰險）
+    2. 舊比分函數對「簡繁 + 附註」失效：正確配對（妥協→妥协）只得 0.17 分
+    3. NetEase 有計分但無時長驗證 → 選到時長差 58-81s 的翻唱
+    4. **LRCLIB 來源從未動過**：`/api/get?q=` 是錯誤用法，每次 HTTP 400
+    5. 時長是最強訊號：正確配對幾乎都 Δ≤5s、錯配大多 Δ>30s
+  - **修復**（`pipeline/lyrics.py`）：
+    - 新增共用候選計分器 `_score_candidate`：標題相似（含簡繁摺疊、附註剝除、CJK core、包含性計分）60% + 歌手相似（含「歌手名在影片標題裡」的頻道上傳情境）25% + 時長分級加減分（Δ≤5s +0.15 … Δ>90s −0.35）；**歌手完全吻合＋時長 Δ≤5s 可救回羅馬字/異文字標題**（Marunouchi Sadistic ↔ 丸ノ内サディスティック）；門檻 0.55 不過即回 None 讓 fallback 鏈繼續
+    - `fetch_qq` 重寫：多查詢變體 + 全候選計分；`_netease_search` 改用同一計分器（含時長）；`fetch_syncedlyrics` 改用正確的 LRCLIB API（`/api/get` 精確 + `/api/search` 計分驗證）並加 20s 整體 time-box
+    - `duration_sec` 貫穿 `fetch_lyrics` → 各 fetcher → orchestrator / lyrics_prefetch / set_lyrics_source
+  - **修復後重測同 10 首**：4 首錯配全部正確拒絕、5 首正確配對全部接受（含之前 NetEase 誤拒的派對動物）、LRCLIB 復活、同歌手錯歌案例改抓到正確曲目
+  - **字幕延遲（用戶指示）**：移除 ±30s 上下限（前後端）；即時性 — 後端改為**先推播 TV 再寫 DB**；TV 端 libass 調整時同時 `setCurrentTime`+`setIsPaused` 重新錨定內部時鐘（原本要等下一個 timeupdate 才生效）
+  - **測試**：新增 `tests/test_lyrics_matching.py` 13 個測試（全部用實測抓到的真實 query/candidate 組合）；146 passed，基線 11 fail + 6 error 不變；pnpm build ✓；已部署
 
 - [x] **無字幕提示改版 + 快速外連 + 「字幕是別首歌」回報** ✅ (2026-07-18)
   - **Player「無字幕/純文字」提示擋住 MV 內嵌字幕**：原本是常駐在畫面下方（bottom-20/24）的卡片，正壓在原生字幕位置。改為**頂部置中膠囊、顯示 10 秒後淡出移除**（`SubtitleLayer.NoTimingHint`），之後完全不遮擋

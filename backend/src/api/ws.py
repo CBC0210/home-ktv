@@ -858,8 +858,11 @@ async def _handle_lyrics_edit(room_id: str, msg: dict) -> None:
 
 
 async def _handle_lyrics_offset(room_id: str, actor: str, msg: dict) -> None:
-    """Persist a per-song subtitle delay (ms), live-push it to the Player,
-    and toast a confirmation so the operator knows it landed."""
+    """Live-push a per-song subtitle delay (ms) to the Player, then persist.
+
+    No range clamp — a wrong-cut lyrics file can be off by minutes, and
+    users judge by eye anyway. Push-to-TV happens BEFORE the DB write so the
+    on-screen effect is as immediate as the network allows."""
     song_id = msg.get("songId")
     try:
         offset_ms = int(msg.get("offsetMs", 0))
@@ -867,10 +870,10 @@ async def _handle_lyrics_offset(room_id: str, actor: str, msg: dict) -> None:
         offset_ms = 0
     if not song_id:
         return
-    # ±30s — lyrics timed to a studio cut vs an MV with a long intro/outro can
-    # be off by tens of seconds (the old ±5s cap couldn't fix those songs).
-    offset_ms = max(-30000, min(30000, offset_ms))
     try:
+        await manager.send_to_role(room_id, ClientRole.PLAYER, {
+            "type": "lyrics.offset", "songId": song_id, "offsetMs": offset_ms,
+        })
         from ktv_pipeline.models import Song
         with get_db_session() as s:
             song = s.query(Song).filter_by(id=song_id).first()
@@ -879,9 +882,6 @@ async def _handle_lyrics_offset(room_id: str, actor: str, msg: dict) -> None:
                 meta["subtitle_offset_ms"] = offset_ms
                 song.extra_metadata = meta
                 s.commit()
-        await manager.send_to_role(room_id, ClientRole.PLAYER, {
-            "type": "lyrics.offset", "songId": song_id, "offsetMs": offset_ms,
-        })
         sign = "+" if offset_ms > 0 else ""
         await manager.broadcast_activity(
             room_id,

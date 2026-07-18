@@ -679,16 +679,17 @@ async def set_lyrics_source(
         title, artist = clean_song_query(raw_title, song.artist or "")
 
     try:
+        _dur = song.duration_sec
         if src == "youtube":
             result = await fetch_youtube_subtitles(song_id, raw_title)
         elif src == "amll_ttml":
-            result = await fetch_amll(title, artist)
+            result = await fetch_amll(title, artist, duration_sec=_dur)
         elif src == "netease":
-            result = await fetch_netease(title, artist)
+            result = await fetch_netease(title, artist, duration_sec=_dur)
         elif src == "qq":
-            result = await fetch_qq(title, artist)
+            result = await fetch_qq(title, artist, duration_sec=_dur)
         elif src == "syncedlyrics":
-            result = await fetch_syncedlyrics(title, artist)
+            result = await fetch_syncedlyrics(title, artist, duration_sec=_dur)
         elif src == "mojim":
             result = await _fetch_mojim(title, artist)
         elif src == "kkbox":

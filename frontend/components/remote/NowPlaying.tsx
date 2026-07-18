@@ -138,13 +138,13 @@ export default function NowPlaying({
   }, [currentSong?.id, currentSong?.has_timing]);
 
   // Apply + persist the delay (server live-pushes it to the TV).
-  // ±30s: lyrics timed to a studio cut vs an MV with a long intro can be off
-  // by well over the old ±5s cap (e.g. 五月天〈派對動物〉).
+  // No range limit — lyrics from a wrong cut can be off by minutes, and the
+  // user is calibrating by eye anyway.
   const applyOffset = useCallback((next: number) => {
     if (!currentSong) return;
-    const clamped = Math.max(-30000, Math.min(30000, Math.round(next / 100) * 100));
-    setOffsetMs(clamped);
-    sendCommand({ type: "lyrics.offset", songId: currentSong.id, offsetMs: clamped });
+    const v = Math.round(next / 100) * 100;
+    setOffsetMs(v);
+    sendCommand({ type: "lyrics.offset", songId: currentSong.id, offsetMs: v });
   }, [currentSong, sendCommand]);
 
   // Arrow keys nudge the delay while the editor is open
@@ -473,7 +473,7 @@ export default function NowPlaying({
                 {offsetMs > 0 ? "+" : ""}{(offsetMs / 1000).toFixed(1)}s
               </p>
               <p className="text-white/30 text-[10px] mt-0.5">
-                {offsetMs === 0 ? "未調整" : offsetMs > 0 ? "字幕已延後" : "字幕已提前"}（可調到 ±30 秒）
+                {offsetMs === 0 ? "未調整" : offsetMs > 0 ? "字幕已延後" : "字幕已提前"}（不限範圍）
               </p>
             </div>
 

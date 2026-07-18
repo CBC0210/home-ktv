@@ -89,7 +89,7 @@ async def prefetch_all_lyrics(song_id: str) -> dict:
             if name == "youtube":
                 result = await fetch_youtube_subtitles(song_id, raw_title)
             else:
-                result = await fetcher(title, artist)
+                result = await fetcher(title, artist, duration_sec=duration)
         except Exception as exc:
             log.info("[%s] prefetch %s failed: %s", song_id, name, exc)
             continue

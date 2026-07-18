@@ -157,13 +157,20 @@ export default function SubtitleLayer({ song, videoRef, offsetMs = 0 }: Props) {
     };
   }, [song.id, song.has_timing]);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Live offset adjustment — push the new time immediately (offsetRef is
-  // already updated above; the timeupdate listener will keep it thereafter).
+  // Live offset adjustment — re-anchor libass IMMEDIATELY. setCurrentTime
+  // alone only repaints one frame; while playing, the worker's internal
+  // clock keeps running from the old anchor until the next timeupdate
+  // (~250ms+), which made adjustments feel laggy. setIsPaused(playing, t)
+  // resets that clock so the jump lands on the very next render.
   useEffect(() => {
     const inst = octopusRef.current;
     const video = videoRef.current;
     if (inst && video) {
-      try { inst.setCurrentTime(video.currentTime + offsetRef.current); } catch { /* ignore */ }
+      try {
+        const t = video.currentTime + offsetRef.current;
+        inst.setCurrentTime(t);
+        inst.setIsPaused(video.paused, t);
+      } catch { /* ignore */ }
     }
   }, [offsetMs]);  // eslint-disable-line react-hooks/exhaustive-deps
 
