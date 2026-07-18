@@ -198,6 +198,7 @@ export default function RoomTab({ room, session, guests, onLeave, adminMode = fa
         <p className="text-gray-400 text-sm font-mono mt-0.5">/{room.id}</p>
 
         <button
+          data-tour="copy-link"
           onClick={copyLink}
           className="mt-3 w-full text-sm bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg transition-colors"
         >

@@ -63,3 +63,7 @@ desktop.ini
 # Claude / OpenClaw 暫存
 .claude/
 *.tmp
+
+# Generated per-build (frontend/scripts/gen-build-id.mjs)
+frontend/.build-id
+frontend/public/build-id.txt

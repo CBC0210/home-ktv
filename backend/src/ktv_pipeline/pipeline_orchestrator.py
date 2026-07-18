@@ -237,6 +237,12 @@ class PipelineOrchestrator:
             except asyncio.CancelledError:
                 pass
 
+    # Playback-owned statuses: once ws.py hands an item to the Player these
+    # belong to the playback flow, and pipeline writes must never overwrite
+    # them (a stomped 'playing' makes get_currently_playing return None, so
+    # song.ended is never broadcast and the room wedges on the last song).
+    _PLAYBACK_OWNED_STATUSES = ("playing", "done", "skipped")
+
     async def run_from_queue(self, queue_item_id: int) -> dict:
         """Process a song referenced by a queue item.
 
@@ -253,7 +259,7 @@ class PipelineOrchestrator:
         # Update queue status → processing
         with get_db_session() as db:
             item = db.query(QueueItem).filter(QueueItem.id == queue_item_id).first()
-            if item:
+            if item and item.status not in self._PLAYBACK_OWNED_STATUSES:
                 item.status = "processing"
                 item.last_heartbeat = _utcnow()
 
@@ -262,7 +268,7 @@ class PipelineOrchestrator:
         # Update queue item status
         with get_db_session() as db:
             item = db.query(QueueItem).filter(QueueItem.id == queue_item_id).first()
-            if item:
+            if item and item.status not in self._PLAYBACK_OWNED_STATUSES:
                 item.status = "ready" if result.get("ok") else "failed_perm"
 
         return result
@@ -630,7 +636,7 @@ class PipelineOrchestrator:
             try:
                 with get_db_session() as db:
                     item = db.query(QueueItem).filter(QueueItem.id == self._queue_item_id).first()
-                    if item:
+                    if item and item.status not in self._PLAYBACK_OWNED_STATUSES:
                         item.status = state.value
                         item.last_heartbeat = _utcnow()
             except Exception as exc:

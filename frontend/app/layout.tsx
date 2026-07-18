@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import AppUpdater from "@/components/shared/AppUpdater";
 
 export const metadata: Metadata = {
   title: "響窩 Echonest",
@@ -32,7 +33,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-TW">
-      <body>{children}</body>
+      <body>
+        <AppUpdater />
+        {children}
+      </body>
     </html>
   );
 }

@@ -68,6 +68,28 @@ class Song(Base):
     play_history: Mapped[List["PlayHistory"]] = relationship(back_populates="song")
     favorites: Mapped[List["Favorite"]] = relationship(back_populates="song")
 
+    # Playback tuning stored in extra_metadata, exposed as attributes so the
+    # REST schemas serialize them — the Player's page-refresh restore path
+    # reads the queue over REST and must see the same fields song.started
+    # carries, or a refreshed TV plays a reported song in the wrong audio mode.
+    @property
+    def use_original_audio(self) -> bool:
+        return bool(((self.extra_metadata or {}).get("playback") or {}).get("use_original_audio"))
+
+    @property
+    def subtitle_offset_ms(self) -> int:
+        try:
+            return int((self.extra_metadata or {}).get("subtitle_offset_ms", 0) or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    @property
+    def av_offset_ms(self) -> int:
+        try:
+            return int((self.extra_metadata or {}).get("av_offset_ms", 0) or 0)
+        except (TypeError, ValueError):
+            return 0
+
 
 class QueueItem(Base):
     __tablename__ = "queue_items"

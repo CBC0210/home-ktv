@@ -64,10 +64,13 @@ class QueueManager:
         if not song:
             raise ValueError(f"Song {song_id} not found")
 
+        # Duplicate guard — but the CURRENTLY-PLAYING song is fair game:
+        # spec §6.2's「🔁 加回隊列」re-queues the song being sung right now.
+        dup_statuses = [s for s in self.ACTIVE_STATUSES if s != "playing"]
         existing = self.session.query(QueueItem).filter(
             QueueItem.room_id == room_id,
             QueueItem.song_id == song_id,
-            QueueItem.status.in_(self.ACTIVE_STATUSES),
+            QueueItem.status.in_(dup_statuses),
         ).first()
         if existing:
             raise ValueError(f"Song {song_id} already in queue (status={existing.status}, id={existing.id})")
@@ -141,6 +144,29 @@ class QueueManager:
         # Fall back to position order (no fair rotation available)
         return queue[0]
 
+    def pick_next_ready(self, room_id: str) -> Optional[QueueItem]:
+        """Pick the next READY item to play using fair rotation (spec §4.3).
+
+        Ready items are scanned in position order. An item that was manually
+        moved is always honored when reached. Otherwise the earliest item whose
+        requester hasn't sung within the recent window is preferred, so one
+        person can't monopolise the mic; if everyone still waiting is "recent",
+        fall back to strict position order.
+        """
+        ready = (
+            self.session.query(QueueItem)
+            .filter_by(room_id=room_id, status="ready")
+            .order_by(QueueItem.position)
+            .all()
+        )
+        if not ready:
+            return None
+        recent = set(self._get_recent_guests(room_id, limit=self.RECENT_WINDOW))
+        for item in ready:
+            if item.manually_moved or item.guest_id not in recent:
+                return item
+        return ready[0]
+
     def mark_playing(self, item_id: int) -> Optional[QueueItem]:
         """Mark a queue item as 'playing'."""
         # Clear any existing playing item for this room
@@ -156,8 +182,14 @@ class QueueManager:
         self.session.refresh(item)
         return item
 
-    def mark_done(self, item_id: int) -> None:
-        """Mark a queue item as done and record play history."""
+    def mark_done(self, item_id: int, completed: bool = True) -> None:
+        """Mark a queue item as done.
+
+        Play history + play_count are recorded only when ``completed`` is True.
+        Per spec §9.1 a play counts as completed once ≥80% was sung, so an
+        early skip (``completed=False``) marks the item done without inserting
+        a PlayHistory row or bumping play_count — keeping leaderboards honest.
+        """
         item = self.session.query(QueueItem).filter_by(id=item_id).first()
         if not item:
             return
@@ -166,19 +198,20 @@ class QueueManager:
         item.status = "done"
         item.played_at = now
 
-        song = self.session.query(Song).filter_by(id=item.song_id).first()
-        history = PlayHistory(
-            song_id=item.song_id,
-            guest_id=item.guest_id,
-            room_id=item.room_id,
-            played_at=now,
-            duration_sec=song.duration_sec if song else None,
-        )
-        self.session.add(history)
+        if completed:
+            song = self.session.query(Song).filter_by(id=item.song_id).first()
+            history = PlayHistory(
+                song_id=item.song_id,
+                guest_id=item.guest_id,
+                room_id=item.room_id,
+                played_at=now,
+                duration_sec=song.duration_sec if song else None,
+            )
+            self.session.add(history)
 
-        if song:
-            song.play_count = (song.play_count or 0) + 1
-            song.last_played_at = now
+            if song:
+                song.play_count = (song.play_count or 0) + 1
+                song.last_played_at = now
 
         self.session.commit()
 

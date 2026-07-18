@@ -314,7 +314,7 @@ export function extractYoutubeId(input: string): string | null {
 
 /** True for a YouTube *or* Bilibili link/id — i.e. a direct-add, not a search. */
 export function isYoutubeUrl(input: string): boolean {
-  return /youtube\.com|youtu\.be|bilibili\.com|(?:^|\/)BV[0-9A-Za-z]{10}/.test(input);
+  return /youtube\.com|youtu\.be|bilibili\.com|b23\.tv|bili2233\.cn|(?:^|\/)BV[0-9A-Za-z]{10}/.test(input);
 }
 // ── Admin API ─────────────────────────────────────────────────────────────────
 

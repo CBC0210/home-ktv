@@ -23,14 +23,36 @@ def get_session():
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+def _resolve_bili_short_link(url: str) -> Optional[str]:
+    """Follow a Bilibili b23.tv / bili2233.cn short link to its final
+    bilibili.com URL (the short link carries no BV id). Host-restricted so it
+    can't be used as an SSRF primitive against arbitrary hosts."""
+    if not re.match(r"^https?://(www\.)?(b23\.tv|bili2233\.cn)/", (url or "").strip(), re.I):
+        return None
+    import urllib.request
+    try:
+        req = urllib.request.Request(
+            url.strip(), method="GET", headers={"User-Agent": "Mozilla/5.0"}
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            return resp.geturl()
+    except Exception:
+        return None
+
+
 def extract_youtube_id(url_or_id: str) -> str:
     """Bare video id (YouTube *or* Bilibili) from a URL or id.
 
     Name kept for call-site stability; now source-agnostic — the returned
-    id doubles as the song PK / cache dir regardless of source.
+    id doubles as the song PK / cache dir regardless of source. Bilibili
+    b23.tv short links (the app's default share format) are resolved first.
     """
     from ktv_pipeline.video_source import extract_video_id
     vid = extract_video_id(url_or_id)
+    if not vid:
+        resolved = _resolve_bili_short_link(url_or_id)
+        if resolved:
+            vid = extract_video_id(resolved)
     if vid:
         return vid
     raise HTTPException(status_code=400, detail=f"Invalid video URL/ID: {url_or_id}")

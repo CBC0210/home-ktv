@@ -53,24 +53,37 @@ async def ws_endpoint(
     """
     role_str = role
 
+    async def _reject(code: int, reason: str) -> None:
+        # Accept the handshake BEFORE closing: closing pre-accept surfaces as
+        # an opaque HTTP 403 and the browser only sees code 1006, so the
+        # client could never distinguish "expired token" from a network blip
+        # (it would blind-retry the dead token forever).
+        try:
+            await websocket.accept()
+        except Exception:
+            pass
+        await websocket.close(code=code, reason=reason)
+
     if token:
         try:
             payload = authenticate_websocket_token(token)
         except WebSocketDisconnect:
-            await websocket.close(code=4001, reason="Invalid or expired session")
+            await _reject(4001, "Invalid or expired session")
             return
         guest_id: str = payload["sub"]
         room_id_resolved: str = payload["room_id"]
+        is_admin: bool = bool(payload.get("is_admin"))
     else:
         # Unauthenticated — only allowed for the player role (TV screen)
         if role_str != "player":
-            await websocket.close(code=4001, reason="Token required for non-player roles")
+            await _reject(4001, "Token required for non-player roles")
             return
         if not room_id:
-            await websocket.close(code=4004, reason="room_id required for player")
+            await _reject(4004, "room_id required for player")
             return
         room_id_resolved = room_id
         guest_id = f"__player__{room_id_resolved}"
+        is_admin = False
 
     # Determine client role enum
     try:
@@ -84,7 +97,7 @@ async def ws_endpoint(
     with get_db_session() as session:
         room_obj = session.query(Room).filter_by(id=room_id_resolved).first()
         if not room_obj:
-            await websocket.close(code=4004, reason="Room not found")
+            await _reject(4004, "Room not found")
             return
 
     # Register connection
@@ -120,7 +133,7 @@ async def ws_endpoint(
         # Dispatch loop
         while True:
             raw = await websocket.receive_text()
-            await dispatch_message(client_id, room_id_resolved, guest_id, nickname, raw, client_role)
+            await dispatch_message(client_id, room_id_resolved, guest_id, nickname, raw, client_role, is_admin)
 
     except WebSocketDisconnect:
         pass
@@ -139,8 +152,14 @@ async def dispatch_message(
     nickname: str,
     raw: str,
     role: ClientRole,
+    is_admin: bool = False,
 ) -> None:
-    """Parse and handle an inbound client message."""
+    """Parse and handle an inbound client message.
+
+    ``is_admin`` comes from the connection's JWT (False for the token-less
+    player device) and gates the elevated queue operations, mirroring the
+    REST endpoints in api/queue.py.
+    """
     import json
     try:
         msg = json.loads(raw)
@@ -167,6 +186,12 @@ async def dispatch_message(
                 "type": "playback.state",
                 "state": state,
             })
+            # Re-sync THIS player: a song may have been marked 'playing' while
+            # the TV was disconnected (it missed the song.started broadcast).
+            # Resend it targeted; otherwise, if ready songs are queued and
+            # nothing is playing (e.g. after a backend restart), start one.
+            if not await _send_playing_snapshot(client_id, room_id):
+                await _start_next_song(room_id)
         elif msg_type == "player.playing":
             position = msg.get("positionSec", 0)
             manager.update_playback_state(room_id, position_sec=position, is_playing=True)
@@ -178,11 +203,24 @@ async def dispatch_message(
             # Just relay; frontend has no buffering UI yet
             pass
         elif msg_type == "player.ended":
-            # Natural end of song — advance to next
+            # Natural end of song — advance to next. songId (when sent) guards
+            # against a stale event from a zombie/reloaded TV tab ending an
+            # OLD song while a new one is already playing.
             manager.update_playback_state(room_id, is_playing=False, position_sec=0)
-            await _handle_song_advance(room_id)
+            await _handle_song_advance(room_id, expected_song_id=msg.get("songId"))
         elif msg_type == "player.error":
             await manager.broadcast_system_error(room_id, msg.get("error", "Unknown player error"))
+            # A fatally-errored video never fires 'ended', so without this the
+            # item stays 'playing' forever and wedges the whole room (the
+            # never-interrupt guard in _start_next_song). Skip it and move on.
+            log.warning("[player.error] room=%s advancing past errored song: %s",
+                        room_id, msg.get("error"))
+            manager.update_playback_state(room_id, is_playing=False, position_sec=0)
+            await _handle_song_advance(
+                room_id,
+                final_position_sec=0,
+                expected_song_id=msg.get("songId"),
+            )
 
     # ── Remote control messages ───────────────────────────────────────────────
     elif role == ClientRole.REMOTE:
@@ -207,9 +245,12 @@ async def dispatch_message(
             })
             await manager.broadcast_activity(room_id, "⏸ 暫停", nickname)
         elif msg_type == "playback.skip":
+            # Capture the playhead BEFORE zeroing so we can tell a real
+            # completion (≥80%) from an early skip for stats (spec §9.1).
+            _skip_pos = manager.get_playback_state(room_id).get("position_sec", 0) or 0
             manager.update_playback_state(room_id, is_playing=False, position_sec=0)
             await manager.broadcast_activity(room_id, "⏭ 切下一首", nickname)
-            await _handle_song_advance(room_id)
+            await _handle_song_advance(room_id, final_position_sec=_skip_pos)
         elif msg_type == "playback.replay":
             manager.update_playback_state(room_id, is_playing=True, position_sec=0)
             await manager.send_to_role(room_id, ClientRole.PLAYER, {"type": "playback.replay"})
@@ -221,6 +262,12 @@ async def dispatch_message(
             position = msg.get("positionSec", 0)
             manager.update_playback_state(room_id, position_sec=position)
             await manager.send_to_role(room_id, ClientRole.PLAYER, {"type": "playback.seek", "positionSec": position})
+            # Echo the new position to remotes immediately — the player's next
+            # 1s tick never comes while it's paused or audio-locked, and a
+            # progress bar that doesn't move reads as "seek is broken".
+            await manager.send_to_role(room_id, ClientRole.REMOTE, {
+                "type": "song.progress", "positionSec": position,
+            })
             mm = int(position // 60); ss = int(position % 60)
             await manager.broadcast_activity(room_id, f"⏩ 跳轉至 {mm}:{ss:02d}", nickname)
 
@@ -244,10 +291,10 @@ async def dispatch_message(
             await _handle_queue_add(room_id, guest_id, nickname, msg)
 
         elif msg_type == "queue.remove":
-            await _handle_queue_remove(room_id, nickname, msg)
+            await _handle_queue_remove(room_id, guest_id, nickname, is_admin, msg)
 
         elif msg_type == "queue.reorder":
-            await _handle_queue_reorder(room_id, nickname, msg)
+            await _handle_queue_reorder(room_id, nickname, is_admin, msg)
 
         elif msg_type == "lyrics.edit":
             await _handle_lyrics_edit(room_id, msg)
@@ -313,8 +360,12 @@ async def _handle_queue_add(room_id: str, guest_id: str, nickname: str, msg: dic
         await manager.broadcast_system_error(room_id, f"queue.add failed: {exc}")
 
 
-async def _handle_queue_remove(room_id: str, nickname: str, msg: dict) -> None:
-    """Handle queue.remove from remote — remove item via QueueManager."""
+async def _handle_queue_remove(room_id: str, guest_id: str, nickname: str, is_admin: bool, msg: dict) -> None:
+    """Handle queue.remove from remote — remove item via QueueManager.
+
+    Authorization mirrors the REST endpoint (api/queue.py): only the guest who
+    added the item, or an admin, may remove it.
+    """
     item_id = msg.get("queueItemId")
     if not item_id:
         await manager.broadcast_system_error(room_id, "queue.remove: missing queueItemId")
@@ -325,11 +376,15 @@ async def _handle_queue_remove(room_id: str, nickname: str, msg: dict) -> None:
         with get_db_session() as session:
             mgr = QueueManager(session)
             qi = session.query(QueueItem).filter_by(id=int(item_id)).first()
-            song_title = None
-            if qi:
-                from ktv_pipeline.models import Song
-                s = session.query(Song).filter_by(id=qi.song_id).first()
-                song_title = s.title if s else None
+            if not qi:
+                await manager.broadcast_system_error(room_id, "Queue item not found")
+                return
+            if qi.guest_id != guest_id and not is_admin:
+                await manager.broadcast_system_error(room_id, "無權限移除他人的點播（需管理員）")
+                return
+            from ktv_pipeline.models import Song
+            s = session.query(Song).filter_by(id=qi.song_id).first()
+            song_title = s.title if s else None
             removed = mgr.remove_item(int(item_id))
             if removed:
                 queue = mgr.get_queue(room_id)
@@ -345,8 +400,14 @@ async def _handle_queue_remove(room_id: str, nickname: str, msg: dict) -> None:
         await manager.broadcast_system_error(room_id, f"queue.remove failed: {exc}")
 
 
-async def _handle_queue_reorder(room_id: str, nickname: str, msg: dict) -> None:
-    """Handle queue.reorder from remote/admin — reorder queue positions."""
+async def _handle_queue_reorder(room_id: str, nickname: str, is_admin: bool, msg: dict) -> None:
+    """Handle queue.reorder from remote/admin — reorder queue positions.
+
+    Admin-only, mirroring the REST endpoint (api/queue.py).
+    """
+    if not is_admin:
+        await manager.broadcast_system_error(room_id, "重新排序需要管理員權限")
+        return
     item_ids = msg.get("queueItemIds", [])
     if not item_ids:
         await manager.broadcast_system_error(room_id, "queue.reorder: missing queueItemIds")
@@ -367,23 +428,100 @@ async def _handle_queue_reorder(room_id: str, nickname: str, msg: dict) -> None:
         await manager.broadcast_system_error(room_id, f"queue.reorder failed: {exc}")
 
 
-async def _handle_song_advance(room_id: str) -> None:
-    """Mark the currently-playing queue item as done, then start the next one."""
+async def _handle_song_advance(
+    room_id: str,
+    *,
+    final_position_sec: Optional[float] = None,
+    expected_song_id: Optional[str] = None,
+) -> None:
+    """Mark the currently-playing queue item as done, then start the next one.
+
+    ``final_position_sec`` is the playhead when the song was cut short (a skip);
+    ``None`` means the song ended naturally (fully sung). Only a play that
+    reached ≥80% of the song's duration is recorded as completed (spec §9.1),
+    so early skips don't inflate play_count / the leaderboards.
+
+    ``expected_song_id`` (from player.ended/player.error) guards against a
+    stale event: if a DIFFERENT song is currently playing, the event refers to
+    an old song from a zombie/reloaded TV tab — ignore it entirely.
+    """
     from ktv_pipeline.queue_manager import QueueManager
+    from ktv_pipeline.models import Song
 
     current_item_id = None
     with get_db_session() as session:
         mgr = QueueManager(session)
         playing = mgr.get_currently_playing(room_id)
+        if playing and expected_song_id and playing.song_id != expected_song_id:
+            log.info("[advance] room=%s stale event for song=%s ignored (playing=%s)",
+                     room_id, expected_song_id, playing.song_id)
+            return
         if playing:
             current_item_id = playing.id
-            mgr.mark_done(playing.id)
+            if final_position_sec is None:
+                completed = True
+            else:
+                song = session.query(Song).filter_by(id=playing.song_id).first()
+                dur = (song.duration_sec if song else 0) or 0
+                completed = dur > 0 and (final_position_sec / dur) >= 0.8
+            mgr.mark_done(playing.id, completed=completed)
 
     log.info("[advance] room=%s marked_done=%s", room_id, current_item_id)
-    if current_item_id:
-        await manager.broadcast_song_ended(room_id, current_item_id)
+    # ALWAYS broadcast song.ended — even when no 'playing' row was found
+    # (e.g. state was stomped or already cleared). The Player only returns to
+    # the standby/QR screen on this event; if a next song exists,
+    # _start_next_song immediately follows with song.started.
+    await manager.broadcast_song_ended(room_id, current_item_id or -1)
 
     await _start_next_song(room_id)
+
+
+def _song_full_dict(song) -> dict:
+    """Full Song payload used by song.started events."""
+    if not song:
+        return {}
+    return {
+        "id": song.id,
+        "title": song.title,
+        "artist": song.artist,
+        "duration_sec": song.duration_sec,
+        "thumbnail_url": song.thumbnail_url,
+        "status": song.status,
+        "has_timing": song.has_timing,
+        "lyrics_source": song.lyrics_source,
+        "error_message": song.error_message,
+        "subtitle_offset_ms": (song.extra_metadata or {}).get("subtitle_offset_ms", 0),
+        "av_offset_ms": (song.extra_metadata or {}).get("av_offset_ms", 0),
+        "use_original_audio": bool(
+            ((song.extra_metadata or {}).get("playback") or {}).get("use_original_audio")
+        ),
+    }
+
+
+async def _send_playing_snapshot(client_id: str, room_id: str) -> bool:
+    """Resend song.started for the currently-playing item to ONE client.
+
+    A TV that was disconnected when the song started never saw the broadcast
+    and would sit on standby against a DB that says a song is playing (and
+    the never-interrupt guard would keep it there). Returns True if sent.
+    """
+    from ktv_pipeline.queue_manager import QueueManager
+    from ktv_pipeline.models import Song, Guest
+
+    with get_db_session() as session:
+        mgr = QueueManager(session)
+        playing = mgr.get_currently_playing(room_id)
+        if not playing:
+            return False
+        song = session.query(Song).filter_by(id=playing.song_id).first()
+        guest = session.query(Guest).filter_by(id=playing.guest_id).first()
+        payload = {
+            "type": "song.started",
+            "song": _song_full_dict(song),
+            "queueItem": _qi_to_dict(playing, song, guest),
+        }
+    await manager.send_to_client(client_id, payload)
+    return True
 
 
 async def _start_next_song(room_id: str) -> None:
@@ -415,12 +553,7 @@ async def _start_next_song(room_id: str) -> None:
                 qi.status = "ready"
         session.commit()
 
-        next_item = (
-            session.query(QueueItem)
-            .filter_by(room_id=room_id, status="ready")
-            .order_by(QueueItem.position)
-            .first()
-        )
+        next_item = mgr.pick_next_ready(room_id)
         if not next_item:
             # No ready song. Refresh queue and notify caller; pipeline completion
             # of any processing item will retrigger _start_next_song.
@@ -452,23 +585,7 @@ async def _start_next_song(room_id: str) -> None:
         song = session.query(Song).filter_by(id=item.song_id).first()
         guest = session.query(Guest).filter_by(id=item.guest_id).first()
 
-        song_dict = {
-            "id": song.id,
-            "title": song.title,
-            "artist": song.artist,
-            "duration_sec": song.duration_sec,
-            "thumbnail_url": song.thumbnail_url,
-            "status": song.status,
-            "has_timing": song.has_timing,
-            "lyrics_source": song.lyrics_source,
-            "error_message": song.error_message,
-            "subtitle_offset_ms": (song.extra_metadata or {}).get("subtitle_offset_ms", 0),
-            "av_offset_ms": (song.extra_metadata or {}).get("av_offset_ms", 0),
-            "use_original_audio": bool(
-                ((song.extra_metadata or {}).get("playback") or {}).get("use_original_audio")
-            ),
-        } if song else {}
-
+        song_dict = _song_full_dict(song)
         qi_dict = _qi_to_dict(item, song, guest)
 
         queue = mgr.get_queue(room_id)
@@ -720,6 +837,16 @@ async def _handle_lyrics_edit(room_id: str, msg: dict) -> None:
     if not song_id or not ass_content.strip():
         await manager.broadcast_system_error(room_id, "lyrics.edit: missing songId or ass content")
         return
+    # Path-traversal guard: songId must look like a video id AND exist as a
+    # Song row, so it can never escape the media dir (e.g. "../../etc/x").
+    if not re.fullmatch(r"[A-Za-z0-9_-]{6,20}", song_id):
+        await manager.broadcast_system_error(room_id, "lyrics.edit: invalid songId")
+        return
+    from ktv_pipeline.models import Song
+    with get_db_session() as _s:
+        if not _s.query(Song).filter_by(id=song_id).first():
+            await manager.broadcast_system_error(room_id, "lyrics.edit: song not found")
+            return
     try:
         from ktv_pipeline.config import settings
         ass_path = settings.data_dir / "media" / song_id / "lyrics.ass"
@@ -740,7 +867,9 @@ async def _handle_lyrics_offset(room_id: str, actor: str, msg: dict) -> None:
         offset_ms = 0
     if not song_id:
         return
-    offset_ms = max(-5000, min(5000, offset_ms))
+    # ±30s — lyrics timed to a studio cut vs an MV with a long intro/outro can
+    # be off by tens of seconds (the old ±5s cap couldn't fix those songs).
+    offset_ms = max(-30000, min(30000, offset_ms))
     try:
         from ktv_pipeline.models import Song
         with get_db_session() as s:

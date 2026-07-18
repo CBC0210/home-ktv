@@ -63,11 +63,19 @@ def _seed_default_admin_passwords() -> None:
 
 
 async def _kick_all_pending_pipelines() -> None:
-    """Re-trigger pipeline for every room's pending items (after recovery)."""
+    """Re-trigger pipeline for every room's pending items (after recovery).
+
+    Items whose Song is ALREADY processed are promoted straight to 'ready'
+    instead of re-running the orchestrator: the redundant run was the trigger
+    for the status-stomp bug (its final write raced the playback flow marking
+    the same item 'playing'), and it churned broadcasts for no benefit.
+    """
     import asyncio
-    from ktv_pipeline.models import QueueItem
+    from ktv_pipeline.models import QueueItem, Song
     from api.songs import _run_pipeline_task
 
+    to_kick = []
+    promoted = 0
     with get_db_session() as session:
         pending = (
             session.query(QueueItem)
@@ -75,12 +83,19 @@ async def _kick_all_pending_pipelines() -> None:
             .order_by(QueueItem.position)
             .all()
         )
-    started = 0
-    for qi in pending:
-        asyncio.create_task(_run_pipeline_task(qi.id, qi.room_id))
-        started += 1
-    if started:
-        log.info("Startup: kicked %d pending pipelines", started)
+        for qi in pending:
+            song = session.query(Song).filter_by(id=qi.song_id).first()
+            if song and song.status == "ready":
+                qi.status = "ready"
+                promoted += 1
+            else:
+                to_kick.append((qi.id, qi.room_id))
+        session.commit()
+    for qi_id, room_id in to_kick:
+        asyncio.create_task(_run_pipeline_task(qi_id, room_id))
+    if promoted or to_kick:
+        log.info("Startup: promoted %d already-ready items, kicked %d pipelines",
+                 promoted, len(to_kick))
 
 
 # Rooms with zero connected clients for longer than this get their queue
@@ -158,13 +173,38 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Home KTV API", version="0.1.0", docs_url="/docs", lifespan=lifespan)
 
+# CORS: pin to the public origin (from PUBLIC_BASE_URL) plus LAN/private
+# origins via regex, instead of reflecting ANY origin. In the tunnel
+# deployment the page and API share one origin so CORS isn't exercised; the
+# regex only matters for the zero-config LAN mode (page :3002 → API :8000).
+_LAN_ORIGIN_RE = (
+    r"^https?://(localhost|127\.0\.0\.1|"
+    r"(?:10|127)(?:\.\d{1,3}){3}|"
+    r"(?:192\.168|169\.254)(?:\.\d{1,3}){2}|"
+    r"172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}|"
+    r"[A-Za-z0-9-]+\.local)(:\d+)?$"
+)
+_allowed_origins = [o for o in [settings.public_base_url] if o]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
+    allow_origin_regex=_LAN_ORIGIN_RE,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _security_headers(request, call_next):
+    """Baseline security response headers on every HTTP response (the tunnel
+    can't inject them, and nginx isn't in the live path)."""
+    resp = await call_next(request)
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    return resp
 
 app.include_router(api_router)
 app.include_router(ws_router, tags=["websocket"])

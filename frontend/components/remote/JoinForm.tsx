@@ -29,6 +29,9 @@ export default function JoinForm({ roomId, hasPassword, onJoined }: Props) {
       });
       const session: GuestSession = { guest, token, roomId };
       localStorage.setItem(`ktv_session_${roomId}`, JSON.stringify(session));
+      // Remember the room password so an expired token can be renewed by a
+      // silent re-join (home deployment; same trust level as the session).
+      if (hasPassword) localStorage.setItem(`ktv_room_pw_${roomId}`, password);
       onJoined(session);
     } catch {
       setError(hasPassword ? "密碼錯誤或無法加入，請重試" : "無法加入，請重試");

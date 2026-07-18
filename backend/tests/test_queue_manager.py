@@ -60,6 +60,75 @@ class TestAddToQueue:
             mgr.add_song(room_id="test-queue-room", song_id="nonexistent", guest_id=setup_room["alice"].id)
 
 
+class TestPickNextReady:
+    """Fair-rotation selection over READY items (spec §4.3)."""
+
+    def _make_ready(self, session, room_id, song_id, guest_id):
+        item = QueueItem(room_id=room_id, song_id=song_id, guest_id=guest_id,
+                         position=QueueManager(session)._get_max_position(room_id) + 1,
+                         status="ready")
+        session.add(item)
+        session.commit()
+        session.refresh(item)
+        return item
+
+    def test_pick_returns_none_when_no_ready(self, session, setup_room):
+        mgr = QueueManager(session)
+        # A pending item is not ready → nothing to pick.
+        mgr.add_song(room_id="test-queue-room", song_id="song1", guest_id=setup_room["alice"].id)
+        assert mgr.pick_next_ready("test-queue-room") is None
+
+    def test_pick_skips_recent_singer_for_fairness(self, session, setup_room):
+        """Alice just sang; with Alice's and Bob's songs both ready, Bob's is
+        picked next even though Alice's has the earlier position."""
+        alice, bob = setup_room["alice"].id, setup_room["bob"].id
+        a1 = self._make_ready(session, "test-queue-room", "song1", alice)
+        b1 = self._make_ready(session, "test-queue-room", "song2", bob)
+        # Record that Alice just played something (makes her "recent").
+        session.add(PlayHistory(song_id="song3", guest_id=alice,
+                                room_id="test-queue-room",
+                                played_at=datetime.now(timezone.utc)))
+        session.commit()
+        picked = QueueManager(session).pick_next_ready("test-queue-room")
+        assert picked.id == b1.id  # Bob gets a turn, not Alice's earlier song
+
+    def test_manually_moved_is_honored_even_if_recent(self, session, setup_room):
+        """A manually-moved song at the front plays next regardless of rotation."""
+        alice = setup_room["alice"].id
+        a1 = self._make_ready(session, "test-queue-room", "song1", alice)
+        a1.manually_moved = True
+        session.add(PlayHistory(song_id="song3", guest_id=alice,
+                                room_id="test-queue-room",
+                                played_at=datetime.now(timezone.utc)))
+        session.commit()
+        picked = QueueManager(session).pick_next_ready("test-queue-room")
+        assert picked.id == a1.id
+
+
+class TestMarkDoneCompletion:
+    """§9.1 — only a ≥80% play records history / bumps play_count."""
+
+    def test_completed_records_history_and_count(self, session, setup_room):
+        mgr = QueueManager(session)
+        item = mgr.add_song(room_id="test-queue-room", song_id="song1", guest_id=setup_room["alice"].id)
+        mgr.mark_done(item.id, completed=True)
+        hist = session.query(PlayHistory).filter_by(room_id="test-queue-room", song_id="song1").count()
+        song = session.query(Song).filter_by(id="song1").first()
+        assert hist == 1
+        assert (song.play_count or 0) == 1
+
+    def test_incomplete_skip_does_not_record(self, session, setup_room):
+        mgr = QueueManager(session)
+        item = mgr.add_song(room_id="test-queue-room", song_id="song2", guest_id=setup_room["bob"].id)
+        mgr.mark_done(item.id, completed=False)
+        hist = session.query(PlayHistory).filter_by(room_id="test-queue-room", song_id="song2").count()
+        song = session.query(Song).filter_by(id="song2").first()
+        assert hist == 0
+        assert (song.play_count or 0) == 0
+        # …but the queue item is still marked done.
+        assert session.query(QueueItem).filter_by(id=item.id).first().status == "done"
+
+
 class TestRemoveFromQueue:
     def test_remove_existing_item(self, session, setup_room):
         mgr = QueueManager(session)

@@ -136,10 +136,12 @@ export default function NowPlaying({
     return () => { cancelled = true; };
   }, [currentSong?.id, currentSong?.has_timing]);
 
-  // Apply + persist the delay (server live-pushes it to the TV)
+  // Apply + persist the delay (server live-pushes it to the TV).
+  // ±30s: lyrics timed to a studio cut vs an MV with a long intro can be off
+  // by well over the old ±5s cap (e.g. 五月天〈派對動物〉).
   const applyOffset = useCallback((next: number) => {
     if (!currentSong) return;
-    const clamped = Math.max(-5000, Math.min(5000, next));
+    const clamped = Math.max(-30000, Math.min(30000, Math.round(next / 100) * 100));
     setOffsetMs(clamped);
     sendCommand({ type: "lyrics.offset", songId: currentSong.id, offsetMs: clamped });
   }, [currentSong, sendCommand]);
@@ -456,66 +458,78 @@ export default function NowPlaying({
       {lyricsEditorOpen && (
         <div className="fixed inset-0 bg-black/90 z-50 flex flex-col items-center justify-center p-6">
           <div className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
-            <div className="text-center mb-5">
+            <div className="text-center mb-4">
               <div className="text-3xl mb-1">⏱️</div>
-              <h3 className="text-white font-bold text-lg">調整字幕延遲</h3>
+              <h3 className="text-white font-bold text-lg">校正字幕時間</h3>
               <p className="text-white/40 text-xs mt-1">
-                字幕對不上時微調。可按 ← → 鍵微調，效果即時顯示在電視上。
+                看電視、聽人聲，按照你看到的症狀按下面的按鈕，效果即時。
               </p>
             </div>
 
-            <div className="flex items-center justify-center gap-4 mb-2">
-              <button
-                onClick={() => applyOffset(offsetMs - 100)}
-                className="w-14 h-14 rounded-2xl bg-white/8 hover:bg-white/15 text-white text-2xl font-bold active:scale-90 transition-all"
-                title="字幕提前 0.1 秒"
-              >
-                ‹‹
-              </button>
-              <div className="text-center min-w-[110px]">
-                <p className={`text-3xl font-bold tabular-nums ${offsetMs === 0 ? "text-white/50" : "text-amber-300"}`}>
-                  {offsetMs > 0 ? "+" : ""}{(offsetMs / 1000).toFixed(1)}s
-                </p>
-                <p className="text-white/30 text-[10px] mt-0.5">
-                  {offsetMs === 0 ? "未調整" : offsetMs > 0 ? "字幕延後" : "字幕提前"}
-                </p>
-              </div>
-              <button
-                onClick={() => applyOffset(offsetMs + 100)}
-                className="w-14 h-14 rounded-2xl bg-white/8 hover:bg-white/15 text-white text-2xl font-bold active:scale-90 transition-all"
-                title="字幕延後 0.1 秒"
-              >
-                ››
-              </button>
+            {/* Current value */}
+            <div className="text-center mb-4">
+              <p className={`text-3xl font-bold tabular-nums ${offsetMs === 0 ? "text-white/50" : "text-amber-300"}`}>
+                {offsetMs > 0 ? "+" : ""}{(offsetMs / 1000).toFixed(1)}s
+              </p>
+              <p className="text-white/30 text-[10px] mt-0.5">
+                {offsetMs === 0 ? "未調整" : offsetMs > 0 ? "字幕已延後" : "字幕已提前"}（可調到 ±30 秒）
+              </p>
             </div>
 
-            <div className="flex justify-center gap-2 mb-5">
-              <button
-                onClick={() => applyOffset(offsetMs - 500)}
-                className="px-3 py-1.5 rounded-lg bg-white/6 text-white/50 text-xs hover:bg-white/12"
-              >
-                −0.5s
-              </button>
+            {/* Symptom: subtitles arrive too EARLY → push them later (+) */}
+            <div className="rounded-2xl bg-sky-500/8 border border-sky-400/15 p-3 mb-2.5">
+              <p className="text-sky-300/90 text-xs font-medium mb-2">
+                🐇 字幕跑太快（還沒唱到，字幕就先亮）→ 延後字幕
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                {[200, 1000, 5000].map((step) => (
+                  <button
+                    key={`later-${step}`}
+                    onClick={() => applyOffset(offsetMs + step)}
+                    className="py-2.5 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 text-sky-200 text-sm font-semibold active:scale-95 transition-all"
+                  >
+                    +{step >= 1000 ? `${step / 1000}s` : "0.2s"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Symptom: subtitles arrive too LATE → pull them earlier (−) */}
+            <div className="rounded-2xl bg-rose-500/8 border border-rose-400/15 p-3 mb-3">
+              <p className="text-rose-300/90 text-xs font-medium mb-2">
+                🐢 字幕慢半拍（唱過了，字幕才亮）→ 提前字幕
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                {[200, 1000, 5000].map((step) => (
+                  <button
+                    key={`earlier-${step}`}
+                    onClick={() => applyOffset(offsetMs - step)}
+                    className="py-2.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-200 text-sm font-semibold active:scale-95 transition-all"
+                  >
+                    −{step >= 1000 ? `${step / 1000}s` : "0.2s"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <p className="text-white/25 text-[10px] text-center mb-3">
+              訣竅：差很多先按 5s 大步找到位置，再用 0.2s 細調。鍵盤 ← → 可 0.1s 微調。
+            </p>
+
+            <div className="flex gap-2">
               <button
                 onClick={() => applyOffset(0)}
-                className="px-3 py-1.5 rounded-lg bg-white/6 text-white/50 text-xs hover:bg-white/12"
+                className="px-4 py-3 rounded-2xl bg-white/6 text-white/60 text-sm hover:bg-white/12 transition-colors"
               >
                 歸零
               </button>
               <button
-                onClick={() => applyOffset(offsetMs + 500)}
-                className="px-3 py-1.5 rounded-lg bg-white/6 text-white/50 text-xs hover:bg-white/12"
+                onClick={() => setLyricsEditorOpen(false)}
+                className="flex-1 py-3 rounded-2xl bg-violet-600 text-white text-sm font-medium hover:bg-violet-500 transition-colors"
               >
-                +0.5s
+                完成（已自動儲存）
               </button>
             </div>
-
-            <button
-              onClick={() => setLyricsEditorOpen(false)}
-              className="w-full py-3 rounded-2xl bg-violet-600 text-white text-sm font-medium hover:bg-violet-500 transition-colors"
-            >
-              完成（已自動儲存）
-            </button>
           </div>
         </div>
       )}

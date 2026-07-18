@@ -313,8 +313,13 @@ async def update_lyrics_ass(
     song_id: str,
     body: LyricsUpdateBody,
     session: Session = Depends(get_session),
+    _guest: dict = Depends(get_current_guest),
 ):
-    """Replace the cached ASS lyrics file for a song (user-edited karaoke timing)."""
+    """Replace the cached ASS lyrics file for a song (user-edited karaoke timing).
+
+    Requires an authenticated guest. song_id is DB-constrained below (404 if
+    the song doesn't exist), so it can't escape the media directory.
+    """
     if not body.ass.strip():
         raise HTTPException(status_code=400, detail="ASS content cannot be empty")
 

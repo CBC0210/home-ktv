@@ -13,6 +13,14 @@ def client():
     return TestClient(app)
 
 
+@pytest.fixture
+def auth_headers():
+    """A valid guest Bearer token for endpoints that now require auth."""
+    from ktv_pipeline.auth import create_access_token
+    token = create_access_token(guest_id="test-guest", room_id="home")
+    return {"Authorization": f"Bearer {token}"}
+
+
 class TestStreamInfo:
     def test_nonexistent_song_returns_404(self, client):
         response = client.get("/songs/nonexistent-id-abc123/stream/info")
@@ -54,14 +62,23 @@ class TestLyricsAssEndpoint:
         response = client.get("/songs/nonexistent-id-abc123/lyrics.ass")
         assert response.status_code == 404
 
-    def test_put_lyrics_404_for_nonexistent_song(self, client):
+    def test_put_lyrics_requires_auth(self, client):
+        """Without a guest token the write is rejected (401)."""
         response = client.put(
             "/songs/nonexistent-id-abc123/lyrics",
             json={"ass": "[Script Info]\nTitle: Test\n"},
         )
+        assert response.status_code == 401
+
+    def test_put_lyrics_404_for_nonexistent_song(self, client, auth_headers):
+        response = client.put(
+            "/songs/nonexistent-id-abc123/lyrics",
+            json={"ass": "[Script Info]\nTitle: Test\n"},
+            headers=auth_headers,
+        )
         assert response.status_code == 404
 
-    def test_put_lyrics_400_for_empty_ass(self, client):
+    def test_put_lyrics_400_for_empty_ass(self, client, auth_headers):
         """Empty ASS content must be rejected."""
         from ktv_pipeline.database import get_db_session
         from ktv_pipeline.models import Song
@@ -73,10 +90,11 @@ class TestLyricsAssEndpoint:
         response = client.put(
             f"/songs/{song_id}/lyrics",
             json={"ass": "   "},  # whitespace-only
+            headers=auth_headers,
         )
         assert response.status_code == 400
 
-    def test_put_lyrics_writes_file(self, client, tmp_path, monkeypatch):
+    def test_put_lyrics_writes_file(self, client, auth_headers, tmp_path, monkeypatch):
         """Valid PUT request writes file and returns ok."""
         from ktv_pipeline.database import get_db_session
         from ktv_pipeline.models import Song
@@ -95,6 +113,7 @@ class TestLyricsAssEndpoint:
         response = client.put(
             f"/songs/{song_id}/lyrics",
             json={"ass": ass},
+            headers=auth_headers,
         )
         assert response.status_code == 200
         data = response.json()

@@ -63,6 +63,8 @@ export default function PlayerView({ roomId }: Props) {
 
   const [remoteUrl, setRemoteUrl] = useState<string>("");
   const [audioBlocked, setAudioBlocked] = useState(false);
+  // Reactive mirror of audioUnlockedRef for the standby-screen hint.
+  const [audioReady, setAudioReady] = useState(false);
   const [subtitleRevision, setSubtitleRevision] = useState(0);
   const [subtitleOffsetMs, setSubtitleOffsetMs] = useState(0);
   const [reactions, setReactions] = useState<{ id: number; emoji: string; from: string; x: number }[]>([]);
@@ -209,9 +211,17 @@ export default function PlayerView({ roomId }: Props) {
       vocal.currentTime = atPosition;
       instr.currentTime = atPosition;
     }
+    const ctx = audioCtxRef.current;
+    if (ctx && ctx.state === "suspended") {
+      try { await ctx.resume(); } catch { /* needs a gesture — overlay below */ }
+    }
     const results = await Promise.allSettled([vocal.play(), instr.play()]);
     const blocked = results.some((r) => r.status === "rejected");
-    setAudioBlocked(blocked || !audioCtxRef.current);
+    // A suspended AudioContext plays SILENCE even when the <audio> elements
+    // are running (UA auto-suspends during long standby) — treat it as
+    // blocked so the unlock overlay shows instead of a mute performance.
+    const ctxRunning = !!audioCtxRef.current && audioCtxRef.current.state === "running";
+    setAudioBlocked(blocked || !ctxRunning);
   }, []);
 
   // Called when user clicks the unlock overlay (or anywhere when blocked).
@@ -230,7 +240,7 @@ export default function PlayerView({ roomId }: Props) {
       if (video) {
         video.muted = false;
         video.volume = Math.max(0, Math.min(1, playbackRef.current.main_volume));
-        try { await video.play(); audioUnlockedRef.current = true; setAudioBlocked(false); }
+        try { await video.play(); audioUnlockedRef.current = true; setAudioReady(true); setAudioBlocked(false); }
         catch { setAudioBlocked(true); }
       }
       return;
@@ -250,9 +260,33 @@ export default function PlayerView({ roomId }: Props) {
     if (vocal) { vocal.currentTime = pos; try { await vocal.play(); } catch { /* ignore */ } }
     if (instr) { instr.currentTime = pos; try { await instr.play(); } catch { /* ignore */ } }
     if (video && video.paused) { try { await video.play(); } catch { /* ignore */ } }
-    if (ok) audioUnlockedRef.current = true;
+    if (ok) { audioUnlockedRef.current = true; setAudioReady(true); }
     setAudioBlocked(!ok);
   }, [ensureAudioGraph]);
+
+  // ── Standby early audio unlock ─────────────────────────────────────────────
+  // ANY input on the idle/QR screen (TV-remote key, click, touch) unlocks
+  // audio ahead of the first song: the gesture resumes the Web Audio graph
+  // AND grants the sticky user activation that later video.play()-with-sound
+  // calls need — so playback starts without the tap-to-start overlay.
+  useEffect(() => {
+    if (currentSong || audioReady) return;
+    const unlock = () => {
+      void (async () => {
+        const ok = await ensureAudioGraph();
+        if (ok) {
+          audioUnlockedRef.current = true;
+          setAudioReady(true);
+        }
+      })();
+    };
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, [currentSong, audioReady, ensureAudioGraph]);
 
   // TV compatibility: a TV has no mouse — the remote's OK/Enter (and most
   // keys) must also start playback while the tap-to-start overlay is up.
@@ -285,6 +319,7 @@ export default function PlayerView({ roomId }: Props) {
           setQueue(event.queue);
           break;
         case "song.started":
+          pendingEndedRef.current = null;  // server advanced — nothing to flush
           setCurrentSong(event.song, event.queueItem);
           setSubtitleOffsetMs(event.song?.subtitle_offset_ms ?? 0);
           avOffsetMsRef.current = event.song?.av_offset_ms ?? 0;
@@ -294,6 +329,7 @@ export default function PlayerView({ roomId }: Props) {
           updatePosition(event.positionSec);
           break;
         case "song.ended":
+          pendingEndedRef.current = null;  // server advanced — nothing to flush
           setCurrentSong(null, null);
           setIsPlayingRef.current(false);
           break;
@@ -312,6 +348,13 @@ export default function PlayerView({ roomId }: Props) {
           break;
 
         case "playback.play": {
+          if (!audioUnlockedRef.current) {
+            // No user gesture on the TV yet — starting now would run the
+            // muted video with dead audio while every Remote thinks playback
+            // is fine. Show the unlock overlay; the tap starts A/V together.
+            setAudioBlocked(true);
+            break;
+          }
           const pos = video?.currentTime ?? 0;
           video?.play().catch(() => {});
           void tryPlayAudio(pos);
@@ -380,8 +423,17 @@ export default function PlayerView({ roomId }: Props) {
     [setQueue, setCurrentSong, updatePosition, setPlayback, setProcessing, setGuests, tryPlayAudio]
   );
 
-  const sendRef = useRef<((cmd: never) => void) | null>(null);
+  const sendRef = useRef<((cmd: never) => boolean) | null>(null);
+  // player.ended that couldn't be delivered (WS down at the moment the video
+  // finished) — without a resend the server would keep the item 'playing'
+  // forever and the never-interrupt guard would wedge the room.
+  const pendingEndedRef = useRef<string | null>(null);
   const onWsConnected = useCallback(() => {
+    if (pendingEndedRef.current) {
+      const sid = pendingEndedRef.current;
+      pendingEndedRef.current = null;
+      sendRef.current?.({ type: "player.ended", songId: sid } as never);
+    }
     sendRef.current?.({ type: "player.ready" } as never);
   }, []);
 
@@ -389,11 +441,14 @@ export default function PlayerView({ roomId }: Props) {
   sendRef.current = sendCommand as never;
 
   // ── Position broadcast timer ─────────────────────────────────────────────
-  // Only broadcasts when the video is genuinely playing — never while paused
-  // (e.g. waiting for the unlock tap), so we don't spam position 0 and
-  // corrupt every Remote's progress on a mid-song refresh.
+  // Gated on the VIDEO element's real state (inside the tick), not on the
+  // store's is_playing — after a backend restart the server pushes a stale
+  // {is_playing:false} snapshot while the video is genuinely playing, and
+  // gating on it froze every Remote's progress bar until the next song.
+  // While paused (e.g. waiting for the unlock tap) the tick no-ops, so we
+  // still never spam position 0 on a mid-song refresh.
   useEffect(() => {
-    if (!playback.is_playing || !currentSong) return;
+    if (!currentSong) return;
     const id = setInterval(() => {
       const v = videoRef.current;
       if (!v || v.paused || v.currentTime <= 0) return;
@@ -404,7 +459,7 @@ export default function PlayerView({ roomId }: Props) {
     }, 1000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playback.is_playing, currentSong, updatePosition]);
+  }, [currentSong, updatePosition]);
 
   // ── Initial data load — also restore currently-playing song on page load ──
   // Note: we do NOT force is_playing=true here. The song-change effect
@@ -482,7 +537,20 @@ export default function PlayerView({ roomId }: Props) {
     video.addEventListener("playing", handlePlaying, { once: true });
 
     const handleEnded = () => {
-      sendRef.current?.({ type: "player.ended" } as never);
+      const endedId = currentSong.id;
+      const delivered = sendRef.current?.({ type: "player.ended", songId: endedId } as never);
+      if (!delivered) pendingEndedRef.current = endedId;
+      // Fallback: if the server never reacts (WS down, stale queue state),
+      // return to standby locally instead of freezing on the last frame.
+      // A song.started / replay in the meantime restarts the video, so the
+      // `.ended` check makes this a no-op in every healthy path.
+      window.setTimeout(() => {
+        const st = useKtvStore.getState();
+        if (st.currentSong?.id === endedId && videoRef.current?.ended) {
+          st.setCurrentSong(null, null);
+          st.setIsPlaying(false);
+        }
+      }, 6000);
     };
     video.addEventListener("ended", handleEnded);
 
@@ -496,6 +564,7 @@ export default function PlayerView({ roomId }: Props) {
       sendRef.current?.({
         type: "player.error",
         error: `Video error: ${msg || "unknown"}`,
+        songId: currentSong.id,
       } as never);
     };
     video.addEventListener("error", handleVideoError);
@@ -550,36 +619,43 @@ export default function PlayerView({ roomId }: Props) {
   const progressPct = duration > 0 ? Math.min(100, (videoPosition / duration) * 100) : 0;
 
   // ── Preload next ready song's media during current playback ───────────────
-  // Pulls video + opus audio into the browser HTTP cache so song-to-song
-  // switching is instant instead of streaming-from-cold over the Tunnel.
+  // Pulls video + audio into the browser HTTP cache so song-to-song switching
+  // is instant instead of streaming-from-cold over the Tunnel.
+  // Keyed on the next song's ID (not the queue array) so the queue.updated
+  // broadcast that follows every song.started doesn't abort the fetches; the
+  // start is delayed so the preload never competes with the current song's
+  // own initial buffering on a slow uplink.
   const preloadedRef = useRef<string | null>(null);
+  const nextPreloadId = currentSong
+    ? queue.find((q) => q.status === "ready" && q.song && q.id !== currentQueueItem?.id)?.song?.id ?? null
+    : null;
   useEffect(() => {
-    if (!currentSong) return;
-    const next = queue.find(
-      (q) => q.status === "ready" && q.song && q.id !== currentQueueItem?.id
-    );
-    const nextSong = next?.song;
-    if (!nextSong || preloadedRef.current === nextSong.id) return;
-    preloadedRef.current = nextSong.id;
-    const base = apiBase();
-    const urls = [
-      `${base}/songs/${nextSong.id}/video.mp4`,
-      `${base}/songs/${nextSong.id}/audio/vocals.wav`,
-      `${base}/songs/${nextSong.id}/audio/no_vocals.wav`,
-    ];
+    if (!currentSong || !nextPreloadId || preloadedRef.current === nextPreloadId) return;
     const controllers: AbortController[] = [];
-    urls.forEach((u) => {
-      const ctrl = new AbortController();
-      controllers.push(ctrl);
-      // Low-priority full GET → populates HTTP cache; body discarded.
-      fetch(u, { signal: ctrl.signal, priority: "low" as RequestPriority })
-        .then((r) => r.blob())
-        .then(() => console.info("[Player] preloaded", u.split("/").slice(-2).join("/")))
-        .catch(() => { /* aborted or failed — fine */ });
-    });
-    return () => controllers.forEach((c) => c.abort());
+    const timer = window.setTimeout(() => {
+      preloadedRef.current = nextPreloadId;
+      const base = apiBase();
+      const urls = [
+        `${base}/songs/${nextPreloadId}/video.mp4`,
+        `${base}/songs/${nextPreloadId}/audio/vocals.wav`,
+        `${base}/songs/${nextPreloadId}/audio/no_vocals.wav`,
+      ];
+      urls.forEach((u) => {
+        const ctrl = new AbortController();
+        controllers.push(ctrl);
+        // Low-priority full GET → populates HTTP cache; body discarded.
+        fetch(u, { signal: ctrl.signal, priority: "low" as RequestPriority })
+          .then((r) => r.blob())
+          .then(() => console.info("[Player] preloaded", u.split("/").slice(-2).join("/")))
+          .catch(() => { /* aborted or failed — fine */ });
+      });
+    }, 12_000);
+    return () => {
+      window.clearTimeout(timer);
+      controllers.forEach((c) => c.abort());
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentSong?.id, queue]);
+  }, [currentSong?.id, nextPreloadId]);
 
   // ────────────────────────────────────────────────────────────────────────────
   // Render — media is rendered at root and never unmounts; overlays change.
@@ -611,8 +687,11 @@ export default function PlayerView({ roomId }: Props) {
       <audio ref={vocalRef} preload="auto" className="hidden" />
       <audio ref={instrRef} preload="auto" className="hidden" />
 
-      {/* ── Subtitle layer (only when has timing) ─────────────────────────── */}
-      {isPlaying && currentSong?.has_timing && (
+      {/* ── Subtitle layer ────────────────────────────────────────────────
+          Always mount while playing; SubtitleLayer picks the right mode:
+          word-timed karaoke (has_timing), a "看手機遙控" hint for plaintext
+          lyrics, or a "無歌詞" hint — so the TV is never silently blank. */}
+      {isPlaying && currentSong && (
         <SubtitleLayer
           key={subtitleRevision}
           song={currentSong}
@@ -710,6 +789,20 @@ export default function PlayerView({ roomId }: Props) {
                 </>
               )}
             </div>
+          </div>
+
+          {/* Audio-unlock hint — any input on the idle screen arms the sound
+              so the first song starts without the tap-to-start overlay */}
+          <div className="absolute bottom-12 left-0 right-0 flex justify-center pointer-events-none">
+            {audioReady ? (
+              <span className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-400/20 text-emerald-300/80 text-xs rounded-full px-4 py-1.5">
+                🔊 音效已就緒，點歌後直接播放
+              </span>
+            ) : (
+              <span className="flex items-center gap-2 bg-white/5 border border-white/10 text-white/45 text-xs rounded-full px-4 py-1.5 animate-pulse">
+                🔇 按遙控器任意鍵或點擊畫面，預先啟用電視音效
+              </span>
+            )}
           </div>
 
           {/* Credit */}

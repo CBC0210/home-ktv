@@ -129,6 +129,11 @@ class SongInQueue(BaseModel):
     status: str
     has_timing: bool = False
     lyrics_source: Optional[str] = None
+    # Playback tuning (Song model properties over extra_metadata) — must match
+    # what the WS song.started event carries, for the Player's REST restore.
+    use_original_audio: bool = False
+    subtitle_offset_ms: int = 0
+    av_offset_ms: int = 0
 
 
 class GuestInQueue(BaseModel):

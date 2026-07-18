@@ -10,7 +10,10 @@ from ktv_pipeline.config import settings
 
 # ── JWT settings ──────────────────────────────────────────────────────────────
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_HOURS = 24 * 7  # 1 week
+# Home-KTV guests return every few weeks; a 7-day TTL meant every phone's
+# stored session was dead by the next party (WS handshakes 403'd forever).
+# 60 days + client-side expiry detection keeps re-joins rare but bounded.
+ACCESS_TOKEN_EXPIRE_HOURS = 24 * 60  # 60 days
 
 
 def hash_password(password: str) -> str:

@@ -2,10 +2,10 @@
 
 > 這份檔案是 OpenClaw 與 Claude Code 之間的長期記憶。每個 task 完成或中斷時都必須更新。
 
-## Status: ✅ 播放器核心功能修復（2026-05-13）
+## Status: ✅ 字幕校正改版 + 測試資料汙染清理（2026-07-18）
 
-Last updated: 2026-05-13 10:45
-Last heartbeat: 2026-05-13 10:45
+Last updated: 2026-07-18
+Last heartbeat: 2026-07-18
 
 ### Next Up
 - （無）
@@ -16,6 +16,27 @@ Last heartbeat: 2026-05-13 10:45
 ---
 
 ## Done
+
+- [x] **字幕延遲校正改版 + Test Song 汙染清理** ✅ (2026-07-18)
+  - **字幕延遲（如五月天〈派對動物〉延遲很重）**：
+    - 範圍 ±5s → **±30s**（NowPlaying clamp + 後端 `_handle_lyrics_offset` clamp）— 歌詞對到錄音室版但 MV 有長前奏時，偏移常超過 5 秒
+    - UI 改為**症狀導向**，不用再猜正負方向：「🐇 字幕跑太快（還沒唱到，字幕就先亮）→ 延後字幕」與「🐢 字幕慢半拍（唱過了，字幕才亮）→ 提前字幕」兩區，各有 0.2s / 1s / 5s 步進按鈕；保留 ←/→ 鍵 0.1s 微調與歸零；顯示目前偏移與方向說明
+  - **Test Song 沒被清掉的根因**：pytest 載入 `backend/.env`（`DATA_DIR=/data/ktv`），**測試一直直接寫產線 DB** — 曲庫裡 100 首假歌（90 首 `lb-song-*`「Test Song N」、4 首「HLS Test Song」、song1/2/3、advsong1、testlyrics-*）、83 個測試房間、105 個測試 guest
+    - 一次性清理：新增 `scripts/cleanup_test_data.py`（預設 dry-run、`--apply` 執行、只比對明確的測試 fixture 樣式），已對產線執行：刪 399 rows（100 songs / 83 rooms / 105 guests / 相關 queue_items+play_history），曲庫剩 805 首真歌、房間剩 `home`+`1501`
+    - 永久止血：`tests/conftest.py` 在任何 ktv import 前把 `DATA_DIR`/`LOG_DIR` 指到 pytest 專用臨時目錄 + autouse session fixture `init_db()`；驗證：跑完整套測試後產線 DB 零汙染
+  - **測試**：131 passed（比上輪 +2 — 兩個 test_auth 失敗原來是被汙染資料害的）；11 failed + 6 errors 為既有環境性基線；pnpm build ✓
+  - **部署**：服務重啟、`/api/songs/search?q=Test` → `[]` ✓
+
+- [x] **Remote 失控 + Player 播完不回待機 + 待機提前解鎖音效** ✅ (2026-07-17)
+  - **根因 1 — Remote 完全失控**：guest JWT 效期僅 7 天，手機 localStorage 還原過期 session；後端 WS 在 `accept()` 前就 `close(4001)`，瀏覽器只看到 HTTP 403 handshake 失敗（close code 1006），前端無法分辨「token 過期」與「網路斷線」，用同一顆死 token 無限重連。UI 因公開 REST 端點照常顯示，看似正常但所有指令被丟棄（journalctl 證據：連續 403 handshake，JWT exp≈2026-05-23）。
+    - 修復：token 效期 7 天 → 60 天；WS 先 accept 再 close(4001) 讓瀏覽器看得到 close code；ws.ts 收到 4001 停止重試並回呼；RemoteView 還原 session 時本地檢查 JWT exp，過期自動用記住的暱稱+房間密碼靜默重新加入（JoinForm 成功時記住房間密碼），失敗才顯示加入表單；admin 旗標若 token 無 is_admin 即自動降級。
+  - **根因 2 — Player 播完卡住**：`run_from_queue` / `_update_state` 無條件寫 QueueItem.status，把播放流程標的 `playing` 蓋成 `ready`（觸發源：開機 `_kick_all_pending_pipelines` 對已 ready 歌曲重跑 pipeline），之後 `player.ended` 找不到 playing 項 → 不廣播 `song.ended` → TV 永遠停在結束的歌（journalctl 證據：`[advance] marked_done=None`）。
+    - 修復：pipeline 對 `playing/done/skipped` 狀態一律不寫（`_PLAYBACK_OWNED_STATUSES` guard）；開機改為「song 已 ready 的 pending 項直接升級，不重跑 pipeline」；`_handle_song_advance` 無條件廣播 `song.ended`（找不到 playing 項時用 -1）；`player.ended/error` 帶 songId 防殭屍分頁的過期事件誤殺下一首；`player.error` 自動跳下一首（原本會讓整房卡死）；`player.ready` 時補發 playing 快照給重連的 TV、閒置時自動開播 ready 歌曲；PlayerView 端 6 秒 fallback 回待機 + 斷線期間漏送的 player.ended 重連補送。
+  - **新功能 — 待機畫面提前解鎖音效**：待機 QR 畫面偵測任意輸入（遙控器按鍵/點擊/觸控）即建立並 resume Web Audio graph、標記已解鎖，第一首歌直接播放不再出現「按 OK 開始」遮罩；待機畫面顯示解鎖提示/已就緒 pill。
+  - **連帶修復**（多代理驗證掃出）：ws.ts 應用層 ping 心跳 25s + 75s 無訊息判定半開連線強制重連（Cloudflare Tunnel 閒置斷線）；`connected` 改為 reactive state，Remote 顯示「連線中斷」橫幅；重連後自動重抓隊列/在線名單；seek 立即回播進度給 Remote；REST 隊列 schema 補 `use_original_audio/subtitle_offset_ms/av_offset_ms`（TV 刷新後音訊模式錯誤）；播放中歌曲可「加回隊列」；下一首預載改延遲 12 秒且不再被 queue.updated 中斷；AudioContext 被 UA 暫停時正確顯示解鎖遮罩（否則無聲播放）；playback.play 在未解鎖時顯示遮罩而非靜音空跑。
+  - **測試**：新增 `tests/test_playback_advance.py` 14 tests（stomp guard、song.ended 廣播、stale event、80% 完成度、開機升級、加回隊列、player.ready 快照、WS 4001）；129 passed（既有 13 fail + 6 error 為環境性基線，與本次無關）；pnpm build ✓。
+  - **線上驗證**：過期 token WS → close 4001 可見 ✓；player.ready → 快照/queue.updated ✓；ping→pong ✓；服務重啟後 /health ok、frontend BUILD_ID 一致 ✓。
+  - **已知未修**（記錄備查）：QueueList 拖曳排序用 HTML5 DnD 在手機無效（需 pointer-event 實作）；fair rotation 對 `__autoplay__` 虛擬 guest 視同真人可能插隊；重播與自然結束同時發生的競態（極罕見）；歌與歌之間待機畫面短暫閃現（原有行為）。
 
 - [x] **播放器核心功能修復** ✅ (2026-05-13)
   - **Bug 1 — Player WS 無法連線**：`token: str = Query(...)` 必填，但 Player 是電視不帶 JWT。修復：`token` 改為 Optional，player role 無需 token，透過 `room_id` query param 連線。

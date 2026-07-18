@@ -1,16 +1,39 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useKtvStore } from "@/lib/stores";
 import { useWebSocket } from "@/lib/ws";
-import { getRoom, getQueue, getOnlineGuests, setGuestToken, verifyRoomAdmin } from "@/lib/api";
+import { getRoom, getQueue, getOnlineGuests, setGuestToken, verifyRoomAdmin, joinRoom } from "@/lib/api";
 import type { GuestSession, ServerEvent, ClientCommand } from "@/lib/types";
 import JoinForm from "./JoinForm";
 import InstallPrompt from "./InstallPrompt";
+import OnboardingTutorial from "./OnboardingTutorial";
 import NowPlaying from "./NowPlaying";
 import QueueList from "./QueueList";
 import SearchView from "./SearchView";
 import RoomTab from "./RoomTab";
+
+const TUTORIAL_DISMISSED_KEY = "ktv_tutorial_dismissed";
+
+function decodeJwtPayload(token: string): { exp?: unknown; is_admin?: unknown } | null {
+  try {
+    const b64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(atob(b64)) as { exp?: unknown; is_admin?: unknown };
+  } catch {
+    return null;
+  }
+}
+
+/** True when the token is expired (or expires within the next minute). */
+function tokenExpired(token: string): boolean {
+  const exp = decodeJwtPayload(token)?.exp;
+  return typeof exp === "number" && exp * 1000 < Date.now() + 60_000;
+}
+
+/** True when the token actually carries the is_admin claim. */
+function tokenIsAdmin(token: string): boolean {
+  return decodeJwtPayload(token)?.is_admin === true;
+}
 
 type Tab = "playing" | "queue" | "search" | "room";
 
@@ -69,6 +92,7 @@ export default function RemoteView({ roomId }: Props) {
   const [adminPassword, setAdminPassword] = useState("");
   const [adminError, setAdminError] = useState<string | null>(null);
   const [adminVerifying, setAdminVerifying] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
 
   const {
     room,
@@ -89,23 +113,93 @@ export default function RemoteView({ roomId }: Props) {
     setIsPlaying,
   } = useKtvStore();
 
-  useEffect(() => {
-    const stored = localStorage.getItem(`ktv_session_${roomId}`);
-    if (stored) {
-      try {
-        const s = JSON.parse(stored) as GuestSession;
-        setSession(s);
-        setGuestToken(s.token);
-      } catch {
-        localStorage.removeItem(`ktv_session_${roomId}`);
-      }
+  // Silent re-join with the remembered nickname + room password — a
+  // returning guest whose token aged out never has to see the join form.
+  // Downgrades admin mode (the fresh token is non-admin; showing admin UI
+  // whose commands silently 403 is exactly the bug class we're fixing).
+  const silentRejoin = useCallback(async (nickname: string): Promise<boolean> => {
+    try {
+      const savedPw = localStorage.getItem(`ktv_room_pw_${roomId}`);
+      const { guest, token } = await joinRoom({
+        room_id: roomId,
+        nickname,
+        password: savedPw ?? undefined,
+      });
+      const next: GuestSession = { guest, token, roomId };
+      localStorage.setItem(`ktv_session_${roomId}`, JSON.stringify(next));
+      localStorage.removeItem(`ktv_admin_${roomId}`);
+      setAdminMode(false);
+      setSession(next);
+      setGuestToken(next.token);
+      return true;
+    } catch {
+      return false;
     }
+  }, [roomId]);
+
+  useEffect(() => {
     // Restore admin mode flag (stored separately so it survives refresh)
     if (localStorage.getItem(`ktv_admin_${roomId}`) === "1") {
       setAdminMode(true);
     }
-    setLoadingSession(false);
-  }, [roomId]);
+    const stored = localStorage.getItem(`ktv_session_${roomId}`);
+    if (!stored) {
+      setLoadingSession(false);
+      return;
+    }
+    let s: GuestSession | null = null;
+    try {
+      s = JSON.parse(stored) as GuestSession;
+    } catch {
+      s = null;
+    }
+    if (s && !tokenExpired(s.token)) {
+      setSession(s);
+      setGuestToken(s.token);
+      // The admin flag must not outlive the elevated token: a plain-guest
+      // token + admin UI means every elevated op fails with a room-wide
+      // error toast. Downgrade quietly; the user can re-verify anytime.
+      if (!tokenIsAdmin(s.token)) {
+        localStorage.removeItem(`ktv_admin_${roomId}`);
+        setAdminMode(false);
+      }
+      setLoadingSession(false);
+      return;
+    }
+    // Token expired (previous root cause of "remote 完全沒反應":
+    // the WS handshake was rejected forever while the UI looked fine).
+    const nickname = s?.guest?.nickname;
+    if (!nickname) {
+      localStorage.removeItem(`ktv_session_${roomId}`);
+      setLoadingSession(false);
+      return;
+    }
+    silentRejoin(nickname)
+      .then((ok) => {
+        if (!ok) {
+          localStorage.removeItem(`ktv_session_${roomId}`);
+          localStorage.removeItem(`ktv_admin_${roomId}`);
+          setAdminMode(false);
+        }
+      })
+      .finally(() => setLoadingSession(false));
+  }, [roomId, silentRejoin]);
+
+  // First-run: once the user is actually in the room, show the usage tutorial
+  // (until they tick "don't show again"). Guarded so it auto-opens at most once
+  // per mount — a session swap (e.g. entering admin mode) won't re-trigger it.
+  const autoShownRef = useRef(false);
+  useEffect(() => {
+    if (autoShownRef.current || loadingSession || !session) return;
+    autoShownRef.current = true;
+    if (localStorage.getItem(TUTORIAL_DISMISSED_KEY) !== "1") setShowTutorial(true);
+  }, [loadingSession, session]);
+
+  const closeTutorial = useCallback((dontShowAgain: boolean) => {
+    if (dontShowAgain) localStorage.setItem(TUTORIAL_DISMISSED_KEY, "1");
+    else localStorage.removeItem(TUTORIAL_DISMISSED_KEY);
+    setShowTutorial(false);
+  }, []);
 
   async function handleAdminVerify() {
     if (!adminPassword.trim()) return;
@@ -144,8 +238,7 @@ export default function RemoteView({ roomId }: Props) {
       .catch(() => {});
   }, [roomId, setRoom]);
 
-  useEffect(() => {
-    if (!session) return;
+  const refreshRoomData = useCallback(() => {
     getQueue(roomId).then((q) => {
       setQueue(q);
       // Detect currently-playing song from queue so "正在播放" works on late join
@@ -155,12 +248,13 @@ export default function RemoteView({ roomId }: Props) {
         setIsPlaying(true);
       }
     }).catch(() => {});
-  }, [roomId, session, setQueue, setCurrentSong, setIsPlaying]);
+    getOnlineGuests(roomId).then(setGuests).catch(() => {});
+  }, [roomId, setQueue, setCurrentSong, setIsPlaying, setGuests]);
 
   useEffect(() => {
     if (!session) return;
-    getOnlineGuests(roomId).then(setGuests).catch(() => {});
-  }, [roomId, session, setGuests]);
+    refreshRoomData();
+  }, [session, refreshRoomData]);
 
   useEffect(() => {
     storeSetSession(session);
@@ -202,7 +296,54 @@ export default function RemoteView({ roomId }: Props) {
     [setQueue, setCurrentSong, updatePosition, setPlayback, setGuests, setProcessing, setIsPlaying]
   );
 
-  const { sendCommand } = useWebSocket(roomId, session?.token ?? null, "remote", handleEvent);
+  // WS rejected the token at runtime (expired mid-session / secret rotated).
+  // Try a seamless re-join; if that fails, drop to the join form instead of
+  // silently retrying a dead token forever.
+  const rejoinAttemptedRef = useRef(false);
+  const handleAuthFailed = useCallback(() => {
+    const nickname = session?.guest?.nickname;
+    const drop = () => {
+      localStorage.removeItem(`ktv_session_${roomId}`);
+      localStorage.removeItem(`ktv_admin_${roomId}`);
+      setAdminMode(false);
+      setSession(null);
+      setGuestToken(null);
+      setSystemError("登入已過期，請重新加入房間");
+    };
+    // One silent retry per page load — if even a fresh token gets rejected
+    // (e.g. server secret mismatch), fall through to the join form instead
+    // of looping join→4001→join forever.
+    if (nickname && !rejoinAttemptedRef.current) {
+      rejoinAttemptedRef.current = true;
+      silentRejoin(nickname).then((ok) => { if (!ok) drop(); });
+    } else {
+      drop();
+    }
+  }, [roomId, session, silentRejoin]);
+
+  // On every (re)connect, re-sync queue/guests over REST — queue changes and
+  // song transitions that happened while the phone was locked/offline were
+  // broadcast to a socket we didn't have, so the local copy is stale.
+  const handleWsConnected = useCallback(() => {
+    refreshRoomData();
+  }, [refreshRoomData]);
+
+  const { sendCommand, connected } = useWebSocket(
+    roomId, session?.token ?? null, "remote", handleEvent, handleWsConnected, handleAuthFailed,
+  );
+
+  // Debounced offline banner — don't flash it during the initial handshake
+  // or a sub-second blip, but make a real outage visible so users know why
+  // buttons aren't responding (commands are dropped while disconnected).
+  const [showOffline, setShowOffline] = useState(false);
+  useEffect(() => {
+    if (connected || !session) {
+      setShowOffline(false);
+      return;
+    }
+    const t = window.setTimeout(() => setShowOffline(true), 2000);
+    return () => window.clearTimeout(t);
+  }, [connected, session]);
 
   function handleJoined(s: GuestSession) {
     setSession(s);
@@ -226,7 +367,13 @@ export default function RemoteView({ roomId }: Props) {
   }
 
   if (!session) {
-    return <JoinForm roomId={roomId} hasPassword={hasPassword} onJoined={handleJoined} />;
+    return (
+      <JoinForm
+        roomId={roomId}
+        hasPassword={hasPassword}
+        onJoined={handleJoined}
+      />
+    );
   }
 
   const initials = session.guest.nickname.slice(0, 1).toUpperCase();
@@ -246,20 +393,40 @@ export default function RemoteView({ roomId }: Props) {
             </span>
           )}
         </div>
-        <button
-          onClick={() => {
-            if (adminMode) exitAdminMode();
-            else setAdminModalOpen(true);
-          }}
-          className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm transition-all ${
-            adminMode ? "ring-2 ring-amber-400 ring-offset-2 ring-offset-[#0a0a0a]" : "active:scale-90"
-          }`}
-          style={{ backgroundColor: session.guest.avatar_color ?? "#7c3aed" }}
-          title={adminMode ? "點擊退出管理員模式" : "點擊進入管理員模式"}
-        >
-          {initials}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            data-tour="help"
+            onClick={() => setShowTutorial(true)}
+            className="w-8 h-8 rounded-full flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/8 text-sm font-bold transition-colors"
+            title="使用教學"
+            aria-label="使用教學"
+          >
+            ?
+          </button>
+          <button
+            data-tour="admin"
+            onClick={() => {
+              if (adminMode) exitAdminMode();
+              else setAdminModalOpen(true);
+            }}
+            className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm transition-all ${
+              adminMode ? "ring-2 ring-amber-400 ring-offset-2 ring-offset-[#0a0a0a]" : "active:scale-90"
+            }`}
+            style={{ backgroundColor: session.guest.avatar_color ?? "#7c3aed" }}
+            title={adminMode ? "點擊退出管理員模式" : "點擊進入管理員模式"}
+          >
+            {initials}
+          </button>
+        </div>
       </header>
+
+      {/* Offline banner — commands are dropped while disconnected, so say it */}
+      {showOffline && (
+        <div className="sticky top-[49px] z-20 bg-amber-500/15 border-b border-amber-400/25 px-5 py-2 flex items-center gap-2">
+          <div className="w-3.5 h-3.5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+          <p className="text-amber-300/90 text-xs">連線中斷，自動重連中… 按鈕操作暫時無效</p>
+        </div>
+      )}
 
       {/* Admin password modal */}
       {adminModalOpen && (
@@ -354,11 +521,14 @@ export default function RemoteView({ roomId }: Props) {
 
       <InstallPrompt />
 
+      <OnboardingTutorial open={showTutorial} onClose={closeTutorial} onNavigate={setTab} />
+
       {/* Bottom tab bar */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-[#111]/90 backdrop-blur-xl border-t border-white/6 flex z-30 safe-bottom">
+      <nav data-tour="tabbar" className="fixed bottom-0 left-0 right-0 bg-[#111]/90 backdrop-blur-xl border-t border-white/6 flex z-30 safe-bottom">
         {TAB_ITEMS.map((t) => (
           <button
             key={t.id}
+            data-tour={`nav-${t.id}`}
             onClick={() => setTab(t.id)}
             className={`relative flex-1 flex flex-col items-center py-3 gap-0.5 transition-colors ${
               tab === t.id ? "text-violet-400" : "text-white/35 hover:text-white/60"
