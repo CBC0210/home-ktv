@@ -17,7 +17,7 @@
 - 🔁 公平輪唱（同一人不連播）、自動播放、閒置房間自動清理。
 - 🎬 YouTube + **Bilibili**（貼連結即可），單曲問題回報→下次改用原始音訊。
 
-完整規格與設計決策見 [`CLAUDE.md`](CLAUDE.md)（專案單一真相來源）。
+架構導覽見 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)；原始設計規格見 [`CLAUDE.md`](CLAUDE.md)。
 
 ## 不需要 Cloudflare — 區域網就能跑
 
@@ -103,10 +103,19 @@ echo 'NEXT_PUBLIC_API_URL=https://ktv.example.com' > frontend/.env.production.lo
 pnpm --dir frontend build
 ```
 
-cloudflared 把 `/api`、`/ws`、`/songs` 路由到 `:8000`，其餘到前端。
+cloudflared 把 `/api`、`/ws`、`/songs` 路由到 `:8000`，其餘到前端 —
+設定範本在 [`deploy/cloudflared.example.yml`](deploy/cloudflared.example.yml)；
+systemd 服務樣板在 [`deploy/*.service.example`](deploy/)。
 詳細步驟見 [`docs/SETUP.md`](docs/SETUP.md)，協議見 [`docs/API.md`](docs/API.md)。
+
+## 客製化品牌
+
+預設品牌是「響窩 Echonest」。想換成自己的名字：
+`frontend/components/player/PlayerView.tsx`（待機畫面 logo/字樣）、
+`frontend/components/remote/RoomTab.tsx`、`frontend/app/layout.tsx`（metadata）、
+`frontend/app/r/[roomId]/manifest` 相關檔（PWA 名稱與圖示）。
 
 ## License
 
-尚未指定正式授權（作者可日後加入 `LICENSE`）。原始碼公開供自架與學習；
-商用或散布前請先聯繫作者。請保留出處。
+[PolyForm Noncommercial 1.0.0](LICENSE.md) — 可自由自架、修改、分享，**不得商業使用**。
+散布時請保留 `LICENSE.md` 內的 Required Notice。商業授權請聯繫作者。

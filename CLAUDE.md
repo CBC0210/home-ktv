@@ -1,5 +1,7 @@
 # Home KTV — Project Specification
 
+> **公開版說明**：本文件是專案的**原始設計規格**（含作者個人的 AI-agent 開發流程 §17/§21），部分細節與最終實作已有出入。外部部署者請以 [README.md](README.md) 與 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 為準。
+>
 > 這份文件是專案的單一真相來源（single source of truth）。任何架構決策、功能取捨、技術選型都以此為準。
 > 修改本文件時請保留語氣與結構，新增章節請更新目錄。
 >
@@ -27,7 +29,7 @@
 
 ## 0.2 認證方式（已確定）
 
-- **管理員密碼**：`BCktv210`（明文存在 `.env` 的 `ADMIN_PASSWORD`，第一次進管理頁要輸入此密碼，之後 cookie 記憶）
+- **管理員密碼**：`<ADMIN_PASSWORD>`（明文存在 `.env` 的 `ADMIN_PASSWORD`，第一次進管理頁要輸入此密碼，之後 cookie 記憶）
 - **房間密碼**：每個房間可設密碼，預設 `home` 房的密碼是 `home`
 - **訪客流程**：進入房間頁 → 提示輸入房間密碼 → 通過後填暱稱 → 進入
 - **Cloudflare Access**：先**不啟用**（因為要讓朋友訪客能進）；只在管理員專用的 `/admin/*` 路徑可選擇啟用
@@ -612,7 +614,7 @@ type PlayerStatus =
 
 ```bash
 # === 認證 ===
-ADMIN_PASSWORD=BCktv210
+ADMIN_PASSWORD=<your-admin-password>
 ADMIN_COOKIE_SECRET=<隨機產生 32 字元，第一次部署時填>
 
 # === 部署 ===
@@ -1099,7 +1101,7 @@ Context for next session:
 | 9 | 多房間 | 預設 home 房（密碼 `home`），管理員可建多房間 |
 | 10 | 行動 Player | 響應式適配但非主要場景 |
 | 11 | GitHub repo | private |
-| 12 | 認證 | ADMIN_PASSWORD=`BCktv210`，房間密碼 |
+| 12 | 認證 | ADMIN_PASSWORD=`<ADMIN_PASSWORD>`，房間密碼 |
 | 13 | Cloudflare 帳號 | 使用者已有，由 SETUP.md 引導 |
 | 14 | GPU driver | 由 M0-T5 自動偵測 + 安裝 |
 | 15 | OpenClaw 整合 | Telegram → OpenClaw → Claude Code CLI，PROGRESS.md 是長期記憶 |

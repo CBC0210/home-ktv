@@ -269,3 +269,32 @@ class TestWsAuthCloseCode:
             with pytest.raises(WebSocketDisconnect) as excinfo:
                 ws.receive_text()
         assert excinfo.value.code == 4001
+
+
+class TestFirstRunSeeding:
+    def test_seed_default_room_on_empty_db(self):
+        """Fresh deploy: with zero rooms, startup must create 'home' so the
+        default URLs work without manual SQL."""
+        from main import _seed_default_room
+        from ktv_pipeline.models import Room, QueueItem, PlayHistory
+        with get_db_session() as s:
+            s.query(QueueItem).delete(synchronize_session=False)
+            s.query(PlayHistory).delete(synchronize_session=False)
+            s.query(Room).delete(synchronize_session=False)
+            s.commit()
+        _seed_default_room()
+        with get_db_session() as s:
+            room = s.query(Room).filter_by(id="home").first()
+            assert room is not None
+            assert room.is_default is True
+            assert room.password_hash is None  # DEFAULT_ROOM_PASSWORD unset
+
+    def test_seed_is_noop_when_rooms_exist(self):
+        from main import _seed_default_room
+        from ktv_pipeline.models import Room
+        _seed_default_room()
+        with get_db_session() as s:
+            n = s.query(Room).count()
+        _seed_default_room()
+        with get_db_session() as s:
+            assert s.query(Room).count() == n

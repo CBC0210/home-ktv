@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # Home KTV — Backup script
 # Backs up the SQLite database and configuration files.
-# Media files (/data/ktv/cache/) are NOT backed up (too large, regenerable).
+# Media files ($DATA_DIR/cache/) are NOT backed up (too large, regenerable).
 #
 # Usage:
 #   bash scripts/backup.sh
-#   # Or via cron: 0 2 * * * /home/cbc/home-ktv/scripts/backup.sh >> /data/ktv/logs/backup.log 2>&1
+#   # Or via cron: 0 2 * * * /path/to/home-ktv/scripts/backup.sh >> "$DATA_DIR/logs/backup.log" 2>&1
 
 set -euo pipefail
 
 # ── Configuration ────────────────────────────────────────────────────────────
-PROJECT_DIR="/home/cbc/home-ktv"
-DATA_DIR="${DATA_DIR:-/data/ktv}"
-BACKUP_BASE="${BACKUP_BASE:-/home/cbc/home-ktv-backups}"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DATA_DIR="${DATA_DIR:-$PROJECT_DIR/data}"
+BACKUP_BASE="${BACKUP_BASE:-$PROJECT_DIR-backups}"
 DATE_TAG=$(date +%Y%m%d_%H%M%S)
 BACKUP_DIR="${BACKUP_BASE}/${DATE_TAG}"
 KEEP_DAYS="${BACKUP_KEEP_DAYS:-30}"

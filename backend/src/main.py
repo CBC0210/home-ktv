@@ -28,6 +28,29 @@ def _recover_stuck_queue_items() -> None:
             log.warning("Startup recovery: reset %d stuck queue items to pending", n)
 
 
+def _seed_default_room() -> None:
+    """First-run: create the default 'home' room if NO rooms exist yet.
+
+    Without this a fresh deploy lands every URL on "Room not found" and the
+    deployer has to hand-insert a row. Password comes from
+    DEFAULT_ROOM_PASSWORD (empty = open room, fine on a private LAN)."""
+    from ktv_pipeline.models import Room
+    from ktv_pipeline.auth import hash_password
+    with get_db_session() as session:
+        if session.query(Room.id).first():
+            return
+        pw = settings.default_room_password
+        session.add(Room(
+            id="home",
+            name="Home",
+            is_default=True,
+            password_hash=hash_password(pw) if pw else None,
+        ))
+        session.commit()
+        log.info("First run: seeded default room 'home' (password %s)",
+                 "set" if pw else "not set")
+
+
 def _migrate_admin_password_column() -> None:
     """Idempotently add the rooms.admin_password_hash column (SQLite ALTER)."""
     from sqlalchemy import text
@@ -160,7 +183,13 @@ async def lifespan(app: FastAPI):
     # Startup
     init_db()
     _migrate_admin_password_column()
+    _seed_default_room()
     _recover_stuck_queue_items()
+    if settings.admin_password in ("admin", "") or "change" in settings.admin_cookie_secret:
+        log.warning(
+            "SECURITY: ADMIN_PASSWORD / ADMIN_COOKIE_SECRET still at defaults — "
+            "set real values in .env before exposing this server beyond your LAN"
+        )
     # Heavy bcrypt-hashing seed runs in a background thread so it doesn't
     # block startup (test fixtures left ~500 orphan rooms in DB).
     import asyncio

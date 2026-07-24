@@ -5,23 +5,41 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _nvidia_lib_paths() -> list:
+    """Locate the pip-installed nvidia/*/lib dirs on THIS machine.
+
+    The nvidia-cudnn / cusparselt / nccl wheels install shared libraries into
+    site-packages/nvidia/<pkg>/lib, which is not on the default loader path.
+    Derived from the actual installed package location instead of a hardcoded
+    path so any user / venv / Python version works.
+    """
+    try:
+        import importlib.util
+        spec = importlib.util.find_spec("nvidia")
+        roots = list(spec.submodule_search_locations or []) if spec else []
+    except Exception:
+        roots = []
+    paths = []
+    for root in roots:
+        for sub in ("cudnn", "cusparselt", "nccl"):
+            p = Path(root) / sub / "lib"
+            if p.is_dir():
+                paths.append(str(p))
+    return paths
+
+
 def _configure_cuda_env() -> None:
     """Ensure CUDA shared libraries are found for Demucs / WhisperX.
 
-    nvidia-cublas-13, nvidia-cudnn-9, nvidia-cusparse-13 and nvidia-nccl
-    packages install into a site-packages directory that is not on the
-    default library search path.  We prepend the paths here so that any
-    subsequent import of torch / demucs works without requiring env vars.
+    Prepends the nvidia wheel lib dirs to LD_LIBRARY_PATH so any subsequent
+    import of torch / demucs works without requiring env vars.
     """
-    base = "/home/cbc/.local/lib/python3.12/site-packages"
-    extra = ":".join([
-        f"{base}/nvidia/cudnn/lib",
-        f"{base}/nvidia/cusparselt/lib",
-        f"{base}/nvidia/nccl/lib",
-    ])
-    existing = os.environ.get("LD_LIBRARY_PATH", "")
-    os.environ["LD_LIBRARY_PATH"] = f"{extra}:{existing}" if existing else extra
-    # Reduce VRAM fragmentation on the GTX 1650 (4 GB).
+    paths = _nvidia_lib_paths()
+    if paths:
+        extra = ":".join(paths)
+        existing = os.environ.get("LD_LIBRARY_PATH", "")
+        os.environ["LD_LIBRARY_PATH"] = f"{extra}:{existing}" if existing else extra
+    # Reduce VRAM fragmentation on small (4 GB) cards.
     # expandable_segments: lets the allocator grow/shrink blocks instead of
     #   keeping fixed-size pools → less stranded memory between Demucs and WhisperX.
     # garbage_collection_threshold:0.8 → CUDA GC kicks in at 80% pool usage,
@@ -40,6 +58,9 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        # Unknown .env entries must never crash startup — deployers keep
+        # legacy/extra vars around, and that's fine.
+        extra="ignore",
     )
 
     admin_password: str = "admin"          # CHANGE in .env — gates /admin
@@ -63,13 +84,18 @@ class Settings(BaseSettings):
     pipeline_max_retries: int = 3
     pipeline_heartbeat_sec: int = 30
     prefetch_count: int = 2
+    # Optional Netscape-format cookies file for yt-dlp (age-restricted /
+    # members-only videos). Empty = no cookies.
+    youtube_cookies_path: str = ""
+    # Password for the auto-seeded default 'home' room on FIRST run (empty =
+    # room without password — fine on a private LAN).
+    default_room_password: str = ""
     # YouTube search result filter — drop non-song videos. A track is
     # normally 1–10 min; longer = compilation / live / concert / talk,
     # shorter = clip. Direct-pasted links bypass this.
     search_min_duration_sec: int = 60
     search_max_duration_sec: int = 600
     log_level: str = "INFO"
-    log_dir: Path = Path("/data/ktv/logs")
     dev_mode: bool = False
     # MiniMax LLM (Anthropic-compatible endpoint) — used to clean messy
     # YouTube titles into accurate {title, artist} for lyric search.
@@ -87,6 +113,11 @@ class Settings(BaseSettings):
     @property
     def db_path(self) -> Path:
         return self.data_dir / "ktv.db"
+
+    @property
+    def log_dir(self) -> Path:
+        """Always inside DATA_DIR so a fresh clone never writes outside it."""
+        return self.data_dir / "logs"
 
 
 settings = Settings()

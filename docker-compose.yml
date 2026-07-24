@@ -45,14 +45,14 @@ services:
       context: .
       dockerfile: deploy/Dockerfile.frontend
       args:
-        NEXT_PUBLIC_API_URL: ${PUBLIC_BASE_URL:-https://ktv.bc-verse.com}
-        NEXT_PUBLIC_WS_URL: ${PUBLIC_WS_URL:-wss://ktv.bc-verse.com}
+        NEXT_PUBLIC_API_URL: ${PUBLIC_BASE_URL:-}
+        NEXT_PUBLIC_WS_URL: ${PUBLIC_WS_URL:-}
     image: home-ktv-frontend:latest
     container_name: ktv-frontend
     restart: unless-stopped
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=${PUBLIC_BASE_URL:-https://ktv.bc-verse.com}
+      - NEXT_PUBLIC_API_URL=${PUBLIC_BASE_URL:-}
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:
@@ -70,4 +70,4 @@ volumes:
     driver_opts:
       type: none
       o: bind
-      device: /data/ktv    # Host path — must exist before starting
+      device: ${DATA_DIR:-./data}    # Host path — must exist before starting (mkdir -p ./data)

@@ -1,20 +1,19 @@
 [Unit]
 Description=Home KTV Frontend (Next.js)
-Documentation=https://github.com/cbc/home-ktv
+Documentation=https://github.com/CBC0210/home-ktv
 After=network.target ktv-backend.service
 Wants=ktv-backend.service
 
 [Service]
 Type=simple
-User=cbc
-Group=cbc
-WorkingDirectory=/home/cbc/home-ktv/frontend
-
+User=<USER>
+Group=<USER>
+# Serve the standalone build (pnpm build already copies static assets in):
+WorkingDirectory=<REPO_DIR>/frontend/.next/standalone
 Environment="NODE_ENV=production"
 Environment="PORT=3000"
-
-ExecStart=/usr/bin/pnpm start
-ExecStartPre=/usr/bin/pnpm build
+Environment="NEXT_TELEMETRY_DISABLED=1"
+ExecStart=/usr/bin/env node server.js
 
 Restart=on-failure
 RestartSec=10s

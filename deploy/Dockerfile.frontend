@@ -16,8 +16,8 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY frontend/ .
 
 # Build args for public env vars
-ARG NEXT_PUBLIC_API_URL=https://ktv.bc-verse.com
-ARG NEXT_PUBLIC_WS_URL=wss://ktv.bc-verse.com
+ARG NEXT_PUBLIC_API_URL=
+ARG NEXT_PUBLIC_WS_URL=
 
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL

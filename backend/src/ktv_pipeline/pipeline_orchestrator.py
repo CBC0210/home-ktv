@@ -177,7 +177,9 @@ class PipelineOrchestrator:
         lrc_converter: Optional[LrcToAssConverter] = None,
     ):
         self.config = config or PipelineConfig()
-        self._ytdlp = ytdlp or YtDlpWrapper()
+        from ktv_pipeline.config import settings as _s
+        _cookies = Path(_s.youtube_cookies_path) if _s.youtube_cookies_path else None
+        self._ytdlp = ytdlp or YtDlpWrapper(cookies_path=_cookies)
         self._demucs = demucs or DemucsWrapper()
         self._whisperx = whisperx or WhisperXWrapper()
         self._lrc_converter = lrc_converter or LrcToAssConverter()

@@ -1,5 +1,7 @@
 # Setup Guide
 
+> 路徑中的 `<REPO_DIR>`/`<HOME>`/`<user>`/`ktv.example.com` 請換成你自己的值。
+
 > 這份檔案記錄所有需要使用者手動操作的步驟，按時間順序追加。
 > Claude 不會跳過此檔案——任何需要使用者操作的事都會在這裡新增章節。
 
@@ -39,11 +41,11 @@ Claude 會跑 `scripts/gpu-setup-check.sh`，這支腳本會：
 
 ### 4. Cloudflare Tunnel（M0-T6）
 
-#### 4.1 確認你有 Cloudflare 帳號和 `bc-verse.com` 域名
+#### 4.1 確認你有 Cloudflare 帳號和 `example.com` 域名
 
-如果還沒在 Cloudflare 管理 `bc-verse.com`：
+如果還沒在 Cloudflare 管理 `example.com`：
 1. 登入 https://dash.cloudflare.com
-2. Add Site → 輸入 `bc-verse.com`
+2. Add Site → 輸入 `example.com`
 3. 把網域註冊商的 nameserver 改成 Cloudflare 提供的
 4. 等 DNS 生效（最多 24 小時）
 
@@ -80,7 +82,7 @@ CF_TUNNEL_UUID=abc123-def456-ghi789
 #### 4.5 設定 DNS
 
 ```bash
-cloudflared tunnel route dns ktv ktv.bc-verse.com
+cloudflared tunnel route dns ktv ktv.example.com
 ```
 
 #### 4.6 設定檔
@@ -92,7 +94,7 @@ tunnel: <填入 UUID>
 credentials-file: /home/<your-user>/.cloudflared/<UUID>.json
 
 ingress:
-  - hostname: ktv.bc-verse.com
+  - hostname: ktv.example.com
     service: http://localhost:8000
   - service: http_status:404
 ```
@@ -116,7 +118,7 @@ python3 -m http.server 8000
 開另一個終端：
 
 ```bash
-curl https://ktv.bc-verse.com
+curl https://ktv.example.com
 ```
 
 看到 Python 的目錄列表即代表 Tunnel 通了。
@@ -130,7 +132,7 @@ curl https://ktv.bc-verse.com
 #### 5.1 Backend
 
 ```bash
-sudo cp /home/cbc/home-ktv/deploy/ktv-backend.service /etc/systemd/system/
+sudo cp <REPO_DIR>/deploy/ktv-backend.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable ktv-backend
 sudo systemctl start ktv-backend
@@ -147,11 +149,11 @@ curl http://localhost:8000/health
 
 ```bash
 # 先 build
-cd /home/cbc/home-ktv/frontend
+cd <REPO_DIR>/frontend
 pnpm build
 
 # 安裝服務
-sudo cp /home/cbc/home-ktv/deploy/ktv-frontend.service /etc/systemd/system/
+sudo cp <REPO_DIR>/deploy/ktv-frontend.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable ktv-frontend
 sudo systemctl start ktv-frontend
@@ -164,14 +166,14 @@ sudo systemctl start ktv-frontend
 
 ```bash
 # 複製設定檔（已有 tunnel UUID）
-sudo cp /home/cbc/home-ktv/deploy/cloudflared.yml /etc/cloudflared/config.yml
+sudo cp <REPO_DIR>/deploy/cloudflared.yml /etc/cloudflared/config.yml
 
 # 啟動服務
 sudo systemctl enable cloudflared
 sudo systemctl start cloudflared
 
 # 測試穿透
-curl https://ktv.bc-verse.com/health
+curl https://ktv.example.com/health
 ```
 
 ### 6. 備份設定
@@ -179,10 +181,10 @@ curl https://ktv.bc-verse.com/health
 #### 6.1 手動備份
 
 ```bash
-bash /home/cbc/home-ktv/scripts/backup.sh
+bash <REPO_DIR>/scripts/backup.sh
 ```
 
-備份位置：`/home/cbc/home-ktv-backups/ktv-backup-YYYYMMDD_HHMMSS.tar.gz`
+備份位置：`<REPO_DIR>-backups/ktv-backup-YYYYMMDD_HHMMSS.tar.gz`
 備份內容：SQLite DB、`.env`、`cloudflared.yml`、最近 7 天的 log
 
 #### 6.2 自動備份（每天凌晨 2:00）
@@ -193,7 +195,7 @@ crontab -e
 
 加入：
 ```
-0 2 * * * /home/cbc/home-ktv/scripts/backup.sh >> /data/ktv/logs/backup.log 2>&1
+0 2 * * * <REPO_DIR>/scripts/backup.sh >> /data/ktv/logs/backup.log 2>&1
 ```
 
 ### 7. 資料目錄初始化
@@ -202,7 +204,7 @@ crontab -e
 
 ```bash
 sudo mkdir -p /data/ktv/{cache,logs,tmp}
-sudo chown -R cbc:cbc /data/ktv
+sudo chown -R <user>:<user> /data/ktv
 ```
 
 ### 8. 系統健康確認清單
@@ -211,13 +213,13 @@ sudo chown -R cbc:cbc /data/ktv
 
 ```bash
 # 1. Backend 回應
-curl https://ktv.bc-verse.com/health
+curl https://ktv.example.com/health
 
 # 2. 房間列表
-curl https://ktv.bc-verse.com/api/rooms
+curl https://ktv.example.com/api/rooms
 
 # 3. 前端頁面
-curl -s https://ktv.bc-verse.com/ | head -5
+curl -s https://ktv.example.com/ | head -5
 
 # 4. GPU 狀態（不連顯示器時 nvidia-smi 可能會有非零退出碼，是正常的）
 nvidia-smi

@@ -20,9 +20,10 @@ import subprocess
 import sys
 import sqlite3
 from datetime import datetime, timedelta
+import os
 from pathlib import Path
 
-DATA_DIR = Path("/data/ktv")
+DATA_DIR = Path(os.environ.get("DATA_DIR", Path(__file__).resolve().parent.parent / "data"))
 DB_PATH = DATA_DIR / "ktv.db"
 ALERTS_FILE = DATA_DIR / "watchdog-alerts.jsonl"
 

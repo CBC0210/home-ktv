@@ -1,6 +1,6 @@
 # Home KTV — API & WebSocket 協議
 
-> 完整 API 文件。所有路由均掛在 `https://ktv.bc-verse.com`。
+> 完整 API 文件。所有路由均掛在 `https://ktv.example.com`。
 > REST API 前綴為 `/api`；WebSocket 端點為 `/ws`；串流端點為 `/songs/{id}/...`。
 
 ---
@@ -37,7 +37,7 @@ Authorization: Bearer <token>
 在 query string 帶入 token：
 
 ```
-wss://ktv.bc-verse.com/ws?token=<token>&room_id=<room_id>&role=remote
+wss://ktv.example.com/ws?token=<token>&room_id=<room_id>&role=remote
 ```
 
 ### Token Payload
@@ -498,7 +498,7 @@ Range: bytes=0-65535
     "no_vocals.wav": { "size_bytes": 18432000 }
   },
   "lyrics_available": true,
-  "cache_dir": "/data/ktv/cache/demucs/dQw4w9WgXcQ"
+  "cache_dir": "<DATA_DIR>/cache/demucs/dQw4w9WgXcQ"
 }
 ```
 
@@ -530,7 +530,7 @@ Range: bytes=0-65535
     "memory_total_mb": 4096,
     "driver_version": "580.65.06"
   },
-  "db_path": "/data/ktv/ktv.db",
+  "db_path": "<DATA_DIR>/ktv.db",
   "data_dir": "/data/ktv"
 }
 ```
@@ -542,7 +542,7 @@ Range: bytes=0-65535
 ### 連線
 
 ```
-wss://ktv.bc-verse.com/ws?token=<jwt>&role=<player|remote|admin>
+wss://ktv.example.com/ws?token=<jwt>&role=<player|remote|admin>
 ```
 
 - `token` — 必填，來自 `/api/guests/join` 或 `/api/auth/admin/login`

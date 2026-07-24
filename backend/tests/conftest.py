@@ -15,17 +15,16 @@ _TEST_DATA_DIR = tempfile.mkdtemp(prefix="ktv-test-data-")
 os.environ["DATA_DIR"] = _TEST_DATA_DIR
 os.environ["LOG_DIR"] = os.path.join(_TEST_DATA_DIR, "logs")
 
-# Ensure CUDA libraries are on the path before any module that imports torch runs.
-# This mirrors what config.py does, but needs to happen at pytest collection time
-# before the torch import in test_demucs.py is resolved.
-base = "/home/cbc/.local/lib/python3.12/site-packages"
-extra = ":".join([
-    f"{base}/nvidia/cudnn/lib",
-    f"{base}/nvidia/cusparselt/lib",
-    f"{base}/nvidia/nccl/lib",
-])
-existing = os.environ.get("LD_LIBRARY_PATH", "")
-os.environ["LD_LIBRARY_PATH"] = f"{extra}:{existing}" if existing else extra
+# Ensure CUDA libraries are on the path before any module that imports torch
+# runs. Reuses config.py's machine-independent locator (safe to import here:
+# the DATA_DIR override above is already in effect when Settings loads).
+from ktv_pipeline.config import _nvidia_lib_paths  # noqa: E402
+
+_paths = _nvidia_lib_paths()
+if _paths:
+    _extra = ":".join(_paths)
+    _existing = os.environ.get("LD_LIBRARY_PATH", "")
+    os.environ["LD_LIBRARY_PATH"] = f"{_extra}:{_existing}" if _existing else _extra
 
 
 @pytest.fixture(scope="session", autouse=True)

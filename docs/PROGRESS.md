@@ -1,8 +1,10 @@
 # Project Progress
 
+> 內部開發記錄（AI-agent 工作流長期記憶）— 部署與使用不需閱讀本檔。
+
 > 這份檔案是 OpenClaw 與 Claude Code 之間的長期記憶。每個 task 完成或中斷時都必須更新。
 
-## Status: ✅ 公平輪唱順序即時顯示（2026-07-18）
+## Status: ✅ Bilibili 修復 + 開源化發佈準備（2026-07-24）
 
 Last updated: 2026-07-18
 Last heartbeat: 2026-07-18
@@ -16,6 +18,13 @@ Last heartbeat: 2026-07-18
 ---
 
 ## Done
+
+- [x] **Bilibili 貼上修復 + 開源化發佈準備** ✅ (2026-07-24)
+  - **Bilibili**：分享文字解析鏈本來就通，斷點是 bilibili 對舊版 yt-dlp 回 HTTP 412；升級 2026.07.04 解決；`scripts/update-ytdlp.sh` 一鍵升級；`_mark_ready` 加「無 video.mp4 不得標 ready」防呆（清掉 4 筆殭屍紀錄）；E2E：貼上完整分享文字 80 秒處理完成
+  - **開源化**（多代理稽核 28 findings 逐項處理）：LICENSE（PolyForm Noncommercial 1.0.0）；CUDA lib 路徑改機器無關自動解析（config/conftest/scripts）；log 一律 DATA_DIR/logs；YOUTUBE_COOKIES_PATH 正式接線；首次啟動自動 seed `home` 房（DEFAULT_ROOM_PASSWORD）；Settings extra=ignore 防未知 env 爆炸；弱密碼啟動警告；deploy 全樣板化（systemd .example、cloudflared.example.yml 去 UUID、nginx/compose/Dockerfile 去個人網域）；docs/ARCHITECTURE.md 公開版；CLAUDE.md 密碼佔位符化+公開版說明；SETUP.md 去個人化；session log 移 docs/internal/；README 補授權/品牌客製章節
+  - **安全**：管理員密碼已輪換（舊 BCktv210 已失效，401 實測）；新密碼在兩份 .env
+  - **測試**：153 passed（+2 首次啟動 seeding）；基線 11 fail + 6 error 不變
+
 
 - [x] **公平輪唱順序實體化 — 顯示順序 = 實際播放順序** ✅ (2026-07-18)
   - **問題**：輪唱只在「挑下一首時」套用（`pick_next_ready`），電視「下一首」與手機隊列顯示的是原始加入順序，跟實際播放順序不一致
