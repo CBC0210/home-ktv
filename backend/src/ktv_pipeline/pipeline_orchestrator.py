@@ -671,6 +671,18 @@ class PipelineOrchestrator:
                 log.debug("[%s] broadcast failed: %s", song_id, exc)
 
     async def _mark_ready(self, song_id: str) -> None:
+        # Guard: 'ready' promises the Player a playable video. A ready row
+        # without its file (seen in prod: 4 zombie rows) makes the TV 404 →
+        # error → skip on every attempt to play it.
+        from ktv_pipeline.config import settings as _cfg
+        has_video = any(
+            (_cfg.data_dir / d / song_id / "video.mp4").exists()
+            for d in ("media", "cache")
+        )
+        if not has_video:
+            log.error("[%s] refusing to mark ready — video.mp4 missing", song_id)
+            await self._mark_failed_perm(song_id, "video file missing after pipeline")
+            return
         with get_db_session() as db:
             song = db.query(Song).filter(Song.id == song_id).first()
             if song:
