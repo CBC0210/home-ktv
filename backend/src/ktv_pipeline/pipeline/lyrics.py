@@ -1,0 +1,1218 @@
+"""Lyrics fetching — ADR-005 fallback chain.
+
+Phase 0 (YouTube native subtitles, highest quality):
+  0. YouTube subtitles — extracted via yt_dlp from the video itself
+
+Phase 1 (synced / timed lyrics):
+  1. AMLL TTML DB   — word-level AMLL (uses NetEase song ID → AMLL lookup)
+  2. NetEase        — line-level LRC from 163 API
+  3. QQ Music       — QRC line-level via QQ API
+  4. syncedlyrics   — LRCLIB / Musixmatch / Megalobiz
+
+Phase 2 (plain text fallback):
+  5. Mojim          — HTML scrape
+  6. KKBOX          — HTML scrape
+  7. Genius         — HTML scrape
+
+Phase 3:
+  → 完全失敗，回傳 has_timing=False source=None quality=none
+
+Output dict format per ADR-005 §7.3:
+  {
+    "lyrics_type": "synced" | "plain",
+    "lrc": str,          # raw LRC content (even plain text gets returned in lrc field as single lines)
+    "source": str,       # source name
+  }
+
+Thread-safety: uses a module-level asyncio.Lock (separate from GPU lock).
+HTTP: httpx async client with exponential back-off retry.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import re
+import tempfile
+from dataclasses import dataclass, field
+from typing import Optional
+
+import httpx
+
+from ..config import settings
+
+log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Lock — serialize network I/O to avoid hammering lyric servers.
+# ---------------------------------------------------------------------------
+_http_lock: asyncio.Lock = asyncio.Lock()
+
+# Exponential back-off base delays (seconds) — 1, 2, 4, 8 ...
+_BACKOFF_BASE = 1
+_MAX_RETRIES = 3
+_DEFAULT_TIMEOUT = httpx.Timeout(connect=5.0, read=15.0, write=5.0, pool=5.0)
+_CONNECT_TIMEOUT = 5.0
+_READ_TIMEOUT = 15.0
+
+
+# ---------------------------------------------------------------------------
+# Exceptions
+# ---------------------------------------------------------------------------
+
+
+class LyricsError(Exception):
+    """Base class."""
+
+
+class TempLyricsError(LyricsError):
+    """Transient error (network, timeout, 5xx) — retry ok."""
+
+
+class PermLyricsError(LyricsError):
+    """Permanent error (not found, 404, parse failure) — skip this source."""
+
+
+# ---------------------------------------------------------------------------
+# Result dataclass — ADR-005 output format
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class LyricsResult:
+    """Output of the lyrics pipeline stage.
+
+    Attributes
+    ----------
+    lyrics_type:
+        "synced"  — time-stamped LRC
+        "plain"   — plain text (no timing)
+    lrc:
+        Raw LRC content. For plain text, one line per lyric line.
+    source:
+        Which source provided the lyrics (e.g. "netease", "mojim").
+        None if all sources failed.
+    quality:
+        One of:
+          "official_word"  — AMLL word-level timing
+          "official_line"  — line-level from official API
+          "plaintext"      — scraped plain text
+          "none"           — all sources failed
+    """
+
+    lyrics_type: str          # "synced" | "plain"
+    lrc: str
+    source: Optional[str]
+    quality: str
+
+    def to_dict(self) -> dict:
+        return {
+            "lyrics_type": self.lyrics_type,
+            "lrc": self.lrc,
+            "source": self.source,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+def _classify_http_error(status: int) -> PermLyricsError | TempLyricsError:
+    """Map HTTP status to error tier."""
+    if status in (404, 410, 403):
+        return PermLyricsError(f"HTTP {status}")
+    if 400 <= status < 500:
+        return PermLyricsError(f"HTTP {status}")
+    return TempLyricsError(f"HTTP {status}")
+
+
+def _strip_html(text: str) -> str:
+    text = re.sub(r"<br\s*/?>", "\n", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def _has_timing_markers(lrc: str) -> bool:
+    """Return True if the LRC string contains at least one [mm:ss.xx] tag."""
+    return bool(re.search(r"\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]", lrc))
+
+
+# OpenCC simplified → traditional converter (cached singleton)
+_s2t_converter = None
+
+
+def _to_traditional(text: str) -> str:
+    """Convert simplified Chinese to traditional. Idempotent for non-CJK text.
+
+    Most mainland sources (NetEase, QQ) return simplified Chinese, but we
+    want Traditional for the karaoke display. OpenCC's s2twp variant uses
+    Taiwan-Mandarin idiom mapping (more natural than plain s2t).
+    """
+    global _s2t_converter
+    if not text or not re.search(r"[一-鿿]", text):
+        return text
+    try:
+        if _s2t_converter is None:
+            import opencc
+            _s2t_converter = opencc.OpenCC("s2twp")
+        return _s2t_converter.convert(text)
+    except Exception as exc:
+        log.warning("OpenCC conversion failed: %s", exc)
+        return text
+
+
+def _build_result(
+    lrc: str,
+    source: str,
+    quality: str,
+) -> LyricsResult:
+    """Normalise source output into a LyricsResult.
+
+    Lyrics from mainland sources are converted to Traditional Chinese
+    (Taiwan idioms) automatically. Non-CJK content passes through.
+    """
+    lyrics_type = "synced" if _has_timing_markers(lrc) else "plain"
+    return LyricsResult(
+        lyrics_type=lyrics_type,
+        lrc=_to_traditional(lrc),
+        source=source,
+        quality=quality,
+    )
+
+
+async def _retryable_get(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    params: Optional[dict] = None,
+    headers: Optional[dict] = None,
+    timeout: httpx.Timeout,
+) -> httpx.Response:
+    """GET with exponential-back-off retry for temp errors."""
+    last_exc: Optional[Exception] = None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            resp = await client.get(url, params=params, headers=headers, timeout=timeout)
+            if resp.status_code < 500:
+                return resp
+            # Server-side error → treat as temp
+            last_exc = TempLyricsError(f"Server error {resp.status_code} on {url}")
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as exc:
+            last_exc = TempLyricsError(str(exc))
+
+        if attempt < _MAX_RETRIES - 1:
+            backoff = _BACKOFF_BASE * (2**attempt)
+            log.warning("Retry %d/%d after %ds for %s", attempt + 1, _MAX_RETRIES, backoff, url)
+            await asyncio.sleep(backoff)
+
+    raise last_exc or TempLyricsError(f"All {_MAX_RETRIES} attempts failed for {url}")
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: Synced-lyrics sources
+# ---------------------------------------------------------------------------
+
+
+_t2s_converter = None
+
+
+def _normalize(s: str) -> str:
+    """Lowercase, fold Traditional→Simplified, strip non-alphanumeric/CJK.
+
+    Mainland catalogs (NetEase/QQ) store Simplified; our queries are often
+    Traditional. Without folding, 風≠风 breaks every match.
+    """
+    global _t2s_converter
+    if not s:
+        return ""
+    s = s.lower()
+    if re.search(r"[一-鿿]", s):
+        try:
+            if _t2s_converter is None:
+                import opencc
+                _t2s_converter = opencc.OpenCC("t2s")
+            s = _t2s_converter.convert(s)
+        except Exception:
+            pass
+    return re.sub(r"[^\w一-鿿]", "", s)
+
+
+def _match_score(query: str, candidate: str) -> float:
+    """Rough 0-1 similarity score via normalized substring containment."""
+    q = _normalize(query)
+    c = _normalize(candidate)
+    if not q or not c:
+        return 0.0
+    if q == c:
+        return 1.0
+    if q in c or c in q:
+        return min(len(q), len(c)) / max(len(q), len(c))
+    # Token overlap (works for English; CJK has no spaces so falls through)
+    qt = set(q)
+    ct = set(c)
+    if not qt or not ct:
+        return 0.0
+    return len(qt & ct) / len(qt | ct) * 0.5  # weak signal, cap at 0.5
+
+
+# ── Candidate verification ───────────────────────────────────────────────────
+# Search APIs (QQ especially) happily return SOME popular song for any query;
+# for obscure/meme/BGM videos that means a stranger's lyrics scrolling on the
+# TV. Every candidate must now pass a combined title+artist+duration score.
+# Live probing of the real library showed correct matches almost always have
+# |duration diff| ≤ 5s while wrong ones are ≥ 30s — duration is the single
+# strongest signal, and it also identifies romanized titles (Marunouchi
+# Sadistic ↔ 丸ノ内サディスティック) that no text similarity can catch.
+
+_ACCEPT_SCORE = 0.55
+
+
+def _sim(a: str, b: str) -> float:
+    """0-1 string similarity (normalization handles 簡繁 + case + punctuation).
+
+    Full containment scores high — catalogs tack annotations/alt-titles onto
+    the real title (妥协 ⊂ 妥協Compromise), which plain length-ratio scoring
+    punished so hard that CORRECT matches used to score ~0.17."""
+    na, nb = _normalize(a), _normalize(b)
+    if not na or not nb:
+        return 0.0
+    if na == nb:
+        return 1.0
+    shorter, longer = (na, nb) if len(na) <= len(nb) else (nb, na)
+    if len(shorter) >= 2 and shorter in longer:
+        return 0.55 + 0.45 * (len(shorter) / len(longer))
+    sa, sb = set(na), set(nb)
+    return len(sa & sb) / len(sa | sb) * 0.5  # weak char-overlap signal
+
+
+def _strip_annotations(s: str) -> str:
+    """Drop parenthesised annotations — (Live) / (丸内虐待狂) / (R&B版) …"""
+    return re.sub(r"[\(\[（【][^\)\]）】]*[\)\]）】]", " ", s or "").strip()
+
+
+def _title_sim(q_title: str, c_title: str) -> float:
+    """Best similarity across raw / annotation-stripped / CJK-core forms."""
+    q_forms = {q_title, _cjk_core(q_title)}
+    c_forms = {c_title, _strip_annotations(c_title), _cjk_core(c_title)}
+    return max(
+        (_sim(a, b) for a in q_forms for b in c_forms if a and b),
+        default=0.0,
+    )
+
+
+def _artist_sim(q_artist: str, q_title: str, c_artist: str) -> float:
+    """Artist similarity. ALSO matches the candidate's artist against the
+    query TITLE — uploads carry the artist inside the video title while the
+    'artist' field is a channel name (相信音樂BinMusic, 〈xx - Topic〉)."""
+    best = 0.0
+    nt = _normalize(q_title)
+    for cf in (c_artist, _strip_annotations(c_artist), _cjk_core(c_artist)):
+        if not cf:
+            continue
+        if q_artist:
+            best = max(best, _sim(q_artist, cf), _sim(_cjk_core(q_artist), cf))
+        nc = _normalize(cf)
+        if nt and nc and len(nc) >= 2 and nc in nt:
+            best = max(best, 0.85)  # artist name literally inside the title
+    return best
+
+
+def _score_candidate(
+    q_title: str,
+    q_artist: str,
+    c_title: str,
+    c_artist: str,
+    *,
+    duration_sec: Optional[int] = None,
+    cand_duration_sec: Optional[int] = None,
+) -> float:
+    """Confidence that a search candidate IS the queried song (≳ _ACCEPT_SCORE
+    to be usable). Duration tolerance is graduated, not a hard cut — an MV
+    with a long intro legitimately runs ~30-45s past the studio cut."""
+    ts = _title_sim(q_title, c_title)
+    art = _artist_sim(q_artist, q_title, c_artist)
+    score = 0.6 * ts + 0.25 * art
+
+    d = None
+    if duration_sec and cand_duration_sec:
+        d = abs(int(duration_sec) - int(cand_duration_sec))
+        if d <= 5:
+            score += 0.15
+        elif d <= 20:
+            score += 0.05
+        elif d <= 45:
+            pass
+        elif d <= 90:
+            score -= 0.15
+        else:
+            score -= 0.35
+
+    # Rescue: exact artist + near-exact duration identifies the song even when
+    # the title is romanized / another script and text similarity is ~0.
+    if art >= 0.8 and d is not None and d <= 5:
+        score = max(score, _ACCEPT_SCORE + 0.05)
+    return score
+
+
+def _netease_artist_names(song: dict) -> str:
+    """Extract artist names from NetEase song dict — artists are in artists[]."""
+    arts = song.get("artists") or song.get("ar") or []
+    if isinstance(arts, list):
+        return " ".join(a.get("name", "") for a in arts if isinstance(a, dict))
+    return ""
+
+
+def _cjk_core(s: str) -> str:
+    """Return only the CJK runs of *s* (for CJK songs the English tacked-on
+    alt-title / romanization just pollutes the search)."""
+    runs = re.findall(r"[一-鿿]+", s or "")
+    return "".join(runs)
+
+
+def _query_variants(title: str, artist: str) -> list[str]:
+    """Ranked search-query candidates. Pure-CJK forms first — they match
+    mainland catalogs (NetEase/QQ) far better than English-polluted ones."""
+    ct, ca = _cjk_core(title), _cjk_core(artist)
+    cands = []
+    if ct:
+        cands.append(f"{ct} {ca}".strip())
+        cands.append(ct)
+    cands.append(f"{title} {artist}".strip())
+    cands.append(title.strip())
+    # Dedup preserving order
+    seen, out = set(), []
+    for q in cands:
+        q = q.strip()
+        if q and q not in seen:
+            seen.add(q)
+            out.append(q)
+    return out
+
+
+def _netease_duration_sec(song: dict) -> Optional[int]:
+    ms = song.get("duration") or song.get("dt") or 0
+    return int(ms / 1000) if ms else None
+
+
+async def _netease_search(
+    client: httpx.AsyncClient,
+    title: str,
+    artist: str,
+    duration_sec: Optional[int] = None,
+) -> Optional[dict]:
+    """Search NetEase and return the best-matching song.
+
+    Tries several query variants (CJK-only first), scores candidates by
+    title+artist+duration, and rejects low-confidence matches — wrong
+    lyrics are worse than no lyrics (covers with a different length used
+    to slip through on title match alone).
+    """
+    best: Optional[dict] = None
+    best_score = 0.0
+    for query in _query_variants(title, artist):
+        try:
+            resp = await _retryable_get(
+                client,
+                "https://music.163.com/api/search/get",
+                params={"s": query, "type": 1, "limit": 8},
+                timeout=_DEFAULT_TIMEOUT,
+            )
+        except LyricsError:
+            continue
+        if resp.status_code != 200:
+            continue
+        songs = resp.json().get("result", {}).get("songs", [])
+        for s in songs:
+            score = _score_candidate(
+                title, artist,
+                s.get("name", "") or "", _netease_artist_names(s),
+                duration_sec=duration_sec,
+                cand_duration_sec=_netease_duration_sec(s),
+            )
+            if score > best_score:
+                best_score, best = score, s
+        if best_score >= 0.85:
+            break  # strong match — stop trying more variants
+
+    log.info(
+        "NetEase match for '%s'/'%s' → %s (score=%.2f)",
+        title, artist, (best.get("name") if best else None), best_score,
+    )
+    if best_score < _ACCEPT_SCORE:
+        return None
+    return best
+
+
+async def _fetch_netease_lrc(client: httpx.AsyncClient, song_id: int) -> Optional[str]:
+    """Fetch line-level LRC from NetEase given a numeric song ID."""
+    try:
+        resp = await _retryable_get(
+            client,
+            f"https://music.163.com/api/song/lyric?id={song_id}&lv=1&kv=1&tv=-1",
+            timeout=_DEFAULT_TIMEOUT,
+        )
+    except LyricsError:
+        return None
+
+    if resp.status_code != 200:
+        return None
+    data = resp.json()
+    lrc = data.get("lrc", {}).get("lyric", "")
+    if not lrc or not lrc.strip():
+        return None
+    return lrc
+
+
+async def fetch_netease(
+    title: str, artist: str, duration_sec: Optional[int] = None,
+) -> Optional[LyricsResult]:
+    """NetEase line-level LRC."""
+    try:
+        async with _http_lock:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                song = await _netease_search(client, title, artist, duration_sec)
+                if not song:
+                    return None
+                lrc = await _fetch_netease_lrc(client, song["id"])
+                if lrc:
+                    return _build_result(lrc, source="netease", quality="official_line")
+    except Exception as exc:
+        log.warning("NetEase fetch failed: %s", exc)
+    return None
+
+
+async def _amll_ttml_lookup(netease_id: int, client: httpx.AsyncClient) -> Optional[str]:
+    """Query AMLL TTML DB for word-level LRC given a NetEase numeric ID.
+
+    Must be called with an existing client (already inside _http_lock).
+    """
+    url = f"https://api.utuwork.cn/lyric/{netease_id}"
+    try:
+        resp = await _retryable_get(client, url, timeout=_DEFAULT_TIMEOUT)
+        if resp.status_code == 200:
+            data = resp.json()
+            lrc = data.get("lrc") or data.get("lyric") or data.get("txt") or ""
+            if lrc:
+                return lrc
+    except LyricsError:
+        pass
+    except Exception as exc:
+        log.debug("AMLL probe failed for %d: %s", netease_id, exc)
+    return None
+
+
+async def fetch_amll(
+    title: str, artist: str, duration_sec: Optional[int] = None,
+) -> Optional[LyricsResult]:
+    """AMLL TTML DB — word-level timing (best effort, falls back to NetEase ID lookup)."""
+    try:
+        async with _http_lock:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                song = await _netease_search(client, title, artist, duration_sec)
+                if not song:
+                    return None
+                netease_id = song["id"]
+                lrc = await _amll_ttml_lookup(netease_id, client)
+                if lrc:
+                    return _build_result(lrc, source="amll_ttml", quality="official_word")
+                # Fall back to plain NetEase LRC if AMLL has no TTML
+                netease_lrc = await _fetch_netease_lrc(client, netease_id)
+                if netease_lrc:
+                    return _build_result(netease_lrc, source="amll_ttml_fallback_netease", quality="official_line")
+    except Exception as exc:
+        log.warning("AMLL fetch failed: %s", exc)
+    return None
+
+
+async def _qq_search(client: httpx.AsyncClient, query: str) -> list:
+    """One QQ search call → candidate list ([] on any failure)."""
+    import json
+    try:
+        resp = await _retryable_get(
+            client,
+            "https://c.y.qq.com/soso/fcgi-bin/client_search_cp",
+            params={"w": query, "format": "json", "p": 1, "n": 8},
+            timeout=_DEFAULT_TIMEOUT,
+        )
+    except LyricsError:
+        return []
+    if resp.status_code != 200:
+        return []
+    text = resp.text
+    # QQ search returns a JSONP wrapper sometimes; extract the JSON
+    m = re.search(r"callback\((.*)\)", text, re.DOTALL)
+    try:
+        data = json.loads(m.group(1) if m else text)
+    except json.JSONDecodeError:
+        return []
+    return data.get("data", {}).get("song", {}).get("list", [])
+
+
+def _qq_artist_names(song: dict) -> str:
+    singers = song.get("singer") or []
+    if isinstance(singers, list):
+        return " ".join(s.get("name", "") for s in singers if isinstance(s, dict))
+    return ""
+
+
+async def fetch_qq(
+    title: str, artist: str, duration_sec: Optional[int] = None,
+) -> Optional[LyricsResult]:
+    """QQ Music line-level LRC.
+
+    QQ's search is aggressively fuzzy — it returns SOME song for almost any
+    query, and this fetcher used to take result #0 blindly, which is exactly
+    how meme videos / BGM tracks / private uploads ended up karaoke-ing a
+    stranger's lyrics (回報「字幕是別首歌」). Every candidate is now scored on
+    title+artist+duration and low-confidence matches are rejected.
+    """
+    import json
+    try:
+        async with _http_lock:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                best: Optional[dict] = None
+                best_score = 0.0
+                for query in _query_variants(title, artist):
+                    for s in await _qq_search(client, query):
+                        score = _score_candidate(
+                            title, artist,
+                            s.get("songname", "") or "", _qq_artist_names(s),
+                            duration_sec=duration_sec,
+                            cand_duration_sec=s.get("interval") or None,
+                        )
+                        if score > best_score:
+                            best_score, best = score, s
+                    if best_score >= 0.85:
+                        break
+
+                log.info(
+                    "QQ match for '%s'/'%s' → %s/%s (score=%.2f)",
+                    title, artist,
+                    (best.get("songname") if best else None),
+                    (_qq_artist_names(best) if best else None),
+                    best_score,
+                )
+                if best is None or best_score < _ACCEPT_SCORE:
+                    return None
+                song_mid = best.get("songmid")
+                if not song_mid:
+                    return None
+
+                # Fetch LRC by song mid
+                lrc_resp = await _retryable_get(
+                    client,
+                    f"https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid={song_mid}&format=json&nobase64=1",
+                    headers={"Referer": "https://y.qq.com"},
+                    timeout=_DEFAULT_TIMEOUT,
+                )
+                if lrc_resp.status_code != 200:
+                    return None
+                lrc_data = lrc_resp.json()
+                raw = lrc_data.get("lyric", "") or lrc_data.get("trans", "")
+                if not raw:
+                    return None
+                return _build_result(raw, source="qq", quality="official_line")
+    except Exception as exc:
+        log.warning("QQ lyrics fetch failed: %s", exc)
+    return None
+
+
+async def fetch_syncedlyrics(
+    title: str, artist: str, duration_sec: Optional[int] = None,
+) -> Optional[LyricsResult]:
+    """LRCLIB — covers Musixmatch / Megalobiz via lrclib.net aggregation.
+
+    The old implementation called ``/api/get?q=`` which is not a valid LRCLIB
+    request — every call 400'd, so this source NEVER returned anything.
+    Correct API: ``/api/get`` takes track_name+artist_name (exact),
+    ``/api/search?q=`` does fuzzy search; search results are score-verified
+    like every other source.
+    """
+    try:
+      # lrclib.net is occasionally very slow (observed 25s+ with retries);
+      # time-box the whole source so it can't stall the fallback chain.
+      async with asyncio.timeout(20):
+        async with _http_lock:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                # 1. Exact lookup (fast path, includes duration matching)
+                if artist:
+                    params = {"track_name": title, "artist_name": artist}
+                    if duration_sec:
+                        params["duration"] = int(duration_sec)
+                    try:
+                        resp = await _retryable_get(
+                            client, "https://lrclib.net/api/get",
+                            params=params, timeout=_DEFAULT_TIMEOUT,
+                        )
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            lrc = data.get("syncedLyrics") or ""
+                            if lrc and _has_timing_markers(lrc):
+                                return _build_result(lrc, source="syncedlyrics", quality="official_line")
+                    except LyricsError:
+                        pass
+
+                # 2. Fuzzy search + candidate verification
+                best_lrc, best_score = None, 0.0
+                for query in _query_variants(title, artist):
+                    try:
+                        resp = await _retryable_get(
+                            client, "https://lrclib.net/api/search",
+                            params={"q": query}, timeout=_DEFAULT_TIMEOUT,
+                        )
+                    except LyricsError:
+                        continue
+                    if resp.status_code != 200:
+                        continue
+                    for item in resp.json() or []:
+                        lrc = item.get("syncedLyrics") or ""
+                        if not lrc or not _has_timing_markers(lrc):
+                            continue
+                        cd = item.get("duration")
+                        score = _score_candidate(
+                            title, artist,
+                            item.get("trackName", "") or "",
+                            item.get("artistName", "") or "",
+                            duration_sec=duration_sec,
+                            cand_duration_sec=int(cd) if cd else None,
+                        )
+                        if score > best_score:
+                            best_score, best_lrc = score, lrc
+                    if best_score >= 0.85:
+                        break
+                if best_lrc and best_score >= _ACCEPT_SCORE:
+                    return _build_result(best_lrc, source="syncedlyrics", quality="official_line")
+    except Exception as exc:
+        log.warning("syncedlyrics fetch failed: %s", exc)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: Plain-text sources
+# ---------------------------------------------------------------------------
+
+
+def _parse_plaintext(html: str, min_len: int = 20) -> str:
+    """Strip HTML tags and noise from a lyrics page to get plain text."""
+    text = _strip_html(html)
+    # Remove common noise lines
+    lines = [
+        l.strip()
+        for l in text.split("\n")
+        if l.strip()
+        and len(l.strip()) >= min_len
+        and "©" not in l
+        and "offset" not in l.lower()
+    ]
+    return "\n".join(lines[:200])
+
+
+async def _fetch_mojim(title: str, artist: str, duration_sec: Optional[int] = None) -> Optional[LyricsResult]:
+    """Mojim.com plain-text scrape."""
+    try:
+        query = f"{title} {artist}".replace(" ", "+")
+        async with _http_lock:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                resp = await _retryable_get(
+                    client,
+                    f"https://mojim.com/twh_search.php?keyword={query}",
+                    timeout=_DEFAULT_TIMEOUT,
+                )
+        if resp.status_code != 200:
+            return None
+
+        # Find first results link
+        m = re.search(r'href="/([a-z0-9_]+?\.htm[l]?)"', resp.text)
+        if not m:
+            return None
+
+        song_path = f"https://mojim.com/{m.group(1)}"
+        async with _http_lock:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                lyrics_resp = await _retryable_get(
+                    client, song_path,
+                    timeout=_DEFAULT_TIMEOUT,
+                )
+        if lyrics_resp.status_code != 200:
+            return None
+
+        lyrics = _parse_plaintext(lyrics_resp.text)
+        if not lyrics:
+            return None
+        return _build_result(lyrics, source="mojim", quality="plaintext")
+    except Exception as exc:
+        log.warning("Mojim scrape failed: %s", exc)
+    return None
+
+
+async def _fetch_kkbox(title: str, artist: str, duration_sec: Optional[int] = None) -> Optional[LyricsResult]:
+    """KKBOX plain-text scrape (no API, just HTML)."""
+    try:
+        query = f"{title} {artist}".replace(" ", "+")
+        search_url = f"https://www.kkbox.com/tw/tc/search.php?word={query}"
+        async with _http_lock:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                resp = await _retryable_get(
+                    client, search_url,
+                    timeout=_DEFAULT_TIMEOUT,
+                )
+        if resp.status_code != 200:
+            return None
+
+        # KKBOX embeds song IDs in data attrs; we try to find the first match
+        song_m = re.search(r'data-id="(\d+)"', resp.text)
+        if not song_m:
+            return None
+
+        song_id = song_m.group(1)
+        lyrics_url = f"https://www.kkbox.com/tw/tc/song/{song_id}/lyrics"
+        async with _http_lock:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                lyrics_resp = await _retryable_get(
+                    client, lyrics_url,
+                    timeout=_DEFAULT_TIMEOUT,
+                )
+        if lyrics_resp.status_code != 200:
+            return None
+
+        lyrics = _parse_plaintext(lyrics_resp.text)
+        if not lyrics:
+            return None
+        return _build_result(lyrics, source="kkbox", quality="plaintext")
+    except Exception as exc:
+        log.warning("KKBOX scrape failed: %s", exc)
+    return None
+
+
+async def _fetch_genius(title: str, artist: str, duration_sec: Optional[int] = None) -> Optional[LyricsResult]:
+    """Genius plain-text scrape."""
+    try:
+        query = f"{title} {artist}".replace(" ", "+")
+        search_url = f"https://genius.com/api/search/song?q={query}&per_page=1"
+        async with _http_lock:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                resp = await _retryable_get(
+                    client, search_url,
+                    timeout=_DEFAULT_TIMEOUT,
+                )
+        if resp.status_code != 200:
+            return None
+
+        hits = resp.json().get("response", {}).get("hits", [])
+        if not hits:
+            return None
+
+        path = hits[0]["result"]["path"]
+        lyrics_url = f"https://genius.com{path}"
+
+        async with _http_lock:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                lyrics_resp = await _retryable_get(
+                    client, lyrics_url,
+                    timeout=_DEFAULT_TIMEOUT,
+                )
+        if lyrics_resp.status_code != 200:
+            return None
+
+        # Genius lyrics are in a <div data-lyrics-container="true">
+        containers = re.findall(
+            r'<div[^>]+data-lyrics-container="true"[^>]*>(.*?)</div>',
+            lyrics_resp.text,
+            re.DOTALL,
+        )
+        if not containers:
+            return None
+
+        parts = [_strip_html(c) for c in containers]
+        lyrics = "\n".join(p for p in parts if p.strip())
+        if not lyrics:
+            return None
+        return _build_result(lyrics, source="genius", quality="plaintext")
+    except Exception as exc:
+        log.warning("Genius scrape failed: %s", exc)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Phase 0: YouTube native subtitles
+# ---------------------------------------------------------------------------
+
+# Preferred subtitle language order (manual first, then auto-generated)
+_YT_SUB_LANGS = [
+    "zh", "zh-Hant", "zh-Hans", "zh-TW", "zh-CN", "zh-HK",
+    "ja", "ja-JP", "ko", "ko-KR", "en",
+]
+
+
+def _detect_song_lang(text: str) -> Optional[str]:
+    """Coarse language of a song title: 'zh' | 'ja' | 'ko' | None.
+
+    Kana presence => Japanese; hangul => Korean; otherwise Han characters
+    => Chinese. Used to refuse a wrong-language YouTube track (a mistaken
+    English auto-translation is worse than falling through to NetEase/QQ,
+    which cover JP/KR well).
+    """
+    for ch in text:
+        o = ord(ch)
+        if 0x3040 <= o <= 0x30FF:          # hiragana / katakana
+            return "ja"
+        if 0xAC00 <= o <= 0xD7A3 or 0x1100 <= o <= 0x11FF:  # hangul
+            return "ko"
+    if re.search(r"[一-鿿]", text):        # Han (no kana/hangul) => Chinese
+        return "zh"
+    return None
+
+
+# Per-language YouTube track preference (manual + auto share these keys)
+_LANG_TRACKS = {
+    "zh": ("zh", "zh-Hant", "zh-Hans", "zh-TW", "zh-CN", "zh-HK"),
+    "ja": ("ja", "ja-JP"),
+    "ko": ("ko", "ko-KR"),
+}
+
+
+def _vtt_to_lrc(vtt_content: str) -> Optional[str]:
+    """Convert WebVTT subtitle content to LRC format.
+
+    Handles both manual (line-level) and auto-generated (word-level) VTT.
+    Strips word-level <tag> annotations, keeping only the visible text.
+    Deduplicates consecutive identical lines produced by YouTube's rolling captions.
+    """
+    lines = vtt_content.splitlines()
+    cues: list[tuple[str, str]] = []  # (start_lrc_tag, text)
+
+    i = 0
+    # Skip WEBVTT header lines until first blank line separator
+    while i < len(lines) and lines[i].strip():
+        i += 1
+
+    while i < len(lines):
+        line = lines[i].strip()
+        # Skip cue identifier lines (non-empty, no "-->")
+        if line and "-->" not in line:
+            i += 1
+            continue
+        if "-->" in line:
+            # Parse start timestamp: HH:MM:SS.mmm or MM:SS.mmm
+            time_part = line.split("-->")[0].strip()
+            time_parts = time_part.split(":")
+            try:
+                if len(time_parts) == 3:
+                    h, m, s = time_parts
+                    total_sec = int(h) * 3600 + int(m) * 60 + float(s)
+                else:
+                    m, s = time_parts
+                    total_sec = int(m) * 60 + float(s)
+            except (ValueError, IndexError):
+                i += 1
+                continue
+
+            minutes = int(total_sec // 60)
+            seconds = total_sec % 60
+            lrc_tag = f"[{minutes:02d}:{seconds:05.2f}]"
+
+            # Collect cue text lines
+            i += 1
+            text_lines = []
+            while i < len(lines) and lines[i].strip():
+                text_lines.append(lines[i].strip())
+                i += 1
+            raw_text = " ".join(text_lines)
+            # Strip all VTT inline tags: <00:00:01.000>, <c>, </c>, <b>, etc.
+            clean = re.sub(r"<[^>]+>", "", raw_text).strip()
+            if clean:
+                cues.append((lrc_tag, clean))
+        else:
+            i += 1
+
+    if not cues:
+        return None
+
+    # Deduplicate rolling-caption duplicates: YouTube repeats the same text
+    # across multiple cues as words are appended.  Keep only the last cue
+    # in each run of identical text to avoid duplicate LRC lines.
+    deduped: list[tuple[str, str]] = []
+    for tag, text in cues:
+        if deduped and deduped[-1][1] == text:
+            deduped[-1] = (deduped[-1][0], text)  # keep first tag, skip duplicate
+        else:
+            deduped.append((tag, text))
+
+    return "\n".join(f"{tag}{text}" for tag, text in deduped)
+
+
+def _pick_best_subtitle(
+    subs: dict, auto_subs: dict, song_lang: Optional[str] = None
+) -> Optional[tuple[str, bool]]:
+    """Return (lang_key, is_auto) for the best available subtitle track.
+
+    Prefers a manual native-language track, then auto native. When the song
+    is zh/ja/ko, a non-native track (e.g. an English auto-translation) is
+    *refused* — falling through to NetEase/QQ, which cover CJK well, beats
+    showing wrong-language captions. Only language-neutral songs fall back
+    to English / first-available.
+    """
+    native = _LANG_TRACKS.get(song_lang or "")
+    if native:
+        for lang in native:                 # manual native
+            if lang in subs:
+                return (lang, False)
+        for lang in native:                 # auto native
+            if lang in auto_subs:
+                return (lang, True)
+        # CJK song without a native track — refuse English mistranslation
+        return None
+    # Language-neutral song: English, then anything available
+    if "en" in subs:
+        return ("en", False)
+    if "en" in auto_subs:
+        return ("en", True)
+    if subs:
+        return (next(iter(subs)), False)
+    if auto_subs:
+        return (next(iter(auto_subs)), True)
+    return None
+
+
+def _download_youtube_subs_sync(
+    youtube_id: str, tmpdir: str, song_lang: Optional[str] = None
+) -> Optional[str]:
+    """Synchronous yt_dlp subtitle download.  Run in a thread via asyncio.to_thread."""
+    try:
+        import yt_dlp  # type: ignore
+    except ImportError:
+        log.warning("yt_dlp not installed — skipping YouTube subtitle extraction")
+        return None
+
+    from ktv_pipeline.video_source import video_url
+    url = video_url(youtube_id)
+    ydl_opts = {
+        "skip_download": True,
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+        "subtitleslangs": _YT_SUB_LANGS,
+        "subtitlesformat": "vtt",
+        "outtmpl": os.path.join(tmpdir, "%(id)s.%(ext)s"),
+        "quiet": True,
+        "no_warnings": True,
+        "socket_timeout": 15,
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            subs = info.get("subtitles", {}) if info else {}
+            auto_subs = info.get("automatic_captions", {}) if info else {}
+            pick = _pick_best_subtitle(subs, auto_subs, song_lang=song_lang)
+            if not pick:
+                log.info("No suitable YouTube subtitle for %s (song_lang=%s)", youtube_id, song_lang)
+                return None
+            lang, is_auto = pick
+            # Now download just the chosen subtitle track
+            ydl_opts2 = dict(ydl_opts)
+            ydl_opts2["subtitleslangs"] = [lang]
+            ydl_opts2["writeautomaticsub"] = is_auto
+            ydl_opts2["writesubtitles"] = not is_auto
+        with yt_dlp.YoutubeDL(ydl_opts2) as ydl2:
+            ydl2.download([url])
+    except Exception as exc:
+        log.warning("yt_dlp subtitle download failed for %s: %s", youtube_id, exc)
+        return None
+
+    # Find the downloaded .vtt file
+    for fname in os.listdir(tmpdir):
+        if fname.endswith(".vtt"):
+            try:
+                return open(os.path.join(tmpdir, fname), encoding="utf-8").read()
+            except OSError:
+                return None
+    return None
+
+
+async def fetch_youtube_subtitles(
+    youtube_id: str, title: str = ""
+) -> Optional[LyricsResult]:
+    """Phase 0: extract subtitles directly from the source video.
+
+    Works for both YouTube and Bilibili (yt-dlp handles each); the lyrics
+    source is labelled ``bilibili_subtitle`` for a Bilibili id so the
+    "video captions" slot reads correctly. For CJK-titled songs we refuse
+    non-native tracks (a wrong auto-translation is worse than NetEase/QQ).
+    Returns None if no suitable subtitles are available.
+    """
+    from ktv_pipeline.video_source import subtitle_source_name
+    src_name = subtitle_source_name(youtube_id)
+    song_lang = _detect_song_lang(title)
+    log.info("Trying %s for %s (song_lang=%s)", src_name, youtube_id, song_lang)
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            vtt_content = await asyncio.to_thread(
+                _download_youtube_subs_sync, youtube_id, tmpdir, song_lang
+            )
+            if not vtt_content:
+                return None
+            lrc = _vtt_to_lrc(vtt_content)
+            if lrc and _has_timing_markers(lrc):
+                log.info("%s found for %s", src_name, youtube_id)
+                return _build_result(lrc, source=src_name, quality="official_line")
+    except Exception as exc:
+        log.warning("YouTube subtitle extraction failed for %s: %s", youtube_id, exc)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Manager — orchestrates the fallback chain
+# ---------------------------------------------------------------------------
+
+# Phase 1 ordered sources
+_SYNCED_SOURCES = [
+    ("amll_ttml",     fetch_amll),
+    ("netease",      fetch_netease),
+    ("qq",           fetch_qq),
+    ("syncedlyrics", fetch_syncedlyrics),
+]
+
+# Phase 2 ordered sources
+_PLAINTEXT_SOURCES = [
+    ("mojim",  _fetch_mojim),
+    ("kkbox",  _fetch_kkbox),
+    ("genius", _fetch_genius),
+]
+
+
+_TITLE_NOISE = re.compile(
+    r"(official|mv|m/?v|music\s*video|lyric[s]?|audio|hd|4k|hq|"
+    r"高清|官方|歌詞|歌词|字幕|live|visuali[sz]er|完整版|動態歌詞|动态歌词|"
+    r"純享|纯享|cover|remix|live\s*version|現場|现场|高音質|無損|无损|"
+    r"feat\.?|ft\.?|prod\.?|topic|audio\s*only)",
+    re.I,
+)
+
+
+def clean_song_query(raw_title: str, raw_artist: str) -> tuple[str, str]:
+    """Turn a messy YouTube title into a (title, artist) suitable for lyric search.
+
+    Handles: bracketed noise (【】[]()（）), "Artist - Title" splits, and uses
+    the known artist to decide which side of a dash is the title. Falls back
+    gracefully — the worst case is the original strings.
+    """
+    t = raw_title or ""
+    # 1. Remove bracket blocks that contain noise words (Official MV / 動態歌詞…)
+    t = re.sub(
+        r"[\(\[【（]([^)\]】）]*?)[\)\]】）]",
+        lambda m: "" if _TITLE_NOISE.search(m.group(1)) else m.group(0),
+        t,
+    )
+    # 2. Unwrap remaining brackets — some channels (周杰倫 etc.) put the actual
+    #    song name inside 【】, so keep the text, just drop the brackets.
+    t = re.sub(r"[\[【（(]\s*([^)\]】）]*?)\s*[)\]】）]", r" \1 ", t)
+    # 3. Strip trailing "- noise…" even without surrounding spaces
+    t = re.sub(r"[-–—|｜]\s*" + _TITLE_NOISE.pattern + r".*$", "", t, flags=re.I)
+    # 3b. Strip a trailing run of noise words ("… Official Music Video")
+    for _ in range(4):
+        new = re.sub(
+            r"\s+" + _TITLE_NOISE.pattern + r"\s*$", "", t, flags=re.I
+        )
+        if new == t:
+            break
+        t = new
+    t = re.sub(r"\s{2,}", " ", t).strip(" -–—|｜·•・~　").strip()
+
+    title = t
+    artist = (raw_artist or "").strip()
+
+    # Split "A - B" — pick the side that is NOT the artist as the title
+    parts = re.split(r"\s*[-–—|｜]\s*", t, maxsplit=1)
+    if len(parts) == 2:
+        a, b = parts[0].strip(), parts[1].strip()
+        if artist:
+            sa, sb = _match_score(artist, a), _match_score(artist, b)
+            title = b if sa >= sb else a
+        else:
+            title, artist = b, a  # YouTube "Artist - Title" convention
+    title = re.sub(r"\s*(feat\.?|ft\.?)\s+.+$", "", title, flags=re.I).strip()
+    return title or raw_title, artist or raw_artist
+
+
+async def fetch_lyrics(
+    title: str,
+    artist: str,
+    youtube_id: Optional[str] = None,
+    duration_sec: Optional[int] = None,
+) -> LyricsResult:
+    """Main entry point — try all sources in ADR-005 order.
+
+    Parameters
+    ----------
+    title:
+        Song title from video metadata.
+    artist:
+        Artist name (may be empty).
+    youtube_id:
+        YouTube video ID.  When provided, YouTube's own subtitles are tried
+        first (Phase 0) before any external lyric API.
+
+    Returns ``LyricsResult`` with:
+      - ``lyrics_type``: "synced" | "plain"
+      - ``lrc``: raw content
+      - ``source``: provider name or None
+      - ``quality``: "official_word" | "official_line" | "plaintext" | "none"
+    """
+    # Clean the messy YouTube title → usable (title, artist) for lyric APIs
+    clean_title, clean_artist = clean_song_query(title, artist)
+    if (clean_title, clean_artist) != (title, artist):
+        log.info(
+            "Cleaned query: '%s'/'%s' → '%s'/'%s'",
+            title, artist, clean_title, clean_artist,
+        )
+
+    # Phase 0: YouTube native subtitles (highest priority) — uses raw title for
+    # CJK detection (the original title is fine for that).
+    if youtube_id:
+        try:
+            result = await fetch_youtube_subtitles(youtube_id, title)
+            if result is not None and result.lrc.strip():
+                log.info("Lyrics found via youtube_subtitle")
+                return result
+        except Exception as exc:
+            log.warning("youtube_subtitle unexpected error, trying next source: %s", exc)
+
+    # Phase 1: synced / timed lyrics
+    for source_name, fetcher in _SYNCED_SOURCES:
+        try:
+            result = await fetcher(clean_title, clean_artist, duration_sec=duration_sec)
+            if result is not None and result.lrc.strip():
+                log.info("Lyrics found via %s", source_name)
+                return result
+        except TempLyricsError as exc:
+            log.warning("%s temp error, trying next source: %s", source_name, exc)
+        except PermLyricsError as exc:
+            log.warning("%s perm error, trying next source: %s", source_name, exc)
+        except Exception as exc:
+            log.warning("%s unexpected error, trying next source: %s", source_name, exc)
+
+    # Phase 2: plain text fallback
+    for source_name, fetcher in _PLAINTEXT_SOURCES:
+        try:
+            result = await fetcher(clean_title, clean_artist, duration_sec=duration_sec)
+            if result is not None and result.lrc.strip():
+                log.info("Plain-text lyrics found via %s", source_name)
+                return result
+        except TempLyricsError as exc:
+            log.warning("%s temp error, trying next source: %s", source_name, exc)
+        except PermLyricsError as exc:
+            log.warning("%s perm error, trying next source: %s", source_name, exc)
+        except Exception as exc:
+            log.warning("%s unexpected error, trying next source: %s", source_name, exc)
+
+    # Phase 3: complete failure
+    log.warning("All lyrics sources failed for '%s' by '%s'", title, artist)
+    return LyricsResult(
+        lyrics_type="plain",
+        lrc="",
+        source=None,
+        quality="none",
+    )

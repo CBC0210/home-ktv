@@ -1,0 +1,95 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Custom scrollbar ─────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* ── Spotify-style range slider ───────────────────────────────── */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 3px;
+  /* Filled-portion colour for browsers that honour accent-color (the
+     inline linear-gradient is the cross-browser fallback). */
+  accent-color: #7c3aed;
+  background: rgba(255, 255, 255, 0.15);
+  outline: none;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  cursor: pointer;
+  transition: transform 0.1s;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+input[type="range"]:hover::-webkit-slider-thumb {
+  transform: scale(1.25);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+/* ── Glow animations ──────────────────────────────────────────── */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.4; }
+  50%       { opacity: 0.8; }
+}
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-6px); }
+}
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes reaction-float {
+  0%   { transform: translateY(0) scale(0.5); opacity: 0; }
+  15%  { transform: translateY(-40px) scale(1.2); opacity: 1; }
+  100% { transform: translateY(-80vh) scale(0.8); opacity: 0; }
+}
+@keyframes activity-pop {
+  0%   { transform: translateX(-50%) scale(0.85); opacity: 0; }
+  10%  { transform: translateX(-50%) scale(1); opacity: 1; }
+  80%  { transform: translateX(-50%) scale(1); opacity: 1; }
+  100% { transform: translateX(-50%) scale(0.95); opacity: 0; }
+}
+.animate-pulse-glow { animation: pulse-glow 3s ease-in-out infinite; }
+.animate-float      { animation: float 4s ease-in-out infinite; }
+.animate-spin-slow  { animation: spin-slow 20s linear infinite; }
+.animate-reaction-float { animation: reaction-float 4s cubic-bezier(.2,.6,.4,1) forwards; }
+.animate-activity-pop { animation: activity-pop 3s ease forwards; }

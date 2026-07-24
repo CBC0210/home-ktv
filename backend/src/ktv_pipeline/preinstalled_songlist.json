@@ -1,0 +1,3426 @@
+{
+  "version": 1,
+  "note": "Curated KTV staples. Entries store search QUERIES (artist+title), not video IDs — the preload feature resolves each via YouTube search at run time so links are always live. lang: zh|en|tw|ja|ko.",
+  "songs": [
+    {
+      "lang": "zh",
+      "artist": "周杰倫",
+      "title": "晴天"
+    },
+    {
+      "lang": "zh",
+      "artist": "周杰倫",
+      "title": "稻香"
+    },
+    {
+      "lang": "zh",
+      "artist": "周杰倫",
+      "title": "七里香"
+    },
+    {
+      "lang": "zh",
+      "artist": "周杰倫",
+      "title": "簡單愛"
+    },
+    {
+      "lang": "zh",
+      "artist": "周杰倫",
+      "title": "告白氣球"
+    },
+    {
+      "lang": "zh",
+      "artist": "周杰倫",
+      "title": "青花瓷"
+    },
+    {
+      "lang": "zh",
+      "artist": "周杰倫",
+      "title": "夜曲"
+    },
+    {
+      "lang": "zh",
+      "artist": "周杰倫",
+      "title": "擱淺"
+    },
+    {
+      "lang": "zh",
+      "artist": "周杰倫",
+      "title": "我不配"
+    },
+    {
+      "lang": "zh",
+      "artist": "周杰倫",
+      "title": "說好不哭"
+    },
+    {
+      "lang": "zh",
+      "artist": "五月天",
+      "title": "倔強"
+    },
+    {
+      "lang": "zh",
+      "artist": "五月天",
+      "title": "突然好想你"
+    },
+    {
+      "lang": "zh",
+      "artist": "五月天",
+      "title": "戀愛ing"
+    },
+    {
+      "lang": "zh",
+      "artist": "五月天",
+      "title": "溫柔"
+    },
+    {
+      "lang": "zh",
+      "artist": "五月天",
+      "title": "知足"
+    },
+    {
+      "lang": "zh",
+      "artist": "五月天",
+      "title": "傷心的人別聽慢歌"
+    },
+    {
+      "lang": "zh",
+      "artist": "五月天",
+      "title": "後來的我們"
+    },
+    {
+      "lang": "zh",
+      "artist": "五月天",
+      "title": "成名在望"
+    },
+    {
+      "lang": "zh",
+      "artist": "五月天",
+      "title": "如煙"
+    },
+    {
+      "lang": "zh",
+      "artist": "五月天",
+      "title": "乾杯"
+    },
+    {
+      "lang": "zh",
+      "artist": "鄧麗君",
+      "title": "月亮代表我的心"
+    },
+    {
+      "lang": "zh",
+      "artist": "鄧麗君",
+      "title": "甜蜜蜜"
+    },
+    {
+      "lang": "zh",
+      "artist": "鄧麗君",
+      "title": "我只在乎你"
+    },
+    {
+      "lang": "zh",
+      "artist": "張惠妹",
+      "title": "聽海"
+    },
+    {
+      "lang": "zh",
+      "artist": "張惠妹",
+      "title": "解脫"
+    },
+    {
+      "lang": "zh",
+      "artist": "張惠妹",
+      "title": "排山倒海"
+    },
+    {
+      "lang": "zh",
+      "artist": "張惠妹",
+      "title": "三天三夜"
+    },
+    {
+      "lang": "zh",
+      "artist": "張學友",
+      "title": "吻別"
+    },
+    {
+      "lang": "zh",
+      "artist": "張學友",
+      "title": "李香蘭"
+    },
+    {
+      "lang": "zh",
+      "artist": "張學友",
+      "title": "她來聽我的演唱會"
+    },
+    {
+      "lang": "zh",
+      "artist": "張學友",
+      "title": "餓狼傳說"
+    },
+    {
+      "lang": "zh",
+      "artist": "陳奕迅",
+      "title": "十年"
+    },
+    {
+      "lang": "zh",
+      "artist": "陳奕迅",
+      "title": "浮誇"
+    },
+    {
+      "lang": "zh",
+      "artist": "陳奕迅",
+      "title": "好久不見"
+    },
+    {
+      "lang": "zh",
+      "artist": "陳奕迅",
+      "title": "K歌之王"
+    },
+    {
+      "lang": "zh",
+      "artist": "陳奕迅",
+      "title": "陪你度過漫長歲月"
+    },
+    {
+      "lang": "zh",
+      "artist": "陳奕迅",
+      "title": "孤勇者"
+    },
+    {
+      "lang": "zh",
+      "artist": "林俊傑",
+      "title": "江南"
+    },
+    {
+      "lang": "zh",
+      "artist": "林俊傑",
+      "title": "她說"
+    },
+    {
+      "lang": "zh",
+      "artist": "林俊傑",
+      "title": "修煉愛情"
+    },
+    {
+      "lang": "zh",
+      "artist": "林俊傑",
+      "title": "可惜沒如果"
+    },
+    {
+      "lang": "zh",
+      "artist": "林俊傑",
+      "title": "醉赤壁"
+    },
+    {
+      "lang": "zh",
+      "artist": "林俊傑",
+      "title": "曹操"
+    },
+    {
+      "lang": "zh",
+      "artist": "鄧紫棋",
+      "title": "泡沫"
+    },
+    {
+      "lang": "zh",
+      "artist": "鄧紫棋",
+      "title": "光年之外"
+    },
+    {
+      "lang": "zh",
+      "artist": "鄧紫棋",
+      "title": "倒數"
+    },
+    {
+      "lang": "zh",
+      "artist": "鄧紫棋",
+      "title": "喜歡你"
+    },
+    {
+      "lang": "zh",
+      "artist": "孫燕姿",
+      "title": "遇見"
+    },
+    {
+      "lang": "zh",
+      "artist": "孫燕姿",
+      "title": "天黑黑"
+    },
+    {
+      "lang": "zh",
+      "artist": "孫燕姿",
+      "title": "綠光"
+    },
+    {
+      "lang": "zh",
+      "artist": "孫燕姿",
+      "title": "我懷念的"
+    },
+    {
+      "lang": "zh",
+      "artist": "蔡依林",
+      "title": "日不落"
+    },
+    {
+      "lang": "zh",
+      "artist": "蔡依林",
+      "title": "舞孃"
+    },
+    {
+      "lang": "zh",
+      "artist": "蔡依林",
+      "title": "我呸"
+    },
+    {
+      "lang": "zh",
+      "artist": "蔡依林",
+      "title": "看我72變"
+    },
+    {
+      "lang": "zh",
+      "artist": "王力宏",
+      "title": "唯一"
+    },
+    {
+      "lang": "zh",
+      "artist": "王力宏",
+      "title": "你不知道的事"
+    },
+    {
+      "lang": "zh",
+      "artist": "王力宏",
+      "title": "需要人陪"
+    },
+    {
+      "lang": "zh",
+      "artist": "王力宏",
+      "title": "大城小愛"
+    },
+    {
+      "lang": "zh",
+      "artist": "李榮浩",
+      "title": "李白"
+    },
+    {
+      "lang": "zh",
+      "artist": "李榮浩",
+      "title": "模特"
+    },
+    {
+      "lang": "zh",
+      "artist": "李榮浩",
+      "title": "年少有為"
+    },
+    {
+      "lang": "zh",
+      "artist": "毛不易",
+      "title": "消愁"
+    },
+    {
+      "lang": "zh",
+      "artist": "毛不易",
+      "title": "像我這樣的人"
+    },
+    {
+      "lang": "zh",
+      "artist": "薛之謙",
+      "title": "演員"
+    },
+    {
+      "lang": "zh",
+      "artist": "薛之謙",
+      "title": "醜八怪"
+    },
+    {
+      "lang": "zh",
+      "artist": "薛之謙",
+      "title": "認真的雪"
+    },
+    {
+      "lang": "zh",
+      "artist": "田馥甄",
+      "title": "小幸運"
+    },
+    {
+      "lang": "zh",
+      "artist": "田馥甄",
+      "title": "魔鬼中的天使"
+    },
+    {
+      "lang": "zh",
+      "artist": "梁靜茹",
+      "title": "勇氣"
+    },
+    {
+      "lang": "zh",
+      "artist": "梁靜茹",
+      "title": "可惜不是你"
+    },
+    {
+      "lang": "zh",
+      "artist": "梁靜茹",
+      "title": "寧夏"
+    },
+    {
+      "lang": "zh",
+      "artist": "梁靜茹",
+      "title": "情歌"
+    },
+    {
+      "lang": "zh",
+      "artist": "S.H.E",
+      "title": "Super Star"
+    },
+    {
+      "lang": "zh",
+      "artist": "S.H.E",
+      "title": "波斯貓"
+    },
+    {
+      "lang": "zh",
+      "artist": "S.H.E",
+      "title": "中國話"
+    },
+    {
+      "lang": "zh",
+      "artist": "信樂團",
+      "title": "死了都要愛"
+    },
+    {
+      "lang": "zh",
+      "artist": "信樂團",
+      "title": "離歌"
+    },
+    {
+      "lang": "zh",
+      "artist": "動力火車",
+      "title": "當"
+    },
+    {
+      "lang": "zh",
+      "artist": "周興哲",
+      "title": "怎麼了"
+    },
+    {
+      "lang": "zh",
+      "artist": "周興哲",
+      "title": "以後別做朋友"
+    },
+    {
+      "lang": "zh",
+      "artist": "告五人",
+      "title": "愛人錯過"
+    },
+    {
+      "lang": "zh",
+      "artist": "告五人",
+      "title": "披星戴月的想你"
+    },
+    {
+      "lang": "zh",
+      "artist": "茄子蛋",
+      "title": "浪流連"
+    },
+    {
+      "lang": "zh",
+      "artist": "韋禮安",
+      "title": "如果可以"
+    },
+    {
+      "lang": "zh",
+      "artist": "盧廣仲",
+      "title": "刻在我心底的名字"
+    },
+    {
+      "lang": "zh",
+      "artist": "陳綺貞",
+      "title": "魚"
+    },
+    {
+      "lang": "zh",
+      "artist": "蘇打綠",
+      "title": "小情歌"
+    },
+    {
+      "lang": "zh",
+      "artist": "蘇打綠",
+      "title": "無與倫比的美麗"
+    },
+    {
+      "lang": "zh",
+      "artist": "任賢齊",
+      "title": "心太軟"
+    },
+    {
+      "lang": "zh",
+      "artist": "任賢齊",
+      "title": "對面的女孩看過來"
+    },
+    {
+      "lang": "en",
+      "artist": "Adele",
+      "title": "Someone Like You"
+    },
+    {
+      "lang": "en",
+      "artist": "Adele",
+      "title": "Rolling in the Deep"
+    },
+    {
+      "lang": "en",
+      "artist": "Adele",
+      "title": "Hello"
+    },
+    {
+      "lang": "en",
+      "artist": "Ed Sheeran",
+      "title": "Perfect"
+    },
+    {
+      "lang": "en",
+      "artist": "Ed Sheeran",
+      "title": "Shape of You"
+    },
+    {
+      "lang": "en",
+      "artist": "Ed Sheeran",
+      "title": "Photograph"
+    },
+    {
+      "lang": "en",
+      "artist": "Ed Sheeran",
+      "title": "Thinking Out Loud"
+    },
+    {
+      "lang": "en",
+      "artist": "Bruno Mars",
+      "title": "Just the Way You Are"
+    },
+    {
+      "lang": "en",
+      "artist": "Bruno Mars",
+      "title": "When I Was Your Man"
+    },
+    {
+      "lang": "en",
+      "artist": "Bruno Mars",
+      "title": "Count on Me"
+    },
+    {
+      "lang": "en",
+      "artist": "Bruno Mars",
+      "title": "Grenade"
+    },
+    {
+      "lang": "en",
+      "artist": "Taylor Swift",
+      "title": "Love Story"
+    },
+    {
+      "lang": "en",
+      "artist": "Taylor Swift",
+      "title": "Blank Space"
+    },
+    {
+      "lang": "en",
+      "artist": "Taylor Swift",
+      "title": "Shake It Off"
+    },
+    {
+      "lang": "en",
+      "artist": "Taylor Swift",
+      "title": "You Belong with Me"
+    },
+    {
+      "lang": "en",
+      "artist": "Coldplay",
+      "title": "Yellow"
+    },
+    {
+      "lang": "en",
+      "artist": "Coldplay",
+      "title": "Fix You"
+    },
+    {
+      "lang": "en",
+      "artist": "Coldplay",
+      "title": "The Scientist"
+    },
+    {
+      "lang": "en",
+      "artist": "Coldplay",
+      "title": "Viva la Vida"
+    },
+    {
+      "lang": "en",
+      "artist": "Maroon 5",
+      "title": "Sugar"
+    },
+    {
+      "lang": "en",
+      "artist": "Maroon 5",
+      "title": "Payphone"
+    },
+    {
+      "lang": "en",
+      "artist": "Maroon 5",
+      "title": "She Will Be Loved"
+    },
+    {
+      "lang": "en",
+      "artist": "The Beatles",
+      "title": "Hey Jude"
+    },
+    {
+      "lang": "en",
+      "artist": "The Beatles",
+      "title": "Let It Be"
+    },
+    {
+      "lang": "en",
+      "artist": "The Beatles",
+      "title": "Yesterday"
+    },
+    {
+      "lang": "en",
+      "artist": "Queen",
+      "title": "Bohemian Rhapsody"
+    },
+    {
+      "lang": "en",
+      "artist": "Queen",
+      "title": "We Are the Champions"
+    },
+    {
+      "lang": "en",
+      "artist": "Queen",
+      "title": "Don't Stop Me Now"
+    },
+    {
+      "lang": "en",
+      "artist": "John Legend",
+      "title": "All of Me"
+    },
+    {
+      "lang": "en",
+      "artist": "Whitney Houston",
+      "title": "I Will Always Love You"
+    },
+    {
+      "lang": "en",
+      "artist": "Celine Dion",
+      "title": "My Heart Will Go On"
+    },
+    {
+      "lang": "en",
+      "artist": "Mariah Carey",
+      "title": "All I Want for Christmas Is You"
+    },
+    {
+      "lang": "en",
+      "artist": "Lady Gaga",
+      "title": "Shallow"
+    },
+    {
+      "lang": "en",
+      "artist": "Lady Gaga",
+      "title": "Always Remember Us This Way"
+    },
+    {
+      "lang": "en",
+      "artist": "Billie Eilish",
+      "title": "Lovely"
+    },
+    {
+      "lang": "en",
+      "artist": "Billie Eilish",
+      "title": "Bad Guy"
+    },
+    {
+      "lang": "en",
+      "artist": "Billie Eilish",
+      "title": "What Was I Made For"
+    },
+    {
+      "lang": "en",
+      "artist": "The Weeknd",
+      "title": "Blinding Lights"
+    },
+    {
+      "lang": "en",
+      "artist": "The Weeknd",
+      "title": "Save Your Tears"
+    },
+    {
+      "lang": "en",
+      "artist": "Charlie Puth",
+      "title": "Attention"
+    },
+    {
+      "lang": "en",
+      "artist": "Charlie Puth",
+      "title": "We Don't Talk Anymore"
+    },
+    {
+      "lang": "en",
+      "artist": "Charlie Puth",
+      "title": "See You Again"
+    },
+    {
+      "lang": "en",
+      "artist": "Sam Smith",
+      "title": "Stay with Me"
+    },
+    {
+      "lang": "en",
+      "artist": "Sam Smith",
+      "title": "I'm Not the Only One"
+    },
+    {
+      "lang": "en",
+      "artist": "OneRepublic",
+      "title": "Counting Stars"
+    },
+    {
+      "lang": "en",
+      "artist": "OneRepublic",
+      "title": "Apologize"
+    },
+    {
+      "lang": "en",
+      "artist": "Imagine Dragons",
+      "title": "Believer"
+    },
+    {
+      "lang": "en",
+      "artist": "Imagine Dragons",
+      "title": "Demons"
+    },
+    {
+      "lang": "en",
+      "artist": "Imagine Dragons",
+      "title": "Radioactive"
+    },
+    {
+      "lang": "en",
+      "artist": "Avicii",
+      "title": "Wake Me Up"
+    },
+    {
+      "lang": "en",
+      "artist": "Passenger",
+      "title": "Let Her Go"
+    },
+    {
+      "lang": "en",
+      "artist": "Lewis Capaldi",
+      "title": "Someone You Loved"
+    },
+    {
+      "lang": "en",
+      "artist": "Shawn Mendes",
+      "title": "Stitches"
+    },
+    {
+      "lang": "en",
+      "artist": "Justin Bieber",
+      "title": "Love Yourself"
+    },
+    {
+      "lang": "en",
+      "artist": "Justin Bieber",
+      "title": "Sorry"
+    },
+    {
+      "lang": "en",
+      "artist": "Katy Perry",
+      "title": "Roar"
+    },
+    {
+      "lang": "en",
+      "artist": "Katy Perry",
+      "title": "Firework"
+    },
+    {
+      "lang": "en",
+      "artist": "Linkin Park",
+      "title": "Numb"
+    },
+    {
+      "lang": "en",
+      "artist": "Linkin Park",
+      "title": "In the End"
+    },
+    {
+      "lang": "en",
+      "artist": "Green Day",
+      "title": "Boulevard of Broken Dreams"
+    },
+    {
+      "lang": "en",
+      "artist": "Oasis",
+      "title": "Wonderwall"
+    },
+    {
+      "lang": "en",
+      "artist": "a-ha",
+      "title": "Take On Me"
+    },
+    {
+      "lang": "en",
+      "artist": "Backstreet Boys",
+      "title": "I Want It That Way"
+    },
+    {
+      "lang": "en",
+      "artist": "Westlife",
+      "title": "My Love"
+    },
+    {
+      "lang": "en",
+      "artist": "Westlife",
+      "title": "Beautiful in White"
+    },
+    {
+      "lang": "tw",
+      "artist": "伍佰",
+      "title": "浪人情歌"
+    },
+    {
+      "lang": "tw",
+      "artist": "伍佰",
+      "title": "挪威的森林"
+    },
+    {
+      "lang": "tw",
+      "artist": "伍佰",
+      "title": "你是我的花朵"
+    },
+    {
+      "lang": "tw",
+      "artist": "伍佰",
+      "title": "突然的自我"
+    },
+    {
+      "lang": "tw",
+      "artist": "伍佰",
+      "title": "愛你一萬年"
+    },
+    {
+      "lang": "tw",
+      "artist": "江蕙",
+      "title": "家後"
+    },
+    {
+      "lang": "tw",
+      "artist": "江蕙",
+      "title": "返來阮身邊"
+    },
+    {
+      "lang": "tw",
+      "artist": "江蕙",
+      "title": "落雨聲"
+    },
+    {
+      "lang": "tw",
+      "artist": "江蕙",
+      "title": "博杯"
+    },
+    {
+      "lang": "tw",
+      "artist": "江蕙",
+      "title": "甲你攬牢牢"
+    },
+    {
+      "lang": "tw",
+      "artist": "陳雷",
+      "title": "歡喜就好"
+    },
+    {
+      "lang": "tw",
+      "artist": "陳雷",
+      "title": "戀戀紅塵"
+    },
+    {
+      "lang": "tw",
+      "artist": "蔡秋鳳",
+      "title": "金包銀"
+    },
+    {
+      "lang": "tw",
+      "artist": "黃乙玲",
+      "title": "無字的情批"
+    },
+    {
+      "lang": "tw",
+      "artist": "黃乙玲",
+      "title": "愛你無條件"
+    },
+    {
+      "lang": "tw",
+      "artist": "詹雅雯",
+      "title": "海海人生"
+    },
+    {
+      "lang": "tw",
+      "artist": "陳一郎",
+      "title": "行船人的純情曲"
+    },
+    {
+      "lang": "tw",
+      "artist": "葉啟田",
+      "title": "愛拼才會贏"
+    },
+    {
+      "lang": "tw",
+      "artist": "葉啟田",
+      "title": "故鄉"
+    },
+    {
+      "lang": "tw",
+      "artist": "張秀卿",
+      "title": "車站"
+    },
+    {
+      "lang": "tw",
+      "artist": "施文彬",
+      "title": "傷心酒店"
+    },
+    {
+      "lang": "tw",
+      "artist": "翁立友",
+      "title": "我問天"
+    },
+    {
+      "lang": "tw",
+      "artist": "翁立友",
+      "title": "故鄉的月"
+    },
+    {
+      "lang": "tw",
+      "artist": "羅時豐",
+      "title": "用心良苦"
+    },
+    {
+      "lang": "tw",
+      "artist": "鄭進一",
+      "title": "家後"
+    },
+    {
+      "lang": "tw",
+      "artist": "謝金燕",
+      "title": "嗶嗶嗶"
+    },
+    {
+      "lang": "tw",
+      "artist": "謝金燕",
+      "title": "練舞功"
+    },
+    {
+      "lang": "tw",
+      "artist": "蕭煌奇",
+      "title": "你是我的眼"
+    },
+    {
+      "lang": "tw",
+      "artist": "蕭煌奇",
+      "title": "阿嬤的話"
+    },
+    {
+      "lang": "tw",
+      "artist": "蕭煌奇",
+      "title": "末班車"
+    },
+    {
+      "lang": "tw",
+      "artist": "茄子蛋",
+      "title": "浪子回頭"
+    },
+    {
+      "lang": "tw",
+      "artist": "茄子蛋",
+      "title": "這款自作多情"
+    },
+    {
+      "lang": "tw",
+      "artist": "玖壹壹",
+      "title": "癡情玫瑰花"
+    },
+    {
+      "lang": "tw",
+      "artist": "玖壹壹",
+      "title": "嘻哈庄腳情"
+    },
+    {
+      "lang": "tw",
+      "artist": "草蜢",
+      "title": "失戀陣線聯盟"
+    },
+    {
+      "lang": "tw",
+      "artist": "鳳飛飛",
+      "title": "掌聲響起"
+    },
+    {
+      "lang": "tw",
+      "artist": "鳳飛飛",
+      "title": "想要跟你飛"
+    },
+    {
+      "lang": "tw",
+      "artist": "甜梅號",
+      "title": "腳踏車"
+    },
+    {
+      "lang": "tw",
+      "artist": "拍謝少年",
+      "title": "海口味"
+    },
+    {
+      "lang": "tw",
+      "artist": "滅火器",
+      "title": "島嶼天光"
+    },
+    {
+      "lang": "tw",
+      "artist": "滅火器",
+      "title": "長途夜車"
+    },
+    {
+      "lang": "tw",
+      "artist": "麋先生",
+      "title": "閃光"
+    },
+    {
+      "lang": "tw",
+      "artist": "鄧麗君",
+      "title": "月夜愁"
+    },
+    {
+      "lang": "tw",
+      "artist": "陳建瑋",
+      "title": "自由"
+    },
+    {
+      "lang": "ja",
+      "artist": "YOASOBI",
+      "title": "夜に駆ける"
+    },
+    {
+      "lang": "ja",
+      "artist": "YOASOBI",
+      "title": "群青"
+    },
+    {
+      "lang": "ja",
+      "artist": "YOASOBI",
+      "title": "アイドル"
+    },
+    {
+      "lang": "ja",
+      "artist": "YOASOBI",
+      "title": "怪物"
+    },
+    {
+      "lang": "ja",
+      "artist": "米津玄師",
+      "title": "Lemon"
+    },
+    {
+      "lang": "ja",
+      "artist": "米津玄師",
+      "title": "感電"
+    },
+    {
+      "lang": "ja",
+      "artist": "米津玄師",
+      "title": "KICK BACK"
+    },
+    {
+      "lang": "ja",
+      "artist": "米津玄師",
+      "title": "馬と鹿"
+    },
+    {
+      "lang": "ja",
+      "artist": "米津玄師",
+      "title": "パプリカ"
+    },
+    {
+      "lang": "ja",
+      "artist": "Official髭男dism",
+      "title": "Pretender"
+    },
+    {
+      "lang": "ja",
+      "artist": "Official髭男dism",
+      "title": "Subtitle"
+    },
+    {
+      "lang": "ja",
+      "artist": "Official髭男dism",
+      "title": "115万キロのフィルム"
+    },
+    {
+      "lang": "ja",
+      "artist": "Mrs. GREEN APPLE",
+      "title": "ケセラセラ"
+    },
+    {
+      "lang": "ja",
+      "artist": "Mrs. GREEN APPLE",
+      "title": "ダンスホール"
+    },
+    {
+      "lang": "ja",
+      "artist": "Mrs. GREEN APPLE",
+      "title": "青と夏"
+    },
+    {
+      "lang": "ja",
+      "artist": "あいみょん",
+      "title": "マリーゴールド"
+    },
+    {
+      "lang": "ja",
+      "artist": "あいみょん",
+      "title": "裸の心"
+    },
+    {
+      "lang": "ja",
+      "artist": "あいみょん",
+      "title": "愛を伝えたいだとか"
+    },
+    {
+      "lang": "ja",
+      "artist": "King Gnu",
+      "title": "白日"
+    },
+    {
+      "lang": "ja",
+      "artist": "King Gnu",
+      "title": "一途"
+    },
+    {
+      "lang": "ja",
+      "artist": "LiSA",
+      "title": "炎"
+    },
+    {
+      "lang": "ja",
+      "artist": "LiSA",
+      "title": "紅蓮華"
+    },
+    {
+      "lang": "ja",
+      "artist": "RADWIMPS",
+      "title": "前前前世"
+    },
+    {
+      "lang": "ja",
+      "artist": "RADWIMPS",
+      "title": "なんでもないや"
+    },
+    {
+      "lang": "ja",
+      "artist": "back number",
+      "title": "高嶺の花子さん"
+    },
+    {
+      "lang": "ja",
+      "artist": "back number",
+      "title": "クリスマスソング"
+    },
+    {
+      "lang": "ja",
+      "artist": "あいみょん",
+      "title": "君はロックを聴かない"
+    },
+    {
+      "lang": "ja",
+      "artist": "Aimer",
+      "title": "残響散歌"
+    },
+    {
+      "lang": "ja",
+      "artist": "Aimer",
+      "title": "カタオモイ"
+    },
+    {
+      "lang": "ja",
+      "artist": "宇多田ヒカル",
+      "title": "First Love"
+    },
+    {
+      "lang": "ja",
+      "artist": "宇多田ヒカル",
+      "title": "Automatic"
+    },
+    {
+      "lang": "ja",
+      "artist": "中島みゆき",
+      "title": "糸"
+    },
+    {
+      "lang": "ja",
+      "artist": "スピッツ",
+      "title": "チェリー"
+    },
+    {
+      "lang": "ja",
+      "artist": "スピッツ",
+      "title": "ロビンソン"
+    },
+    {
+      "lang": "ja",
+      "artist": " One OK Rock",
+      "title": "Wherever you are"
+    },
+    {
+      "lang": "ja",
+      "artist": "ONE OK ROCK",
+      "title": "完全感覚Dreamer"
+    },
+    {
+      "lang": "ja",
+      "artist": "supercell",
+      "title": "君の知らない物語"
+    },
+    {
+      "lang": "ja",
+      "artist": "DREAMS COME TRUE",
+      "title": "未来予想図II"
+    },
+    {
+      "lang": "ja",
+      "artist": "いきものがかり",
+      "title": "ありがとう"
+    },
+    {
+      "lang": "ja",
+      "artist": "いきものがかり",
+      "title": "YELL"
+    },
+    {
+      "lang": "ja",
+      "artist": "GReeeeN",
+      "title": "キセキ"
+    },
+    {
+      "lang": "ja",
+      "artist": "ゆず",
+      "title": "栄光の架橋"
+    },
+    {
+      "lang": "ja",
+      "artist": "秦基博",
+      "title": "ひまわりの約束"
+    },
+    {
+      "lang": "ja",
+      "artist": "Kenshi Yonezu",
+      "title": "感電"
+    },
+    {
+      "lang": "ja",
+      "artist": "ヨルシカ",
+      "title": "花に亡霊"
+    },
+    {
+      "lang": "ja",
+      "artist": "ずっと真夜中でいいのに。",
+      "title": "秒針を噛む"
+    },
+    {
+      "lang": "ja",
+      "artist": "Vaundy",
+      "title": "怪獣の花唄"
+    },
+    {
+      "lang": "ko",
+      "artist": "BTS",
+      "title": "Spring Day"
+    },
+    {
+      "lang": "ko",
+      "artist": "BTS",
+      "title": "Dynamite"
+    },
+    {
+      "lang": "ko",
+      "artist": "BTS",
+      "title": "Butter"
+    },
+    {
+      "lang": "ko",
+      "artist": "BTS",
+      "title": "Fake Love"
+    },
+    {
+      "lang": "ko",
+      "artist": "BTS",
+      "title": "DNA"
+    },
+    {
+      "lang": "ko",
+      "artist": "BLACKPINK",
+      "title": "How You Like That"
+    },
+    {
+      "lang": "ko",
+      "artist": "BLACKPINK",
+      "title": "DDU-DU DDU-DU"
+    },
+    {
+      "lang": "ko",
+      "artist": "BLACKPINK",
+      "title": "Lovesick Girls"
+    },
+    {
+      "lang": "ko",
+      "artist": "BLACKPINK",
+      "title": "Pink Venom"
+    },
+    {
+      "lang": "ko",
+      "artist": "IU",
+      "title": "좋은 날"
+    },
+    {
+      "lang": "ko",
+      "artist": "IU",
+      "title": "밤편지"
+    },
+    {
+      "lang": "ko",
+      "artist": "IU",
+      "title": "Love poem"
+    },
+    {
+      "lang": "ko",
+      "artist": "IU",
+      "title": "Through the Night"
+    },
+    {
+      "lang": "ko",
+      "artist": "IU",
+      "title": "Celebrity"
+    },
+    {
+      "lang": "ko",
+      "artist": "BIGBANG",
+      "title": "Loser"
+    },
+    {
+      "lang": "ko",
+      "artist": "BIGBANG",
+      "title": "Fantastic Baby"
+    },
+    {
+      "lang": "ko",
+      "artist": "BIGBANG",
+      "title": "Last Dance"
+    },
+    {
+      "lang": "ko",
+      "artist": "PSY",
+      "title": "Gangnam Style"
+    },
+    {
+      "lang": "ko",
+      "artist": "TWICE",
+      "title": "What Is Love?"
+    },
+    {
+      "lang": "ko",
+      "artist": "TWICE",
+      "title": "Feel Special"
+    },
+    {
+      "lang": "ko",
+      "artist": "TWICE",
+      "title": "Fancy"
+    },
+    {
+      "lang": "ko",
+      "artist": "Red Velvet",
+      "title": "Psycho"
+    },
+    {
+      "lang": "ko",
+      "artist": "Red Velvet",
+      "title": "Bad Boy"
+    },
+    {
+      "lang": "ko",
+      "artist": "NewJeans",
+      "title": "Ditto"
+    },
+    {
+      "lang": "ko",
+      "artist": "NewJeans",
+      "title": "Hype Boy"
+    },
+    {
+      "lang": "ko",
+      "artist": "NewJeans",
+      "title": "OMG"
+    },
+    {
+      "lang": "ko",
+      "artist": "IVE",
+      "title": "LOVE DIVE"
+    },
+    {
+      "lang": "ko",
+      "artist": "IVE",
+      "title": "I AM"
+    },
+    {
+      "lang": "ko",
+      "artist": "aespa",
+      "title": "Next Level"
+    },
+    {
+      "lang": "ko",
+      "artist": "aespa",
+      "title": "Spicy"
+    },
+    {
+      "lang": "ko",
+      "artist": "LE SSERAFIM",
+      "title": "ANTIFRAGILE"
+    },
+    {
+      "lang": "ko",
+      "artist": "(G)I-DLE",
+      "title": "TOMBOY"
+    },
+    {
+      "lang": "ko",
+      "artist": "SEVENTEEN",
+      "title": "Don't Wanna Cry"
+    },
+    {
+      "lang": "ko",
+      "artist": "EXO",
+      "title": "Love Shot"
+    },
+    {
+      "lang": "ko",
+      "artist": "BIGBANG",
+      "title": "Haru Haru"
+    },
+    {
+      "lang": "ko",
+      "artist": "Paul Kim",
+      "title": "Every day, Every Moment"
+    },
+    {
+      "lang": "ko",
+      "artist": "Lim Young Woong",
+      "title": "Love Always Run Away"
+    },
+    {
+      "lang": "ko",
+      "artist": "AKMU",
+      "title": "How can I love the heartbreak"
+    },
+    {
+      "lang": "ko",
+      "artist": "AKMU",
+      "title": "200%"
+    },
+    {
+      "lang": "ko",
+      "artist": "Bolbbalgan4",
+      "title": "Some"
+    },
+    {
+      "lang": "ko",
+      "artist": "Davichi",
+      "title": "This Love"
+    },
+    {
+      "lang": "ko",
+      "artist": "백예린",
+      "title": "Square"
+    },
+    {
+      "lang": "ko",
+      "artist": "10cm",
+      "title": "Spring Snow"
+    },
+    {
+      "lang": "ko",
+      "artist": "성시경",
+      "title": "거리에서"
+    },
+    {
+      "lang": "ko",
+      "artist": "김광석",
+      "title": "서른 즈음에"
+    },
+    {
+      "lang": "ko",
+      "artist": "이문세",
+      "title": "광화문 연가"
+    },
+    {
+      "lang": "zh",
+      "artist": "周杰倫",
+      "title": "髮如雪"
+    },
+    {
+      "lang": "zh",
+      "artist": "周杰倫",
+      "title": "菊花台"
+    },
+    {
+      "lang": "zh",
+      "artist": "周杰倫",
+      "title": "聽媽媽的話"
+    },
+    {
+      "lang": "zh",
+      "artist": "周杰倫",
+      "title": "以父之名"
+    },
+    {
+      "lang": "zh",
+      "artist": "周杰倫",
+      "title": "龍捲風"
+    },
+    {
+      "lang": "zh",
+      "artist": "周杰倫",
+      "title": "園遊會"
+    },
+    {
+      "lang": "zh",
+      "artist": "周杰倫",
+      "title": "等你下課"
+    },
+    {
+      "lang": "zh",
+      "artist": "周杰倫",
+      "title": "不能說的秘密"
+    },
+    {
+      "lang": "zh",
+      "artist": "五月天",
+      "title": "志明與春嬌"
+    },
+    {
+      "lang": "zh",
+      "artist": "五月天",
+      "title": "咁仔店"
+    },
+    {
+      "lang": "zh",
+      "artist": "五月天",
+      "title": "軋車"
+    },
+    {
+      "lang": "zh",
+      "artist": "五月天",
+      "title": "終結孤單"
+    },
+    {
+      "lang": "zh",
+      "artist": "五月天",
+      "title": "你不是真正的快樂"
+    },
+    {
+      "lang": "zh",
+      "artist": "五月天",
+      "title": "頑固"
+    },
+    {
+      "lang": "zh",
+      "artist": "五月天",
+      "title": "步步"
+    },
+    {
+      "lang": "zh",
+      "artist": "林俊傑",
+      "title": "背對背擁抱"
+    },
+    {
+      "lang": "zh",
+      "artist": "林俊傑",
+      "title": "不為誰而作的歌"
+    },
+    {
+      "lang": "zh",
+      "artist": "林俊傑",
+      "title": "學不會"
+    },
+    {
+      "lang": "zh",
+      "artist": "林俊傑",
+      "title": "美人魚"
+    },
+    {
+      "lang": "zh",
+      "artist": "林俊傑",
+      "title": "小醜"
+    },
+    {
+      "lang": "zh",
+      "artist": "林俊傑",
+      "title": "裂縫中的陽光"
+    },
+    {
+      "lang": "zh",
+      "artist": "陳奕迅",
+      "title": "愛情轉移"
+    },
+    {
+      "lang": "zh",
+      "artist": "陳奕迅",
+      "title": "紅玫瑰"
+    },
+    {
+      "lang": "zh",
+      "artist": "陳奕迅",
+      "title": "不要說話"
+    },
+    {
+      "lang": "zh",
+      "artist": "陳奕迅",
+      "title": "富士山下"
+    },
+    {
+      "lang": "zh",
+      "artist": "陳奕迅",
+      "title": "明年今日"
+    },
+    {
+      "lang": "zh",
+      "artist": "陳奕迅",
+      "title": "葡萄成熟時"
+    },
+    {
+      "lang": "zh",
+      "artist": "鄧紫棋",
+      "title": "來自天堂的魔鬼"
+    },
+    {
+      "lang": "zh",
+      "artist": "鄧紫棋",
+      "title": "句號"
+    },
+    {
+      "lang": "zh",
+      "artist": "鄧紫棋",
+      "title": "很久以後"
+    },
+    {
+      "lang": "zh",
+      "artist": "鄧紫棋",
+      "title": "平凡天使"
+    },
+    {
+      "lang": "zh",
+      "artist": "蔡依林",
+      "title": "說愛你"
+    },
+    {
+      "lang": "zh",
+      "artist": "蔡依林",
+      "title": "花蝴蝶"
+    },
+    {
+      "lang": "zh",
+      "artist": "蔡依林",
+      "title": "Play我呸"
+    },
+    {
+      "lang": "zh",
+      "artist": "蔡依林",
+      "title": "怪美的"
+    },
+    {
+      "lang": "zh",
+      "artist": "孫燕姿",
+      "title": "逆光"
+    },
+    {
+      "lang": "zh",
+      "artist": "孫燕姿",
+      "title": "克卜勒"
+    },
+    {
+      "lang": "zh",
+      "artist": "孫燕姿",
+      "title": "風箏"
+    },
+    {
+      "lang": "zh",
+      "artist": "孫燕姿",
+      "title": "開始懂了"
+    },
+    {
+      "lang": "zh",
+      "artist": "王力宏",
+      "title": "落葉歸根"
+    },
+    {
+      "lang": "zh",
+      "artist": "王力宏",
+      "title": "依然愛你"
+    },
+    {
+      "lang": "zh",
+      "artist": "王力宏",
+      "title": "花田錯"
+    },
+    {
+      "lang": "zh",
+      "artist": "張惠妹",
+      "title": "身後"
+    },
+    {
+      "lang": "zh",
+      "artist": "張惠妹",
+      "title": "我最親愛的"
+    },
+    {
+      "lang": "zh",
+      "artist": "張惠妹",
+      "title": "好膽你就來"
+    },
+    {
+      "lang": "zh",
+      "artist": "張惠妹",
+      "title": "眼淚成詩"
+    },
+    {
+      "lang": "zh",
+      "artist": "田馥甄",
+      "title": "渺小"
+    },
+    {
+      "lang": "zh",
+      "artist": "田馥甄",
+      "title": "你就不要想起我"
+    },
+    {
+      "lang": "zh",
+      "artist": "田馥甄",
+      "title": "無人之境"
+    },
+    {
+      "lang": "zh",
+      "artist": "徐佳瑩",
+      "title": "身騎白馬"
+    },
+    {
+      "lang": "zh",
+      "artist": "徐佳瑩",
+      "title": "失落沙洲"
+    },
+    {
+      "lang": "zh",
+      "artist": "徐佳瑩",
+      "title": "尋人啟事"
+    },
+    {
+      "lang": "zh",
+      "artist": "徐佳瑩",
+      "title": "言不由衷"
+    },
+    {
+      "lang": "zh",
+      "artist": "艾怡良",
+      "title": "Forever Young"
+    },
+    {
+      "lang": "zh",
+      "artist": "艾怡良",
+      "title": "我們的總和"
+    },
+    {
+      "lang": "zh",
+      "artist": "吳青峰",
+      "title": "起風了"
+    },
+    {
+      "lang": "zh",
+      "artist": "吳青峰",
+      "title": "年輪說"
+    },
+    {
+      "lang": "zh",
+      "artist": "蘇打綠",
+      "title": "小宇宙"
+    },
+    {
+      "lang": "zh",
+      "artist": "蘇打綠",
+      "title": "你被寫在我的歌裡"
+    },
+    {
+      "lang": "zh",
+      "artist": "蘇打綠",
+      "title": "當我們一起走過"
+    },
+    {
+      "lang": "zh",
+      "artist": "盧廣仲",
+      "title": "明天會更好"
+    },
+    {
+      "lang": "zh",
+      "artist": "盧廣仲",
+      "title": "幾分之幾"
+    },
+    {
+      "lang": "zh",
+      "artist": "盧廣仲",
+      "title": "100種生活"
+    },
+    {
+      "lang": "zh",
+      "artist": "周興哲",
+      "title": "終於了解自由"
+    },
+    {
+      "lang": "zh",
+      "artist": "周興哲",
+      "title": "你,好不好?"
+    },
+    {
+      "lang": "zh",
+      "artist": "周興哲",
+      "title": "愛,我"
+    },
+    {
+      "lang": "zh",
+      "artist": "告五人",
+      "title": "在這座城市遺失了你"
+    },
+    {
+      "lang": "zh",
+      "artist": "告五人",
+      "title": "好不容易"
+    },
+    {
+      "lang": "zh",
+      "artist": "告五人",
+      "title": "唯一"
+    },
+    {
+      "lang": "zh",
+      "artist": "茄子蛋",
+      "title": "愛情你比我想的閣較偉大"
+    },
+    {
+      "lang": "zh",
+      "artist": "理想混蛋",
+      "title": "別再聯絡"
+    },
+    {
+      "lang": "zh",
+      "artist": "傷心欲絕",
+      "title": "花的姿態"
+    },
+    {
+      "lang": "zh",
+      "artist": "Hello Nico",
+      "title": "為了你寫下的歌"
+    },
+    {
+      "lang": "zh",
+      "artist": "草東沒有派對",
+      "title": "大風吹"
+    },
+    {
+      "lang": "zh",
+      "artist": "草東沒有派對",
+      "title": "醜奴兒"
+    },
+    {
+      "lang": "zh",
+      "artist": "脆樂團",
+      "title": "給你看個東西"
+    },
+    {
+      "lang": "zh",
+      "artist": "落日飛車",
+      "title": "My Jinji"
+    },
+    {
+      "lang": "zh",
+      "artist": "Crispy脆樂團",
+      "title": "只能想念你"
+    },
+    {
+      "lang": "zh",
+      "artist": "韋禮安",
+      "title": "狼"
+    },
+    {
+      "lang": "zh",
+      "artist": "韋禮安",
+      "title": "還是會"
+    },
+    {
+      "lang": "zh",
+      "artist": "家家",
+      "title": "記得"
+    },
+    {
+      "lang": "zh",
+      "artist": "家家",
+      "title": "還是會想念"
+    },
+    {
+      "lang": "zh",
+      "artist": "品冠",
+      "title": "门没锁"
+    },
+    {
+      "lang": "zh",
+      "artist": "品冠",
+      "title": "年少的纯真"
+    },
+    {
+      "lang": "zh",
+      "artist": "曹格",
+      "title": "背叛"
+    },
+    {
+      "lang": "zh",
+      "artist": "梁文音",
+      "title": "分手後不要做朋友"
+    },
+    {
+      "lang": "zh",
+      "artist": "A-Lin",
+      "title": "給我一個理由忘記"
+    },
+    {
+      "lang": "zh",
+      "artist": "A-Lin",
+      "title": "有一個人"
+    },
+    {
+      "lang": "zh",
+      "artist": "A-Lin",
+      "title": "罪惡感"
+    },
+    {
+      "lang": "zh",
+      "artist": "八三夭",
+      "title": "想見你想見你想見你"
+    },
+    {
+      "lang": "zh",
+      "artist": "八三夭",
+      "title": "拯救"
+    },
+    {
+      "lang": "zh",
+      "artist": "LULU黃路梓茵",
+      "title": "得不到的會更想要"
+    },
+    {
+      "lang": "zh",
+      "artist": "吳克群",
+      "title": "為你寫詩"
+    },
+    {
+      "lang": "zh",
+      "artist": "吳克群",
+      "title": "老子說"
+    },
+    {
+      "lang": "zh",
+      "artist": "方大同",
+      "title": "愛愛愛"
+    },
+    {
+      "lang": "zh",
+      "artist": "方大同",
+      "title": "三人遊"
+    },
+    {
+      "lang": "zh",
+      "artist": "林宥嘉",
+      "title": "說謊"
+    },
+    {
+      "lang": "zh",
+      "artist": "林宥嘉",
+      "title": "成全"
+    },
+    {
+      "lang": "zh",
+      "artist": "林宥嘉",
+      "title": "你是我的眼"
+    },
+    {
+      "lang": "zh",
+      "artist": "林宥嘉",
+      "title": "殘酷月光"
+    },
+    {
+      "lang": "zh",
+      "artist": "林宥嘉",
+      "title": "想自由"
+    },
+    {
+      "lang": "zh",
+      "artist": "楊丞琳",
+      "title": "曖昧"
+    },
+    {
+      "lang": "zh",
+      "artist": "楊丞琳",
+      "title": "帶我走"
+    },
+    {
+      "lang": "zh",
+      "artist": "蕭敬騰",
+      "title": "王妃"
+    },
+    {
+      "lang": "zh",
+      "artist": "蕭敬騰",
+      "title": "新不了情"
+    },
+    {
+      "lang": "zh",
+      "artist": "蕭敬騰",
+      "title": "只能想念你"
+    },
+    {
+      "lang": "zh",
+      "artist": "林志炫",
+      "title": "沒離開過"
+    },
+    {
+      "lang": "zh",
+      "artist": "動力火車",
+      "title": "忠孝東路走九遍"
+    },
+    {
+      "lang": "zh",
+      "artist": "F.I.R.",
+      "title": "Lydia"
+    },
+    {
+      "lang": "zh",
+      "artist": "F.I.R.",
+      "title": "我們的愛"
+    },
+    {
+      "lang": "zh",
+      "artist": "范瑋琪",
+      "title": "最初的夢想"
+    },
+    {
+      "lang": "zh",
+      "artist": "范瑋琪",
+      "title": "一個像夏天一個像秋天"
+    },
+    {
+      "lang": "zh",
+      "artist": "梁靜茹",
+      "title": "暖暖"
+    },
+    {
+      "lang": "zh",
+      "artist": "梁靜茹",
+      "title": "崇拜"
+    },
+    {
+      "lang": "zh",
+      "artist": "梁靜茹",
+      "title": "沒有如果"
+    },
+    {
+      "lang": "zh",
+      "artist": "品冠",
+      "title": "疼你的責任"
+    },
+    {
+      "lang": "en",
+      "artist": "Adele",
+      "title": "Set Fire to the Rain"
+    },
+    {
+      "lang": "en",
+      "artist": "Adele",
+      "title": "When We Were Young"
+    },
+    {
+      "lang": "en",
+      "artist": "Adele",
+      "title": "Easy On Me"
+    },
+    {
+      "lang": "en",
+      "artist": "Adele",
+      "title": "Skyfall"
+    },
+    {
+      "lang": "en",
+      "artist": "Ed Sheeran",
+      "title": "Castle on the Hill"
+    },
+    {
+      "lang": "en",
+      "artist": "Ed Sheeran",
+      "title": "Bad Habits"
+    },
+    {
+      "lang": "en",
+      "artist": "Ed Sheeran",
+      "title": "Galway Girl"
+    },
+    {
+      "lang": "en",
+      "artist": "Taylor Swift",
+      "title": "Anti-Hero"
+    },
+    {
+      "lang": "en",
+      "artist": "Taylor Swift",
+      "title": "Lover"
+    },
+    {
+      "lang": "en",
+      "artist": "Taylor Swift",
+      "title": "cardigan"
+    },
+    {
+      "lang": "en",
+      "artist": "Taylor Swift",
+      "title": "Wildest Dreams"
+    },
+    {
+      "lang": "en",
+      "artist": "Bruno Mars",
+      "title": "Talking to the Moon"
+    },
+    {
+      "lang": "en",
+      "artist": "Bruno Mars",
+      "title": "The Lazy Song"
+    },
+    {
+      "lang": "en",
+      "artist": "Bruno Mars",
+      "title": "Locked Out of Heaven"
+    },
+    {
+      "lang": "en",
+      "artist": "Bruno Mars",
+      "title": "Uptown Funk"
+    },
+    {
+      "lang": "en",
+      "artist": "Coldplay",
+      "title": "Paradise"
+    },
+    {
+      "lang": "en",
+      "artist": "Coldplay",
+      "title": "Something Just Like This"
+    },
+    {
+      "lang": "en",
+      "artist": "Coldplay",
+      "title": "A Sky Full of Stars"
+    },
+    {
+      "lang": "en",
+      "artist": "Coldplay",
+      "title": "Hymn for the Weekend"
+    },
+    {
+      "lang": "en",
+      "artist": "Maroon 5",
+      "title": "Memories"
+    },
+    {
+      "lang": "en",
+      "artist": "Maroon 5",
+      "title": "Maps"
+    },
+    {
+      "lang": "en",
+      "artist": "Maroon 5",
+      "title": "Girls Like You"
+    },
+    {
+      "lang": "en",
+      "artist": "Maroon 5",
+      "title": "Animals"
+    },
+    {
+      "lang": "en",
+      "artist": "Dua Lipa",
+      "title": "Levitating"
+    },
+    {
+      "lang": "en",
+      "artist": "Dua Lipa",
+      "title": "Don't Start Now"
+    },
+    {
+      "lang": "en",
+      "artist": "Dua Lipa",
+      "title": "New Rules"
+    },
+    {
+      "lang": "en",
+      "artist": "Harry Styles",
+      "title": "As It Was"
+    },
+    {
+      "lang": "en",
+      "artist": "Harry Styles",
+      "title": "Watermelon Sugar"
+    },
+    {
+      "lang": "en",
+      "artist": "Harry Styles",
+      "title": "Sign of the Times"
+    },
+    {
+      "lang": "en",
+      "artist": "Olivia Rodrigo",
+      "title": "drivers license"
+    },
+    {
+      "lang": "en",
+      "artist": "Olivia Rodrigo",
+      "title": "good 4 u"
+    },
+    {
+      "lang": "en",
+      "artist": "Olivia Rodrigo",
+      "title": "vampire"
+    },
+    {
+      "lang": "en",
+      "artist": "Post Malone",
+      "title": "Circles"
+    },
+    {
+      "lang": "en",
+      "artist": "Post Malone",
+      "title": "Sunflower"
+    },
+    {
+      "lang": "en",
+      "artist": "Post Malone",
+      "title": "Better Now"
+    },
+    {
+      "lang": "en",
+      "artist": "Billie Eilish",
+      "title": "Happier Than Ever"
+    },
+    {
+      "lang": "en",
+      "artist": "Doja Cat",
+      "title": "Say So"
+    },
+    {
+      "lang": "en",
+      "artist": "SZA",
+      "title": "Snooze"
+    },
+    {
+      "lang": "en",
+      "artist": "SZA",
+      "title": "Kill Bill"
+    },
+    {
+      "lang": "en",
+      "artist": "Miley Cyrus",
+      "title": "Flowers"
+    },
+    {
+      "lang": "en",
+      "artist": "Miley Cyrus",
+      "title": "Wrecking Ball"
+    },
+    {
+      "lang": "en",
+      "artist": "Miley Cyrus",
+      "title": "The Climb"
+    },
+    {
+      "lang": "en",
+      "artist": "Bruno Major",
+      "title": "Nothing"
+    },
+    {
+      "lang": "en",
+      "artist": "James Arthur",
+      "title": "Say You Won't Let Go"
+    },
+    {
+      "lang": "en",
+      "artist": "James Arthur",
+      "title": "Impossible"
+    },
+    {
+      "lang": "en",
+      "artist": "Christina Perri",
+      "title": "A Thousand Years"
+    },
+    {
+      "lang": "en",
+      "artist": "Christina Perri",
+      "title": "Jar of Hearts"
+    },
+    {
+      "lang": "en",
+      "artist": "Jason Mraz",
+      "title": "I'm Yours"
+    },
+    {
+      "lang": "en",
+      "artist": "Jason Mraz",
+      "title": "I Won't Give Up"
+    },
+    {
+      "lang": "en",
+      "artist": "Jason Mraz",
+      "title": "Lucky"
+    },
+    {
+      "lang": "en",
+      "artist": "Bon Jovi",
+      "title": "It's My Life"
+    },
+    {
+      "lang": "en",
+      "artist": "Bon Jovi",
+      "title": "Always"
+    },
+    {
+      "lang": "en",
+      "artist": "Aerosmith",
+      "title": "I Don't Want to Miss a Thing"
+    },
+    {
+      "lang": "en",
+      "artist": "Eagles",
+      "title": "Hotel California"
+    },
+    {
+      "lang": "en",
+      "artist": "Guns N' Roses",
+      "title": "Sweet Child O' Mine"
+    },
+    {
+      "lang": "en",
+      "artist": "Guns N' Roses",
+      "title": "November Rain"
+    },
+    {
+      "lang": "en",
+      "artist": "Michael Jackson",
+      "title": "Billie Jean"
+    },
+    {
+      "lang": "en",
+      "artist": "Michael Jackson",
+      "title": "Beat It"
+    },
+    {
+      "lang": "en",
+      "artist": "Michael Jackson",
+      "title": "Heal the World"
+    },
+    {
+      "lang": "en",
+      "artist": "ABBA",
+      "title": "Dancing Queen"
+    },
+    {
+      "lang": "en",
+      "artist": "ABBA",
+      "title": "Mamma Mia"
+    },
+    {
+      "lang": "en",
+      "artist": "Bee Gees",
+      "title": "Stayin' Alive"
+    },
+    {
+      "lang": "en",
+      "artist": "Lady Gaga",
+      "title": "Poker Face"
+    },
+    {
+      "lang": "en",
+      "artist": "Lady Gaga",
+      "title": "Bad Romance"
+    },
+    {
+      "lang": "en",
+      "artist": "Rihanna",
+      "title": "Diamonds"
+    },
+    {
+      "lang": "en",
+      "artist": "Rihanna",
+      "title": "Stay"
+    },
+    {
+      "lang": "en",
+      "artist": "Rihanna",
+      "title": "Umbrella"
+    },
+    {
+      "lang": "en",
+      "artist": "Beyoncé",
+      "title": "Halo"
+    },
+    {
+      "lang": "en",
+      "artist": "Beyoncé",
+      "title": "If I Were a Boy"
+    },
+    {
+      "lang": "en",
+      "artist": "Sia",
+      "title": "Chandelier"
+    },
+    {
+      "lang": "en",
+      "artist": "Sia",
+      "title": "Cheap Thrills"
+    },
+    {
+      "lang": "en",
+      "artist": "Sia",
+      "title": "Snowman"
+    },
+    {
+      "lang": "en",
+      "artist": "Avril Lavigne",
+      "title": "Complicated"
+    },
+    {
+      "lang": "en",
+      "artist": "Avril Lavigne",
+      "title": "When You're Gone"
+    },
+    {
+      "lang": "en",
+      "artist": "Avril Lavigne",
+      "title": "Girlfriend"
+    },
+    {
+      "lang": "en",
+      "artist": "Bruno Mars",
+      "title": "Die With a Smile"
+    },
+    {
+      "lang": "en",
+      "artist": "Lady Gaga",
+      "title": "Die With a Smile"
+    },
+    {
+      "lang": "en",
+      "artist": "Lana Del Rey",
+      "title": "Young and Beautiful"
+    },
+    {
+      "lang": "en",
+      "artist": "Calum Scott",
+      "title": "You Are the Reason"
+    },
+    {
+      "lang": "en",
+      "artist": "Tones and I",
+      "title": "Dance Monkey"
+    },
+    {
+      "lang": "en",
+      "artist": "George Ezra",
+      "title": "Shotgun"
+    },
+    {
+      "lang": "en",
+      "artist": "Lukas Graham",
+      "title": "7 Years"
+    },
+    {
+      "lang": "en",
+      "artist": "OneRepublic",
+      "title": "I Ain't Worried"
+    },
+    {
+      "lang": "en",
+      "artist": "Imagine Dragons",
+      "title": "Thunder"
+    },
+    {
+      "lang": "tw",
+      "artist": "伍佰",
+      "title": "世界第一等"
+    },
+    {
+      "lang": "tw",
+      "artist": "伍佰",
+      "title": "白鴿"
+    },
+    {
+      "lang": "tw",
+      "artist": "伍佰",
+      "title": "樹枝孤鳥"
+    },
+    {
+      "lang": "tw",
+      "artist": "伍佰",
+      "title": "返去故鄉"
+    },
+    {
+      "lang": "tw",
+      "artist": "伍佰",
+      "title": "斷腸詩"
+    },
+    {
+      "lang": "tw",
+      "artist": "江蕙",
+      "title": "酒後的心聲"
+    },
+    {
+      "lang": "tw",
+      "artist": "江蕙",
+      "title": "炮仔聲"
+    },
+    {
+      "lang": "tw",
+      "artist": "江蕙",
+      "title": "身騎白馬"
+    },
+    {
+      "lang": "tw",
+      "artist": "江蕙",
+      "title": "半醉半清醒"
+    },
+    {
+      "lang": "tw",
+      "artist": "江蕙",
+      "title": "紅線"
+    },
+    {
+      "lang": "tw",
+      "artist": "黃乙玲",
+      "title": "講什麼山盟海誓"
+    },
+    {
+      "lang": "tw",
+      "artist": "黃乙玲",
+      "title": "傷心的所在"
+    },
+    {
+      "lang": "tw",
+      "artist": "黃乙玲",
+      "title": "越頭看也未著"
+    },
+    {
+      "lang": "tw",
+      "artist": "陳雷",
+      "title": "免驚"
+    },
+    {
+      "lang": "tw",
+      "artist": "陳小雲",
+      "title": "愛情的騙子我問你"
+    },
+    {
+      "lang": "tw",
+      "artist": "陳小雲",
+      "title": "舞女"
+    },
+    {
+      "lang": "tw",
+      "artist": "詹雅雯",
+      "title": "為著啥麼"
+    },
+    {
+      "lang": "tw",
+      "artist": "詹雅雯",
+      "title": "唱予自己聽"
+    },
+    {
+      "lang": "tw",
+      "artist": "蔡小虎",
+      "title": "金包銀"
+    },
+    {
+      "lang": "tw",
+      "artist": "蔡小虎",
+      "title": "愛人仔緊返來"
+    },
+    {
+      "lang": "tw",
+      "artist": "龍千玉",
+      "title": "半山夢"
+    },
+    {
+      "lang": "tw",
+      "artist": "孫淑媚",
+      "title": "家後"
+    },
+    {
+      "lang": "tw",
+      "artist": "方瑞娥",
+      "title": "相思燈"
+    },
+    {
+      "lang": "tw",
+      "artist": "葉啟田",
+      "title": "浪子的心情"
+    },
+    {
+      "lang": "tw",
+      "artist": "葉啟田",
+      "title": "行船的人"
+    },
+    {
+      "lang": "tw",
+      "artist": "葉啟田",
+      "title": "內山姑娘要出嫁"
+    },
+    {
+      "lang": "tw",
+      "artist": "洪榮宏",
+      "title": "一支小雨傘"
+    },
+    {
+      "lang": "tw",
+      "artist": "洪榮宏",
+      "title": "若是有一天"
+    },
+    {
+      "lang": "tw",
+      "artist": "洪榮宏",
+      "title": "愛你無條件"
+    },
+    {
+      "lang": "tw",
+      "artist": "陳百潭",
+      "title": "愛拼才會贏"
+    },
+    {
+      "lang": "tw",
+      "artist": "林強",
+      "title": "向前走"
+    },
+    {
+      "lang": "tw",
+      "artist": "林強",
+      "title": "春風少年兄"
+    },
+    {
+      "lang": "tw",
+      "artist": "蕭煌奇",
+      "title": "真情人"
+    },
+    {
+      "lang": "tw",
+      "artist": "蕭煌奇",
+      "title": "流浪到淡水"
+    },
+    {
+      "lang": "tw",
+      "artist": "金門王與李炳輝",
+      "title": "流浪到淡水"
+    },
+    {
+      "lang": "tw",
+      "artist": "謝金燕",
+      "title": "姐姐"
+    },
+    {
+      "lang": "tw",
+      "artist": "謝金燕",
+      "title": "一隻嘜"
+    },
+    {
+      "lang": "tw",
+      "artist": "玖壹壹",
+      "title": "好高騖遠"
+    },
+    {
+      "lang": "tw",
+      "artist": "玖壹壹",
+      "title": "髒"
+    },
+    {
+      "lang": "tw",
+      "artist": "茄子蛋",
+      "title": "summer face"
+    },
+    {
+      "lang": "tw",
+      "artist": "拍謝少年",
+      "title": "暗流"
+    },
+    {
+      "lang": "tw",
+      "artist": "滅火器",
+      "title": "欲走無路"
+    },
+    {
+      "lang": "tw",
+      "artist": "董事長樂團",
+      "title": "眾神護台灣"
+    },
+    {
+      "lang": "tw",
+      "artist": "伍佰",
+      "title": "熱情的沙漠"
+    },
+    {
+      "lang": "tw",
+      "artist": "江蕙",
+      "title": "惜別的海岸"
+    },
+    {
+      "lang": "tw",
+      "artist": "陳思安",
+      "title": "重逢"
+    },
+    {
+      "lang": "tw",
+      "artist": "傅振輝",
+      "title": "流浪到淡水"
+    },
+    {
+      "lang": "tw",
+      "artist": "江惠儀",
+      "title": "家後"
+    },
+    {
+      "lang": "ja",
+      "artist": "YOASOBI",
+      "title": "ハルジオン"
+    },
+    {
+      "lang": "ja",
+      "artist": "YOASOBI",
+      "title": "たぶん"
+    },
+    {
+      "lang": "ja",
+      "artist": "YOASOBI",
+      "title": "優しい彗星"
+    },
+    {
+      "lang": "ja",
+      "artist": "YOASOBI",
+      "title": "祝福"
+    },
+    {
+      "lang": "ja",
+      "artist": "YOASOBI",
+      "title": "アドベンチャー"
+    },
+    {
+      "lang": "ja",
+      "artist": "米津玄師",
+      "title": "アイネクライネ"
+    },
+    {
+      "lang": "ja",
+      "artist": "米津玄師",
+      "title": "Flamingo"
+    },
+    {
+      "lang": "ja",
+      "artist": "米津玄師",
+      "title": "死神"
+    },
+    {
+      "lang": "ja",
+      "artist": "米津玄師",
+      "title": "ピースサイン"
+    },
+    {
+      "lang": "ja",
+      "artist": "米津玄師",
+      "title": "打上花火"
+    },
+    {
+      "lang": "ja",
+      "artist": "Official髭男dism",
+      "title": "I LOVE..."
+    },
+    {
+      "lang": "ja",
+      "artist": "Official髭男dism",
+      "title": "ノーダウト"
+    },
+    {
+      "lang": "ja",
+      "artist": "Official髭男dism",
+      "title": "宿命"
+    },
+    {
+      "lang": "ja",
+      "artist": "Official髭男dism",
+      "title": "ミックスナッツ"
+    },
+    {
+      "lang": "ja",
+      "artist": "Mrs. GREEN APPLE",
+      "title": "インフェルノ"
+    },
+    {
+      "lang": "ja",
+      "artist": "Mrs. GREEN APPLE",
+      "title": "ライラック"
+    },
+    {
+      "lang": "ja",
+      "artist": "Mrs. GREEN APPLE",
+      "title": "アンマー"
+    },
+    {
+      "lang": "ja",
+      "artist": "あいみょん",
+      "title": "ハルノヒ"
+    },
+    {
+      "lang": "ja",
+      "artist": "あいみょん",
+      "title": "愛の花"
+    },
+    {
+      "lang": "ja",
+      "artist": "King Gnu",
+      "title": "SPECIALZ"
+    },
+    {
+      "lang": "ja",
+      "artist": "King Gnu",
+      "title": "カメレオン"
+    },
+    {
+      "lang": "ja",
+      "artist": "King Gnu",
+      "title": "三文小説"
+    },
+    {
+      "lang": "ja",
+      "artist": "LiSA",
+      "title": "明け星"
+    },
+    {
+      "lang": "ja",
+      "artist": "LiSA",
+      "title": "unlasting"
+    },
+    {
+      "lang": "ja",
+      "artist": "LiSA",
+      "title": "ADAMAS"
+    },
+    {
+      "lang": "ja",
+      "artist": "Aimer",
+      "title": "蝶々結び"
+    },
+    {
+      "lang": "ja",
+      "artist": "Aimer",
+      "title": "誰か、海を。"
+    },
+    {
+      "lang": "ja",
+      "artist": "RADWIMPS",
+      "title": "スパークル"
+    },
+    {
+      "lang": "ja",
+      "artist": "RADWIMPS",
+      "title": "愛にできることはまだあるかい"
+    },
+    {
+      "lang": "ja",
+      "artist": "RADWIMPS",
+      "title": "グランドエスケープ"
+    },
+    {
+      "lang": "ja",
+      "artist": "back number",
+      "title": "水平線"
+    },
+    {
+      "lang": "ja",
+      "artist": "back number",
+      "title": "花束"
+    },
+    {
+      "lang": "ja",
+      "artist": "back number",
+      "title": "怪盗"
+    },
+    {
+      "lang": "ja",
+      "artist": "back number",
+      "title": "HAPPY BIRTHDAY"
+    },
+    {
+      "lang": "ja",
+      "artist": "Vaundy",
+      "title": "踊り子"
+    },
+    {
+      "lang": "ja",
+      "artist": "Vaundy",
+      "title": "東京フラッシュ"
+    },
+    {
+      "lang": "ja",
+      "artist": "Vaundy",
+      "title": "不可幸力"
+    },
+    {
+      "lang": "ja",
+      "artist": "ヨルシカ",
+      "title": "だから僕は音楽を辞めた"
+    },
+    {
+      "lang": "ja",
+      "artist": "ヨルシカ",
+      "title": "ただ君に晴れ"
+    },
+    {
+      "lang": "ja",
+      "artist": "ヨルシカ",
+      "title": "靴の花火"
+    },
+    {
+      "lang": "ja",
+      "artist": "ずっと真夜中でいいのに。",
+      "title": "勘冴えて悔しいわ"
+    },
+    {
+      "lang": "ja",
+      "artist": "優里",
+      "title": "ドライフラワー"
+    },
+    {
+      "lang": "ja",
+      "artist": "優里",
+      "title": "ベテルギウス"
+    },
+    {
+      "lang": "ja",
+      "artist": "優里",
+      "title": "かくれんぼ"
+    },
+    {
+      "lang": "ja",
+      "artist": "Saucy Dog",
+      "title": "シンデレラボーイ"
+    },
+    {
+      "lang": "ja",
+      "artist": "Saucy Dog",
+      "title": "いつか"
+    },
+    {
+      "lang": "ja",
+      "artist": "クリープハイプ",
+      "title": "百八円の恋"
+    },
+    {
+      "lang": "ja",
+      "artist": "緑黄色社会",
+      "title": "Mela!"
+    },
+    {
+      "lang": "ja",
+      "artist": "緑黄色社会",
+      "title": "キャラクター"
+    },
+    {
+      "lang": "ja",
+      "artist": "Eve",
+      "title": "廻廻奇譚"
+    },
+    {
+      "lang": "ja",
+      "artist": "Eve",
+      "title": "蒼のワルツ"
+    },
+    {
+      "lang": "ja",
+      "artist": "DISH//",
+      "title": "猫"
+    },
+    {
+      "lang": "ja",
+      "artist": "マカロニえんぴつ",
+      "title": "ヒント"
+    },
+    {
+      "lang": "ja",
+      "artist": "マカロニえんぴつ",
+      "title": "なんでもないよ、"
+    },
+    {
+      "lang": "ja",
+      "artist": "中島みゆき",
+      "title": "時代"
+    },
+    {
+      "lang": "ja",
+      "artist": "中島みゆき",
+      "title": "地上の星"
+    },
+    {
+      "lang": "ja",
+      "artist": "X JAPAN",
+      "title": "紅"
+    },
+    {
+      "lang": "ja",
+      "artist": "X JAPAN",
+      "title": "Endless Rain"
+    },
+    {
+      "lang": "ja",
+      "artist": "尾崎豊",
+      "title": "I LOVE YOU"
+    },
+    {
+      "lang": "ja",
+      "artist": "レミオロメン",
+      "title": "粉雪"
+    },
+    {
+      "lang": "ja",
+      "artist": "ZARD",
+      "title": "負けないで"
+    },
+    {
+      "lang": "ja",
+      "artist": "ZARD",
+      "title": "揺れる想い"
+    },
+    {
+      "lang": "ja",
+      "artist": "大塚愛",
+      "title": "さくらんぼ"
+    },
+    {
+      "lang": "ja",
+      "artist": "浜崎あゆみ",
+      "title": "M"
+    },
+    {
+      "lang": "ja",
+      "artist": "aiko",
+      "title": "カブトムシ"
+    },
+    {
+      "lang": "ja",
+      "artist": "コブクロ",
+      "title": "蕾"
+    },
+    {
+      "lang": "ja",
+      "artist": "コブクロ",
+      "title": "桜"
+    },
+    {
+      "lang": "ko",
+      "artist": "BTS",
+      "title": "Boy With Luv"
+    },
+    {
+      "lang": "ko",
+      "artist": "BTS",
+      "title": "IDOL"
+    },
+    {
+      "lang": "ko",
+      "artist": "BTS",
+      "title": "ON"
+    },
+    {
+      "lang": "ko",
+      "artist": "BTS",
+      "title": "Life Goes On"
+    },
+    {
+      "lang": "ko",
+      "artist": "BTS",
+      "title": "Permission to Dance"
+    },
+    {
+      "lang": "ko",
+      "artist": "BLACKPINK",
+      "title": "Kill This Love"
+    },
+    {
+      "lang": "ko",
+      "artist": "BLACKPINK",
+      "title": "Shut Down"
+    },
+    {
+      "lang": "ko",
+      "artist": "BLACKPINK",
+      "title": "Boombayah"
+    },
+    {
+      "lang": "ko",
+      "artist": "BLACKPINK",
+      "title": "As If It's Your Last"
+    },
+    {
+      "lang": "ko",
+      "artist": "IU",
+      "title": "Eight"
+    },
+    {
+      "lang": "ko",
+      "artist": "IU",
+      "title": "Blueming"
+    },
+    {
+      "lang": "ko",
+      "artist": "IU",
+      "title": "Lilac"
+    },
+    {
+      "lang": "ko",
+      "artist": "IU",
+      "title": "Palette"
+    },
+    {
+      "lang": "ko",
+      "artist": "IU",
+      "title": "strawberry moon"
+    },
+    {
+      "lang": "ko",
+      "artist": "TWICE",
+      "title": "TT"
+    },
+    {
+      "lang": "ko",
+      "artist": "TWICE",
+      "title": "Likey"
+    },
+    {
+      "lang": "ko",
+      "artist": "TWICE",
+      "title": "Cheer Up"
+    },
+    {
+      "lang": "ko",
+      "artist": "TWICE",
+      "title": "The Feels"
+    },
+    {
+      "lang": "ko",
+      "artist": "Red Velvet",
+      "title": "Feel My Rhythm"
+    },
+    {
+      "lang": "ko",
+      "artist": "Red Velvet",
+      "title": "Russian Roulette"
+    },
+    {
+      "lang": "ko",
+      "artist": "Red Velvet",
+      "title": "Red Flavor"
+    },
+    {
+      "lang": "ko",
+      "artist": "NewJeans",
+      "title": "Super Shy"
+    },
+    {
+      "lang": "ko",
+      "artist": "NewJeans",
+      "title": "Attention"
+    },
+    {
+      "lang": "ko",
+      "artist": "NewJeans",
+      "title": "ETA"
+    },
+    {
+      "lang": "ko",
+      "artist": "NewJeans",
+      "title": "Get Up"
+    },
+    {
+      "lang": "ko",
+      "artist": "IVE",
+      "title": "Kitsch"
+    },
+    {
+      "lang": "ko",
+      "artist": "IVE",
+      "title": "After LIKE"
+    },
+    {
+      "lang": "ko",
+      "artist": "IVE",
+      "title": "Eleven"
+    },
+    {
+      "lang": "ko",
+      "artist": "IVE",
+      "title": "Baddie"
+    },
+    {
+      "lang": "ko",
+      "artist": "aespa",
+      "title": "Savage"
+    },
+    {
+      "lang": "ko",
+      "artist": "aespa",
+      "title": "Drama"
+    },
+    {
+      "lang": "ko",
+      "artist": "aespa",
+      "title": "Black Mamba"
+    },
+    {
+      "lang": "ko",
+      "artist": "aespa",
+      "title": "Armageddon"
+    },
+    {
+      "lang": "ko",
+      "artist": "LE SSERAFIM",
+      "title": "FEARLESS"
+    },
+    {
+      "lang": "ko",
+      "artist": "LE SSERAFIM",
+      "title": "UNFORGIVEN"
+    },
+    {
+      "lang": "ko",
+      "artist": "LE SSERAFIM",
+      "title": "Perfect Night"
+    },
+    {
+      "lang": "ko",
+      "artist": "(G)I-DLE",
+      "title": "Queencard"
+    },
+    {
+      "lang": "ko",
+      "artist": "(G)I-DLE",
+      "title": "Nxde"
+    },
+    {
+      "lang": "ko",
+      "artist": "(G)I-DLE",
+      "title": "HANN"
+    },
+    {
+      "lang": "ko",
+      "artist": "SEVENTEEN",
+      "title": "HOT"
+    },
+    {
+      "lang": "ko",
+      "artist": "SEVENTEEN",
+      "title": "Super"
+    },
+    {
+      "lang": "ko",
+      "artist": "SEVENTEEN",
+      "title": "Left & Right"
+    },
+    {
+      "lang": "ko",
+      "artist": "Stray Kids",
+      "title": "God's Menu"
+    },
+    {
+      "lang": "ko",
+      "artist": "Stray Kids",
+      "title": "S-Class"
+    },
+    {
+      "lang": "ko",
+      "artist": "Stray Kids",
+      "title": "MANIAC"
+    },
+    {
+      "lang": "ko",
+      "artist": "ITZY",
+      "title": "WANNABE"
+    },
+    {
+      "lang": "ko",
+      "artist": "ITZY",
+      "title": "DALLA DALLA"
+    },
+    {
+      "lang": "ko",
+      "artist": "ITZY",
+      "title": "LOCO"
+    },
+    {
+      "lang": "ko",
+      "artist": "NMIXX",
+      "title": "O.O"
+    },
+    {
+      "lang": "ko",
+      "artist": "Kep1er",
+      "title": "WA DA DA"
+    },
+    {
+      "lang": "ko",
+      "artist": "ENHYPEN",
+      "title": "Bite Me"
+    },
+    {
+      "lang": "ko",
+      "artist": "TXT",
+      "title": "0X1=LOVESONG"
+    },
+    {
+      "lang": "ko",
+      "artist": "EXO",
+      "title": "Growl"
+    },
+    {
+      "lang": "ko",
+      "artist": "EXO",
+      "title": "Monster"
+    },
+    {
+      "lang": "ko",
+      "artist": "SHINee",
+      "title": "Sherlock"
+    },
+    {
+      "lang": "ko",
+      "artist": "SHINee",
+      "title": "View"
+    },
+    {
+      "lang": "ko",
+      "artist": "Girls' Generation",
+      "title": "Gee"
+    },
+    {
+      "lang": "ko",
+      "artist": "Girls' Generation",
+      "title": "Into the New World"
+    },
+    {
+      "lang": "ko",
+      "artist": "MAMAMOO",
+      "title": "HIP"
+    },
+    {
+      "lang": "ko",
+      "artist": "MAMAMOO",
+      "title": "Starry Night"
+    },
+    {
+      "lang": "ko",
+      "artist": "AKMU",
+      "title": "Love Lee"
+    },
+    {
+      "lang": "ko",
+      "artist": "AKMU",
+      "title": "Hey Kid, Close Your Eyes"
+    },
+    {
+      "lang": "ko",
+      "artist": "Heize",
+      "title": "You, Clouds, Rain"
+    },
+    {
+      "lang": "ko",
+      "artist": "Crush",
+      "title": "Beautiful"
+    },
+    {
+      "lang": "ko",
+      "artist": "Zico",
+      "title": "Any Song"
+    },
+    {
+      "lang": "ko",
+      "artist": "BIBI",
+      "title": "밤양갱"
+    },
+    {
+      "lang": "ko",
+      "artist": "DAY6",
+      "title": "You Were Beautiful"
+    },
+    {
+      "lang": "ko",
+      "artist": "DAY6",
+      "title": "Time of Our Life"
+    },
+    {
+      "lang": "ko",
+      "artist": "IU",
+      "title": "Good Day"
+    },
+    {
+      "lang": "ko",
+      "artist": "성시경",
+      "title": "너의 모든 순간"
+    },
+    {
+      "lang": "ko",
+      "artist": "박효신",
+      "title": "야생화"
+    },
+    {
+      "lang": "ko",
+      "artist": "이수",
+      "title": "My Way"
+    },
+    {
+      "lang": "ko",
+      "artist": "임영웅",
+      "title": "사랑은 늘 도망가"
+    },
+    {
+      "lang": "ko",
+      "artist": "볼빨간사춘기",
+      "title": "우주를 줄게"
+    },
+    {
+      "lang": "ko",
+      "artist": "백예린",
+      "title": "우주를 건너"
+    },
+    {
+      "lang": "ja",
+      "artist": "赤い公園",
+      "title": "象牙の塔"
+    }
+  ]
+}

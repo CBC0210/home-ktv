@@ -1,0 +1,40 @@
+{
+  "name": "home-ktv-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "node scripts/gen-build-id.mjs && next build && cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/public",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "echo 'no frontend tests yet'"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.0.0",
+    "hls.js": "^1.5.0",
+    "libass-wasm": "^4.1.0",
+    "next": "15.3.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-qr-code": "^2.0.21",
+    "recharts": "^3.8.1",
+    "zustand": "^5.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "sharp",
+      "unrs-resolver"
+    ]
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/node": "^20.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "15.3.2",
+    "postcss": "^8.0.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

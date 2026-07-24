@@ -1,0 +1,34 @@
+# Cloudflare Tunnel configuration for Home KTV (OPTIONAL — off-LAN access only)
+#
+# 1. cloudflared tunnel login && cloudflared tunnel create ktv
+# 2. Fill in <TUNNEL_UUID> (from `cloudflared tunnel list`) and your domain.
+# 3. sudo cp deploy/cloudflared.example.yml /etc/cloudflared/config.yml
+#    sudo systemctl restart cloudflared
+#
+# Routing:
+#   /api/*, /songs/*, /ws, /health, /version  → port 8000 (FastAPI backend)
+#   everything else                            → port 3000 (Next.js frontend)
+# (If you run the frontend on another port, change the LAST rule to match.)
+
+tunnel: <TUNNEL_UUID>
+credentials-file: /home/<USER>/.cloudflared/<TUNNEL_UUID>.json
+
+ingress:
+  - hostname: ktv.example.com
+    path: /api/.*
+    service: http://localhost:8000
+  - hostname: ktv.example.com
+    path: /ws
+    service: http://localhost:8000
+  - hostname: ktv.example.com
+    path: /songs/.*
+    service: http://localhost:8000
+  - hostname: ktv.example.com
+    path: /health
+    service: http://localhost:8000
+  - hostname: ktv.example.com
+    path: /version
+    service: http://localhost:8000
+  - hostname: ktv.example.com
+    service: http://localhost:3000
+  - service: http_status:404
