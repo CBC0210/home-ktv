@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ── Auth / Session ────────────────────────────────────────────────────────────
@@ -21,7 +21,7 @@ class GuestJoin(BaseModel):
     `room_password`. Accept both so a password-protected room works
     regardless of which field the client (incl. cached bundles) sends.
     """
-    nickname: str
+    nickname: str = Field(min_length=1, max_length=64)
     room_id: str
     room_password: Optional[str] = None
     password: Optional[str] = None
@@ -72,7 +72,7 @@ class RoomIn(BaseModel):
 # ── Guest ─────────────────────────────────────────────────────────────────────
 
 class GuestBase(BaseModel):
-    nickname: str
+    nickname: str = Field(min_length=1, max_length=64)
 
 
 class GuestCreate(GuestBase):
@@ -93,7 +93,7 @@ class GuestOut(GuestBase):
 # ── Song ──────────────────────────────────────────────────────────────────────
 
 class SongCreate(BaseModel):
-    youtube_url: str
+    youtube_url: str = Field(min_length=1, max_length=2048)
     room_id: str
     position: Optional[str] = "end"
 
@@ -140,7 +140,7 @@ class GuestInQueue(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    nickname: str
+    nickname: str = Field(min_length=1, max_length=64)
     avatar_color: Optional[str] = None
     is_admin: bool = False
 

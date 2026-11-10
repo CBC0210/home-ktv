@@ -30,6 +30,8 @@ def join_room(data: GuestJoin, response: Response, session: Session = Depends(ge
     Creates a new Guest record if nickname is new; otherwise re-uses existing guest.
     Returns a JWT session token set as a cookie.
     """
+    if not data.nickname.strip() or len(data.nickname) > 64 or data.nickname.startswith("__"):
+        raise HTTPException(status_code=400, detail="Invalid nickname")
     # Check room exists
     room = session.query(Room).filter_by(id=data.room_id).first()
     if not room:
@@ -43,7 +45,7 @@ def join_room(data: GuestJoin, response: Response, session: Session = Depends(ge
         if not verify_room_password(room.password_hash, pw):
             raise HTTPException(status_code=403, detail="Incorrect room password")
 
-    # Find or create guest by nickname (within this room — key is nickname for simplicity)
+    # Find or create guest by nickname (globally — shared nickname identity is intentional)
     guest = session.query(Guest).filter_by(nickname=data.nickname).first()
     is_new = guest is None
     if is_new:
@@ -77,7 +79,7 @@ def join_room(data: GuestJoin, response: Response, session: Session = Depends(ge
         max_age=60 * 60 * 24 * 7,  # 1 week
     )
 
-    return SessionOut(access_token=token, guest=GuestOut.model_validate(guest))
+    return SessionOut(access_token=token, guest=GuestOut.model_validate(guest).model_copy(update={"is_admin": False}))
 
 
 @router.get("/me", response_model=GuestOut)

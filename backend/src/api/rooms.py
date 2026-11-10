@@ -10,6 +10,7 @@ from ktv_pipeline.auth import (
     hash_password, verify_admin_password, verify_password, create_access_token,
 )
 from ktv_pipeline.deps import get_current_guest
+from ktv_pipeline.auth import is_system_admin, ensure_room_access
 
 
 class AdminVerifyBody(BaseModel):
@@ -52,7 +53,7 @@ def create_room(
     session: Session = Depends(get_session),
 ):
     """Create a new room. Requires authentication. Password is hashed with bcrypt."""
-    if not payload.get("is_admin"):
+    if not is_system_admin(payload):
         raise HTTPException(status_code=403, detail="Admin only")
 
     existing = session.query(Room).filter_by(id=data.id).first()
@@ -106,7 +107,7 @@ def set_room_password(
     session: Session = Depends(get_session),
 ):
     """Change room password. Admin only."""
-    if not payload.get("is_admin"):
+    if not is_system_admin(payload):
         raise HTTPException(status_code=403, detail="Admin only")
 
     room = session.query(Room).filter_by(id=room_id).first()
@@ -268,25 +269,22 @@ def verify_room_admin(
     Used by Remote to enter admin mode (queue/DB elevated ops). Separate from
     the system ADMIN_PASSWORD (used for /admin web page).
     """
+    ensure_room_access(payload, room_id)
     room = session.query(Room).filter_by(id=room_id).first()
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
-    if not room.admin_password_hash:
-        raise HTTPException(status_code=503, detail="Room admin password not set")
-    if not verify_password(body.password, room.admin_password_hash):
+    # Predictable legacy defaults never authorize access. The system owner
+    # can still enter room-admin mode using the existing system password.
+    legacy_default = bool(room.admin_password_hash and verify_password(f"{room.id}admin", room.admin_password_hash))
+    valid = verify_admin_password(body.password) or bool(
+        room.admin_password_hash and not legacy_default
+        and verify_password(body.password, room.admin_password_hash)
+    )
+    if not valid:
         raise HTTPException(status_code=403, detail="Wrong admin password")
-    # Mark this guest as room-admin in DB AND reissue a JWT with
-    # is_admin=True — admin-gated endpoints check the token payload, not
-    # the DB, so without a fresh token elevated ops (e.g. delete song)
-    # would keep 403-ing.
-    from ktv_pipeline.models import Guest
-    guest = session.query(Guest).filter_by(id=payload["sub"]).first()
-    if guest:
-        guest.is_admin = True
-        session.commit()
     new_token = create_access_token(
         guest_id=payload["sub"],
-        room_id=payload.get("room_id", room_id),
+        room_id=room_id,
         is_admin=True,
     )
     return {"ok": True, "room_id": room_id, "access_token": new_token}
@@ -303,13 +301,32 @@ def set_room_admin_password(
 
     System admin = JWT with is_admin=True (set via /admin login).
     """
-    if not payload.get("is_admin"):
+    if not is_system_admin(payload):
         raise HTTPException(status_code=403, detail="Admin only")
-    if not body.new_password.strip():
-        raise HTTPException(status_code=400, detail="Password cannot be empty")
+    if len(body.new_password) < 8 or len(body.new_password.encode()) > 72:
+        raise HTTPException(status_code=400, detail="Password must be 8–72 bytes")
+    if body.new_password == f"{room_id}admin":
+        raise HTTPException(status_code=400, detail="Choose a non-default password")
     room = session.query(Room).filter_by(id=room_id).first()
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
     room.admin_password_hash = hash_password(body.new_password)
     session.commit()
     return {"ok": True, "room_id": room_id}
+
+class PlayerSessionBody(BaseModel):
+    password: str = ""
+
+
+@router.post("/{room_id}/player-session")
+def player_session(room_id: str, body: PlayerSessionBody,
+                   session: Session = Depends(get_session)):
+    """Pair a display using the room password; issue a display-only token."""
+    room = session.query(Room).filter_by(id=room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+    if room.password_hash and not verify_password(body.password, room.password_hash):
+        raise HTTPException(status_code=403, detail="Incorrect room password")
+    return {"access_token": create_access_token(
+        guest_id=f"__player__{room_id}", room_id=room_id, scope="player",
+    )}

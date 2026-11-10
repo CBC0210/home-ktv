@@ -6,9 +6,10 @@ from typing import List, Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, HTTPException
 
 from ktv_pipeline.ws_manager import manager, ClientRole
-from ktv_pipeline.auth import decode_access_token
+from ktv_pipeline.auth import decode_access_token, is_room_admin, is_system_admin
+from ktv_pipeline.security import origin_allowed, allow_request
 from ktv_pipeline.database import get_db_session
-from ktv_pipeline.models import Room, Guest
+from ktv_pipeline.models import Room, Guest, QueueItem
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -47,8 +48,8 @@ async def ws_endpoint(
 ):
     """WebSocket endpoint. Auth via ?token=<jwt>.
 
-    Player role (TV display) may connect without a token — it is a trusted
-    local display device. All other roles require a valid guest JWT.
+    The TV uses a display-only token issued after room-password pairing.
+    Remotes require a guest or scoped room-admin JWT.
     After auth, the connection is registered in the manager.
     """
     role_str = role
@@ -64,32 +65,38 @@ async def ws_endpoint(
             pass
         await websocket.close(code=code, reason=reason)
 
-    if token:
-        try:
-            payload = authenticate_websocket_token(token)
-        except WebSocketDisconnect:
-            await _reject(4001, "Invalid or expired session")
-            return
-        guest_id: str = payload["sub"]
-        room_id_resolved: str = payload["room_id"]
-        is_admin: bool = bool(payload.get("is_admin"))
-    else:
-        # Unauthenticated — only allowed for the player role (TV screen)
-        if role_str != "player":
-            await _reject(4001, "Token required for non-player roles")
-            return
-        if not room_id:
-            await _reject(4004, "room_id required for player")
-            return
+    origin = websocket.headers.get("origin")
+    if origin and not origin_allowed(origin):
+        await _reject(4001, "Origin not allowed")
+        return
+    if not token:
+        await _reject(4001, "Pair the player or join the room first")
+        return
+    try:
+        payload = authenticate_websocket_token(token)
+    except WebSocketDisconnect:
+        await _reject(4001, "Invalid or expired session")
+        return
+    guest_id = payload["sub"]
+    room_id_resolved = payload["room_id"]
+    if is_system_admin(payload) and room_id:
         room_id_resolved = room_id
-        guest_id = f"__player__{room_id_resolved}"
-        is_admin = False
-
-    # Determine client role enum
+    if room_id and room_id != room_id_resolved:
+        await _reject(4001, "Wrong room")
+        return
     try:
         client_role = ClientRole(role_str)
     except ValueError:
-        client_role = ClientRole.REMOTE
+        await _reject(4001, "Invalid role")
+        return
+    if client_role == ClientRole.PLAYER:
+        if payload.get("scope") != "player" and not is_system_admin(payload):
+            await _reject(4001, "Player pairing required")
+            return
+    elif payload.get("scope") == "player" or (client_role == ClientRole.ADMIN and not is_system_admin(payload)):
+        await _reject(4001, "Role not authorized")
+        return
+    is_admin = is_room_admin(payload, room_id_resolved)
 
     client_id = str(uuid.uuid4())
 
@@ -111,7 +118,7 @@ async def ws_endpoint(
 
     try:
         # Resolve nickname (players get a static label; guests look up DB)
-        if token:
+        if client_role != ClientRole.PLAYER:
             with get_db_session() as session:
                 guest = session.query(Guest).filter_by(id=guest_id).first()
                 nickname = guest.nickname if guest else "Unknown"
@@ -119,7 +126,7 @@ async def ws_endpoint(
             nickname = "Player"
 
         # Notify room of new guest (only for real guests, not the player device)
-        if token:
+        if client_role != ClientRole.PLAYER:
             guests_info = await _get_room_guests_info(room_id_resolved)
             await manager.broadcast_guests_updated(room_id_resolved, guests_info)
 
@@ -133,14 +140,27 @@ async def ws_endpoint(
         # Dispatch loop
         while True:
             raw = await websocket.receive_text()
-            await dispatch_message(client_id, room_id_resolved, guest_id, nickname, raw, client_role, is_admin)
+            if len(raw) > 65536:
+                await websocket.close(code=1009, reason="Message too large")
+                break
+            from datetime import datetime, timezone
+            if datetime.now(timezone.utc).timestamp() >= payload["exp"]:
+                await websocket.close(code=4001, reason="Session expired")
+                break
+            if not allow_request(("ws", guest_id, room_id_resolved), 1800, 60):
+                await manager.send_to_client(client_id, {"type": "system.error", "message": "操作過於頻繁，請稍候"})
+                continue
+            try:
+                await dispatch_message(client_id, room_id_resolved, guest_id, nickname, raw, client_role, is_admin)
+            except (ValueError, TypeError, KeyError, OverflowError):
+                await manager.send_to_client(client_id, {"type": "system.error", "message": "Invalid command"})
 
     except WebSocketDisconnect:
         pass
     finally:
         await manager.disconnect(client_id)
         # Notify remaining room members of the departure (only for real guests)
-        if token:
+        if client_role != ClientRole.PLAYER:
             remaining = await _get_room_guests_info(room_id_resolved)
             await manager.broadcast_guests_updated(room_id_resolved, remaining)
 
@@ -156,8 +176,8 @@ async def dispatch_message(
 ) -> None:
     """Parse and handle an inbound client message.
 
-    ``is_admin`` comes from the connection's JWT (False for the token-less
-    player device) and gates the elevated queue operations, mirroring the
+    ``is_admin`` comes from the scoped connection JWT (False for the
+    paired player device) and gates the elevated queue operations, mirroring the
     REST endpoints in api/queue.py.
     """
     import json
@@ -167,7 +187,29 @@ async def dispatch_message(
         await manager.send_to_client(client_id, {"type": "system.error", "message": "Invalid JSON"})
         return
 
+    if not isinstance(msg, dict):
+        await manager.send_to_client(client_id, {"type": "system.error", "message": "Invalid command"})
+        return
     msg_type = msg.get("type", "")
+    if msg_type in ("guest.kick", "lyrics.edit", "av.offset") and not is_admin:
+        await manager.send_to_client(client_id, {"type": "system.error", "message": "需要房間管理員權限"})
+        return
+    if msg_type == "queue.add" and not allow_request(("add", guest_id), 20, 60):
+        await manager.send_to_client(client_id, {"type": "system.error", "message": "點歌過於頻繁，請稍候"})
+        return
+    import math
+    for field in ("positionSec", "main", "vocal", "offsetMs"):
+        if field in msg:
+            value = float(msg[field])
+            if not math.isfinite(value):
+                raise ValueError("Non-finite value")
+            if field in ("main", "vocal"):
+                msg[field] = max(0, min(1, value))
+            elif field == "positionSec":
+                msg[field] = max(0, min(86400, value))
+    if msg_type == "reaction.send":
+        msg["emoji"] = str(msg.get("emoji", "👍"))[:16]
+
 
     # Heartbeat — keep latency low and avoid log spam
     if msg_type == "ping":
@@ -245,12 +287,9 @@ async def dispatch_message(
             })
             await manager.broadcast_activity(room_id, "⏸ 暫停", nickname)
         elif msg_type == "playback.skip":
-            # Capture the playhead BEFORE zeroing so we can tell a real
-            # completion (≥80%) from an early skip for stats (spec §9.1).
-            _skip_pos = manager.get_playback_state(room_id).get("position_sec", 0) or 0
-            manager.update_playback_state(room_id, is_playing=False, position_sec=0)
-            await manager.broadcast_activity(room_id, "⏭ 切下一首", nickname)
-            await _handle_song_advance(room_id, final_position_sec=_skip_pos)
+            await _handle_playback_skip(
+                room_id, guest_id, nickname, is_admin, msg.get("queueItemId")
+            )
         elif msg_type == "playback.replay":
             manager.update_playback_state(room_id, is_playing=True, position_sec=0)
             await manager.send_to_role(room_id, ClientRole.PLAYER, {"type": "playback.replay"})
@@ -306,7 +345,7 @@ async def dispatch_message(
             await _handle_av_offset(room_id, nickname, msg)
 
         elif msg_type == "guest.kick":
-            await _handle_guest_kick(room_id, guest_id, msg)
+            await _handle_guest_kick(room_id, guest_id, msg, is_admin=is_admin)
 
         elif msg_type == "autoplay.set":
             await _handle_autoplay_set(room_id, guest_id, msg)
@@ -381,8 +420,14 @@ async def _handle_queue_remove(room_id: str, guest_id: str, nickname: str, is_ad
             if not qi:
                 await manager.broadcast_system_error(room_id, "Queue item not found")
                 return
+            if qi.room_id != room_id:
+                await manager.broadcast_system_error(room_id, "Queue item does not belong to this room")
+                return
             if qi.guest_id != guest_id and not is_admin:
                 await manager.broadcast_system_error(room_id, "無權限移除他人的點播（需管理員）")
+                return
+            if qi.status == "playing":
+                await manager.broadcast_system_error(room_id, "歌曲播放中，請使用跳過")
                 return
             from ktv_pipeline.models import Song
             s = session.query(Song).filter_by(id=qi.song_id).first()
@@ -401,6 +446,66 @@ async def _handle_queue_remove(room_id: str, guest_id: str, nickname: str, is_ad
                 await manager.broadcast_system_error(room_id, "Queue item not found")
     except Exception as exc:
         await manager.broadcast_system_error(room_id, f"queue.remove failed: {exc}")
+
+
+async def _handle_playback_skip(
+    room_id: str,
+    guest_id: str,
+    nickname: str,
+    is_admin: bool,
+    expected_queue_item_id: object = None,
+) -> None:
+    """Skip the current song when its owner (or this room's admin) asks.
+
+    ``guest_id`` is supplied by the authenticated WebSocket session, never by
+    the client command.  An optional queue item ID prevents a delayed tap in
+    the Remote UI from skipping a song that began after the UI was rendered.
+    """
+    if isinstance(expected_queue_item_id, bool):
+        await manager.broadcast_system_error(room_id, "playback.skip: invalid queue item")
+        return
+    try:
+        expected_id = (
+            int(expected_queue_item_id)
+            if expected_queue_item_id is not None
+            else None
+        )
+    except (TypeError, ValueError):
+        await manager.broadcast_system_error(room_id, "playback.skip: invalid queue item")
+        return
+    if expected_id is not None and expected_id <= 0:
+        await manager.broadcast_system_error(room_id, "playback.skip: invalid queue item")
+        return
+
+    from ktv_pipeline.queue_manager import QueueManager
+    with get_db_session() as session:
+        playing = QueueManager(session).get_currently_playing(room_id)
+        if expected_id is not None and (not playing or playing.id != expected_id):
+            await manager.broadcast_system_error(room_id, "歌曲已切換，請重新操作")
+            return
+        if not is_admin:
+            if not playing:
+                await manager.broadcast_system_error(room_id, "目前沒有正在播放的歌曲")
+                return
+            if playing.guest_id != guest_id:
+                await manager.broadcast_system_error(room_id, "只能跳過自己點播的歌曲")
+                return
+        # Legacy clients do not send queueItemId. Bind their request to the
+        # item observed during authorization so an await below cannot advance
+        # a newer song that replaced it.
+        if expected_id is None and playing:
+            expected_id = playing.id
+
+    # Capture the playhead BEFORE zeroing so we can tell a real completion
+    # (≥80%) from an early skip for stats (spec §9.1).
+    skip_pos = manager.get_playback_state(room_id).get("position_sec", 0) or 0
+    manager.update_playback_state(room_id, is_playing=False, position_sec=0)
+    await manager.broadcast_activity(room_id, "⏭ 切下一首", nickname)
+    await _handle_song_advance(
+        room_id,
+        final_position_sec=skip_pos,
+        expected_queue_item_id=expected_id,
+    )
 
 
 async def _handle_queue_reorder(room_id: str, nickname: str, is_admin: bool, msg: dict) -> None:
@@ -436,6 +541,7 @@ async def _handle_song_advance(
     *,
     final_position_sec: Optional[float] = None,
     expected_song_id: Optional[str] = None,
+    expected_queue_item_id: Optional[int] = None,
 ) -> None:
     """Mark the currently-playing queue item as done, then start the next one.
 
@@ -458,6 +564,12 @@ async def _handle_song_advance(
         if playing and expected_song_id and playing.song_id != expected_song_id:
             log.info("[advance] room=%s stale event for song=%s ignored (playing=%s)",
                      room_id, expected_song_id, playing.song_id)
+            return
+        if expected_queue_item_id is not None and (
+            not playing or playing.id != expected_queue_item_id
+        ):
+            log.info("[advance] room=%s stale skip for queue item=%s ignored (playing=%s)",
+                     room_id, expected_queue_item_id, playing.id if playing else None)
             return
         if playing:
             current_item_id = playing.id
@@ -929,15 +1041,14 @@ async def _handle_av_offset(room_id: str, actor: str, msg: dict) -> None:
         await manager.broadcast_system_error(room_id, f"av.offset failed: {exc}")
 
 
-async def _handle_guest_kick(room_id: str, requester_id: str, msg: dict) -> None:
+async def _handle_guest_kick(room_id: str, requester_id: str, msg: dict, is_admin: bool = False) -> None:
     """Admin-only: disconnect a guest's WS connections and remove them."""
     target = msg.get("guestId")
     if not target:
         return
     from ktv_pipeline.models import Guest
     with get_db_session() as s:
-        requester = s.query(Guest).filter_by(id=requester_id).first()
-        if not requester or not requester.is_admin:
+        if not is_admin:
             await manager.broadcast_system_error(room_id, "guest.kick: 需要管理員權限")
             return
         tg = s.query(Guest).filter_by(id=target).first()

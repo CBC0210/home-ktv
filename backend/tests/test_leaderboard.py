@@ -25,7 +25,7 @@ def client():
 
 @pytest.fixture()
 def admin_token(client):
-    resp = client.post("/api/auth/admin/login", params={"password": settings.admin_password})
+    resp = client.post("/api/auth/admin/login", json={"password": settings.admin_password})
     assert resp.status_code == 200
     return resp.json()["access_token"]
 

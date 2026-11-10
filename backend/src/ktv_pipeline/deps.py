@@ -4,12 +4,15 @@ from sqlalchemy.orm import Session
 
 from ktv_pipeline.database import get_db_session
 from ktv_pipeline.models import Guest, Room
-from ktv_pipeline.auth import guest_from_request, get_optional_guest
+from ktv_pipeline.auth import guest_from_request, get_optional_guest, is_system_admin
 
 
 def get_current_guest(request: Request) -> dict:
     """Dependency — requires a valid session. Returns JWT payload."""
-    return guest_from_request(request)
+    payload = guest_from_request(request)
+    if payload.get("scope") == "player":
+        raise HTTPException(status_code=403, detail="Player session cannot perform guest operations")
+    return payload
 
 
 def get_optional_guest_dep(request: Request) -> dict | None:
@@ -18,9 +21,9 @@ def get_optional_guest_dep(request: Request) -> dict | None:
 
 
 def require_admin(request: Request) -> dict:
-    """Dependency — requires admin session (is_admin=True in JWT)."""
+    """Dependency — requires a system-admin scoped session."""
     payload = guest_from_request(request)
-    if not payload.get("is_admin"):
+    if not is_system_admin(payload):
         raise HTTPException(status_code=403, detail="Admin access required")
     return payload
 

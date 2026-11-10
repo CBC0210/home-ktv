@@ -2,11 +2,16 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from ktv_pipeline.main import app
+from main import app
 from ktv_pipeline.auth import hash_password, verify_password, create_access_token, decode_access_token
 
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def reset_cookies():
+    client.cookies.clear()
 
 
 class TestPasswordHashing:
@@ -42,7 +47,7 @@ class TestJWTTokens:
     def test_token_in_response(self):
         # POST to /api/auth/admin/login with correct password
         from ktv_pipeline.config import settings
-        response = client.post("/api/auth/admin/login", params={"password": settings.admin_password})
+        response = client.post("/api/auth/admin/login", json={"password": settings.admin_password})
         assert response.status_code == 200
         data = response.json()
         assert "access_token" in data
@@ -52,12 +57,12 @@ class TestJWTTokens:
 
 class TestAdminLogin:
     def test_admin_login_wrong_password(self):
-        response = client.post("/api/auth/admin/login", params={"password": "wrong"})
+        response = client.post("/api/auth/admin/login", json={"password": "wrong"})
         assert response.status_code == 401
 
     def test_admin_login_correct(self):
         from ktv_pipeline.config import settings
-        response = client.post("/api/auth/admin/login", params={"password": settings.admin_password})
+        response = client.post("/api/auth/admin/login", json={"password": settings.admin_password})
         assert response.status_code == 200
         data = response.json()
         assert data["guest"]["is_admin"] is True
@@ -153,7 +158,7 @@ class TestGuestMe:
     def test_me_with_valid_token(self):
         from ktv_pipeline.config import settings
         # Login as admin first to get a valid token
-        login_resp = client.post("/api/auth/admin/login", params={"password": settings.admin_password})
+        login_resp = client.post("/api/auth/admin/login", json={"password": settings.admin_password})
         token = login_resp.json()["access_token"]
 
         response = client.get("/api/guests/me", headers={"Authorization": f"Bearer {token}"})
