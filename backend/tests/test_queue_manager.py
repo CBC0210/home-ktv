@@ -34,6 +34,21 @@ def setup_room(session):
     return {"room_id": room.id, "alice": guest_alice, "bob": guest_bob, "carol": guest_carol}
 
 
+def _prepare_ready(session, item):
+    from ktv_pipeline.config import settings
+    song = session.get(Song, item.song_id)
+    song.status = "ready"
+    item.status = "ready"
+    video = settings.data_dir / "media" / item.song_id / "video.mp4"
+    video.parent.mkdir(parents=True, exist_ok=True)
+    video.write_bytes(b"video fixture")
+    audio = settings.data_dir / "cache" / "demucs" / item.song_id
+    audio.mkdir(parents=True, exist_ok=True)
+    for stem in ("vocals", "no_vocals"):
+        (audio / (stem + ".opus")).write_bytes(b"audio fixture")
+    session.commit()
+
+
 class TestAddToQueue:
     def test_add_song_end(self, session, setup_room):
         mgr = QueueManager(session)
@@ -70,6 +85,7 @@ class TestPickNextReady:
         session.add(item)
         session.commit()
         session.refresh(item)
+        _prepare_ready(session, item)
         return item
 
     def test_pick_returns_none_when_no_ready(self, session, setup_room):
@@ -210,6 +226,7 @@ class TestSelectNext:
         assert selected.id == item3.id
 
         # Mark item1 as done (Alice's song finished playing)
+        _prepare_ready(session, item1)
         mgr.mark_playing(item1.id)
         mgr.mark_done(item1.id)
 
@@ -237,7 +254,9 @@ class TestMarkPlaying:
         item1 = mgr.add_song(room_id="test-queue-room", song_id="song1", guest_id=setup_room["alice"].id)
         item2 = mgr.add_song(room_id="test-queue-room", song_id="song2", guest_id=setup_room["bob"].id)
 
+        _prepare_ready(session, item1)
         mgr.mark_playing(item1.id)
+        _prepare_ready(session, item2)
         mgr.mark_playing(item2.id)
 
         session.expire_all()
@@ -299,7 +318,7 @@ class TestApplyFairOrder:
         i2 = mgr.add_song(room_id="test-queue-room", song_id="song2", guest_id=a)
         i3 = mgr.add_song(room_id="test-queue-room", song_id="song3", guest_id=b)
         for qi_id in (i1.id, i2.id, i3.id):
-            session.query(QueueItem).filter_by(id=qi_id).update({"status": "ready"})
+            _prepare_ready(session, session.get(QueueItem, qi_id))
         session.commit()
         displayed = mgr.apply_fair_order("test-queue-room")
         picked = mgr.pick_next_ready("test-queue-room")
@@ -309,6 +328,7 @@ class TestApplyFairOrder:
         mgr = QueueManager(session)
         a, b = setup_room["alice"].id, setup_room["bob"].id
         i1 = mgr.add_song(room_id="test-queue-room", song_id="song1", guest_id=a)
+        _prepare_ready(session, i1)
         mgr.mark_playing(i1.id)
         mgr.add_song(room_id="test-queue-room", song_id="song2", guest_id=a)
         mgr.add_song(room_id="test-queue-room", song_id="song3", guest_id=b)

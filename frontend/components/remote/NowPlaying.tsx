@@ -41,6 +41,7 @@ interface Props {
   processing: { stage: string; percent: number } | null;
   sendCommand: (cmd: ClientCommand) => void;
   adminMode?: boolean;
+  guestId?: string;
 }
 
 const STAGE_LABELS: Record<string, string> = {
@@ -93,7 +94,9 @@ export default function NowPlaying({
   processing,
   sendCommand,
   adminMode = false,
+  guestId,
 }: Props) {
+  const canSkip = !!currentQueueItem && (adminMode || currentQueueItem.guest_id === guestId);
   const progressBarRef = useRef<HTMLDivElement>(null);
   const [mainVol, setMainVol] = useState(playback.main_volume);
   const [vocalVol, setVocalVol] = useState(playback.vocal_volume);
@@ -325,8 +328,11 @@ export default function NowPlaying({
           </button>
 
           <button
-            onClick={() => sendCommand({ type: "playback.skip" })}
-            className="text-white/50 hover:text-white transition-colors active:scale-90 p-2"
+            onClick={() => canSkip && sendCommand({ type: "playback.skip", queueItemId: currentQueueItem!.id })}
+            disabled={!canSkip}
+            aria-label="跳過這首歌"
+            title={canSkip ? "跳過這首歌" : "只有點歌者或管理員可以跳過"}
+            className="text-white/50 hover:text-white transition-colors active:scale-90 p-2 disabled:opacity-25 disabled:cursor-not-allowed"
           >
             <IconSkipNext />
           </button>

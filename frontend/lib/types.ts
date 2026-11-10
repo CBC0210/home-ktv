@@ -110,7 +110,7 @@ export type ClientCommand =
   | { type: "queue.reorder"; queueItemIds: number[] }
   | { type: "playback.play" }
   | { type: "playback.pause" }
-  | { type: "playback.skip" }
+  | { type: "playback.skip"; queueItemId?: number }
   | { type: "playback.replay" }
   | { type: "playback.seek"; positionSec: number }
   | { type: "playback.setVolume"; main?: number; vocal?: number }
