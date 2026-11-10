@@ -17,7 +17,7 @@ def client():
 def auth_headers():
     """A valid guest Bearer token for endpoints that now require auth."""
     from ktv_pipeline.auth import create_access_token
-    token = create_access_token(guest_id="test-guest", room_id="home")
+    token = create_access_token(guest_id="test-admin", room_id="__admin__", is_admin=True)
     return {"Authorization": f"Bearer {token}"}
 
 

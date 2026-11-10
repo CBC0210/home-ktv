@@ -64,25 +64,14 @@ def _migrate_admin_password_column() -> None:
 
 
 def _seed_default_admin_passwords() -> None:
-    """Give every room a default admin-mode password if it has none.
-
-    bcrypt-hashing one password per room is slow (~100ms each), so for large
-    DBs we batch-commit and don't log per-row. Should still run in <30s for
-    1000 rooms; runs in a background task to avoid blocking startup.
-    """
+    """Disable predictable historical room-admin passwords, never seed one."""
     from ktv_pipeline.models import Room
-    from ktv_pipeline.auth import hash_password
-    n = 0
+    from ktv_pipeline.auth import verify_password
     with get_db_session() as session:
-        rooms = session.query(Room).filter(Room.admin_password_hash.is_(None)).all()
-        if not rooms:
-            return
-        for room in rooms:
-            default = f"{room.id}admin"  # e.g. home → homeadmin
-            room.admin_password_hash = hash_password(default)
-            n += 1
+        for room in session.query(Room).all():
+            if room.admin_password_hash and verify_password(f"{room.id}admin", room.admin_password_hash):
+                room.admin_password_hash = None
         session.commit()
-    log.info("Seeded admin password for %d room(s)", n)
 
 
 async def _kick_all_pending_pipelines() -> None:
@@ -234,6 +223,11 @@ async def _security_headers(request, call_next):
     resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     return resp
+
+from ktv_pipeline.security import security_guard, RedactSessionTokens
+for _logger_name in ("uvicorn.error", "uvicorn.access"):
+    logging.getLogger(_logger_name).addFilter(RedactSessionTokens())
+app.middleware("http")(security_guard)
 
 app.include_router(api_router)
 app.include_router(ws_router, tags=["websocket"])

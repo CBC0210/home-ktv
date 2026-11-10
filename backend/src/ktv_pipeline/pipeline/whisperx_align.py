@@ -236,7 +236,7 @@ def _run_align_sync(
     model = whisperx.load_model(
         model_name,
         device=device,
-        compute_type="float16",
+        compute_type="float16" if device == "cuda" else "int8",
     )
 
     # 3. Transcribe with word-level timestamps

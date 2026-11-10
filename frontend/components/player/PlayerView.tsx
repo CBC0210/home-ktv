@@ -45,7 +45,8 @@ function formatTime(sec: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export default function PlayerView({ roomId }: Props) {
+function AuthorizedPlayerView({ roomId, token, onAuthFailed }: Props & { token: string; onAuthFailed: () => void }) {
+  const playerRootRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const vocalRef = useRef<HTMLAudioElement>(null);
   const instrRef = useRef<HTMLAudioElement>(null);
@@ -72,6 +73,8 @@ export default function PlayerView({ roomId }: Props) {
   const [videoPosition, setVideoPosition] = useState(0);
   const [processingExpanded, setProcessingExpanded] = useState(false);
   const [activity, setActivity] = useState<{ id: number; text: string; actor: string } | null>(null);
+  const [fullscreenSupported, setFullscreenSupported] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const clock = useClock();
 
   const {
@@ -103,8 +106,11 @@ export default function PlayerView({ roomId }: Props) {
   // Reported-problem songs play the video's own embedded audio (perfect A/V
   // sync, no Demucs artefacts); the split vocal/instr graph is bypassed and
   // vocal-mix is inert. Ref so callbacks read the live value.
+  // Effective audio mode for the current song.  This begins with the saved
+  // per-song preference, but can switch to the video's embedded audio if a
+  // split track stalls or Web Audio is suspended.  Do not overwrite this on
+  // every render: the emergency fallback must stay active until song change.
   const useOrigAudioRef = useRef(false);
-  useOrigAudioRef.current = !!currentSong?.use_original_audio;
   // Web Audio output is delayed by the device's audio buffer; the *heard*
   // sound trails the displayed video frame even when currentTime matches.
   // We lead the audio by (auto AudioContext latency + manual per-song tune)
@@ -112,9 +118,76 @@ export default function PlayerView({ roomId }: Props) {
   const audioLatencyRef = useRef(0);
   const avOffsetMsRef = useRef(0);
 
+  const activateOriginalAudioFallback = useCallback((reason: string) => {
+    if (useOrigAudioRef.current) return;
+    const video = videoRef.current;
+    if (!video) return;
+
+    console.warn(`[Player] split audio unavailable (${reason}); switching to embedded audio`);
+    useOrigAudioRef.current = true;
+    vocalRef.current?.pause();
+    instrRef.current?.pause();
+    video.muted = false;
+    video.volume = Math.max(0, Math.min(1, playbackRef.current.main_volume));
+    setAudioBlocked(false);
+    setSystemError("分離音軌中斷，已自動切換原始音訊");
+    window.setTimeout(() => setSystemError(null), 5000);
+  }, []);
+
   useEffect(() => {
     setRemoteUrl(window.location.origin + `/r/${roomId}/remote`);
   }, [roomId]);
+
+  // Fullscreen is opt-in because desktop browsers (especially on macOS) do
+  // not all expose or enter it automatically.  Only show the control when
+  // this browser reports a usable API.
+  useEffect(() => {
+    type WebkitDocument = Document & {
+      webkitFullscreenElement?: Element | null;
+      webkitExitFullscreen?: () => Promise<void> | void;
+    };
+    type WebkitElement = HTMLElement & {
+      webkitRequestFullscreen?: () => Promise<void> | void;
+    };
+    const doc = document as WebkitDocument;
+    const root = playerRootRef.current as WebkitElement | null;
+    setFullscreenSupported(!!root && (!!root.requestFullscreen || !!root.webkitRequestFullscreen));
+    const sync = () => setIsFullscreen(!!(document.fullscreenElement || doc.webkitFullscreenElement));
+    document.addEventListener("fullscreenchange", sync);
+    document.addEventListener("webkitfullscreenchange", sync as EventListener);
+    sync();
+    return () => {
+      document.removeEventListener("fullscreenchange", sync);
+      document.removeEventListener("webkitfullscreenchange", sync as EventListener);
+    };
+  }, []);
+
+  const toggleFullscreen = useCallback(async () => {
+    type WebkitDocument = Document & {
+      webkitFullscreenElement?: Element | null;
+      webkitExitFullscreen?: () => Promise<void> | void;
+    };
+    type WebkitElement = HTMLElement & {
+      webkitRequestFullscreen?: () => Promise<void> | void;
+    };
+    const doc = document as WebkitDocument;
+    const root = playerRootRef.current as WebkitElement | null;
+    if (!root) return;
+    try {
+      if (document.fullscreenElement || doc.webkitFullscreenElement) {
+        if (document.exitFullscreen) await document.exitFullscreen();
+        else await doc.webkitExitFullscreen?.();
+      } else if (root.requestFullscreen) {
+        await root.requestFullscreen();
+      } else {
+        await root.webkitRequestFullscreen?.();
+      }
+    } catch (err) {
+      console.warn("[Player] fullscreen request failed:", err);
+      setSystemError("此瀏覽器無法進入全螢幕");
+      window.setTimeout(() => setSystemError(null), 4000);
+    }
+  }, []);
 
   // ── Web Audio init — MUST run inside a user-gesture stack ──────────────────
   // Chrome's autoplay policy: AudioContext starts suspended; resume() only
@@ -163,7 +236,15 @@ export default function PlayerView({ roomId }: Props) {
       ctx.onstatechange = () => {
         console.info("[Player] AudioContext state →", ctx.state);
         if (ctx.state === "suspended") {
-          setAudioBlocked(true);
+          // Some TV browsers suspend Web Audio during a long song while the
+          // video keeps advancing.  Keeping the video muted then produces a
+          // silent performance, so fail over to its embedded soundtrack.
+          const video = videoRef.current;
+          if (video && !video.paused && !video.ended) {
+            activateOriginalAudioFallback("AudioContext suspended");
+          } else {
+            setAudioBlocked(true);
+          }
         } else if (ctx.state === "running") {
           setAudioBlocked(false);
         }
@@ -176,7 +257,7 @@ export default function PlayerView({ roomId }: Props) {
       console.error("[Player] Web Audio init failed:", err);
       return false;
     }
-  }, []);
+  }, [activateOriginalAudioFallback]);
 
   const syncVolumes = useCallback((main: number, vocal: number) => {
     const m = Math.max(0, Math.min(1, main));
@@ -452,7 +533,7 @@ export default function PlayerView({ roomId }: Props) {
     sendRef.current?.({ type: "player.ready" } as never);
   }, []);
 
-  const { sendCommand } = useWebSocket(roomId, null, "player", handleEvent, onWsConnected);
+  const { sendCommand } = useWebSocket(roomId, token, "player", handleEvent, onWsConnected, onAuthFailed);
   sendRef.current = sendCommand as never;
 
   // ── Position broadcast timer ─────────────────────────────────────────────
@@ -498,6 +579,7 @@ export default function PlayerView({ roomId }: Props) {
     const instr = instrRef.current;
     if (!video) return;
 
+    useOrigAudioRef.current = !!currentSong?.use_original_audio;
     setAudioBlocked(false);
     setIsPlayingRef.current(false);
 
@@ -584,16 +666,60 @@ export default function PlayerView({ roomId }: Props) {
     };
     video.addEventListener("error", handleVideoError);
 
+    // A media element can pause/stall independently while the video continues
+    // (seen on TV Chromium with long Ogg/Opus streams).  First try to resume it
+    // at the video clock.  If it cannot recover promptly, use the video's own
+    // audio so the room never continues in silence.
+    let audioRecoveryTimer: number | null = null;
+    const clearAudioRecovery = () => {
+      if (audioRecoveryTimer !== null) {
+        window.clearTimeout(audioRecoveryTimer);
+        audioRecoveryTimer = null;
+      }
+    };
+    const scheduleAudioFallback = (reason: string) => {
+      if (orig || useOrigAudioRef.current || video.paused || video.ended || audioRecoveryTimer !== null) return;
+      audioRecoveryTimer = window.setTimeout(() => {
+        audioRecoveryTimer = null;
+        const unhealthy = [vocal, instr].some((el) =>
+          !!el && (el.error !== null || el.ended || el.paused || el.readyState < HTMLMediaElement.HAVE_CURRENT_DATA)
+        );
+        if (unhealthy && !video.paused && !video.ended) activateOriginalAudioFallback(reason);
+      }, 1800);
+    };
+    const handleAudioWaiting = () => scheduleAudioFallback("audio stalled");
+    const handleAudioError = () => activateOriginalAudioFallback("audio element error");
+    const handleAudioEnded = () => {
+      if (!video.ended && video.duration - video.currentTime > 1) {
+        activateOriginalAudioFallback("audio ended early");
+      }
+    };
+    for (const el of [vocal, instr]) {
+      el?.addEventListener("waiting", handleAudioWaiting);
+      el?.addEventListener("stalled", handleAudioWaiting);
+      el?.addEventListener("error", handleAudioError);
+      el?.addEventListener("ended", handleAudioEnded);
+    }
+
     // Keep audio locked to the video clock WITHOUT constant hard seeks.
     // Hard-seeking every timeupdate (~4×/s) makes the vocal stutter and
     // sound sped-up/slowed-down. Instead: tiny drift → nudge playbackRate
     // so it converges smoothly; only a big gap (real desync / user seek)
     // gets a single hard seek.
     const softSync = (el: HTMLAudioElement | null, vt: number) => {
-      if (!el || el.readyState < 2 || el.paused) return;
+      if (!el || orig || useOrigAudioRef.current) return;
       // Target = video time + audio-path latency + manual tune, so the
       // *audible* sound aligns with the *displayed* frame.
       const target = vt + audioLatencyRef.current + avOffsetMsRef.current / 1000;
+      if (el.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        scheduleAudioFallback("audio data unavailable");
+        return;
+      }
+      if (el.paused || el.ended) {
+        el.currentTime = Math.max(0, target);
+        void el.play().catch(() => scheduleAudioFallback("audio resume rejected"));
+        return;
+      }
       const drift = el.currentTime - target;    // +ve = audio ahead
       const ad = Math.abs(drift);
       if (ad > 0.45) {
@@ -620,6 +746,13 @@ export default function PlayerView({ roomId }: Props) {
       video.removeEventListener("ended", handleEnded);
       video.removeEventListener("error", handleVideoError);
       video.removeEventListener("timeupdate", handleTimeUpdate);
+      clearAudioRecovery();
+      for (const el of [vocal, instr]) {
+        el?.removeEventListener("waiting", handleAudioWaiting);
+        el?.removeEventListener("stalled", handleAudioWaiting);
+        el?.removeEventListener("error", handleAudioError);
+        el?.removeEventListener("ended", handleAudioEnded);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentSong?.id, currentSong?.status]);
@@ -679,6 +812,7 @@ export default function PlayerView({ roomId }: Props) {
 
   return (
     <div
+      ref={playerRootRef}
       className={`relative min-h-screen w-screen overflow-hidden ${isPlaying ? "bg-black" : themeStyle.bg}`}
       onClick={() => {
         if (audioBlocked) void unlockAudio();
@@ -701,6 +835,30 @@ export default function PlayerView({ roomId }: Props) {
       />
       <audio ref={vocalRef} preload="auto" className="hidden" />
       <audio ref={instrRef} preload="auto" className="hidden" />
+
+      {fullscreenSupported && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            void toggleFullscreen();
+          }}
+          className="absolute bottom-5 left-5 z-40 flex items-center gap-2 rounded-xl border border-white/15 bg-black/65 px-3 py-2 text-xs font-medium text-white/85 shadow-lg backdrop-blur-sm transition hover:bg-black/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
+          aria-label={isFullscreen ? "離開全螢幕" : "進入全螢幕"}
+          title={isFullscreen ? "離開全螢幕" : "進入全螢幕"}
+        >
+          {isFullscreen ? (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true">
+              <path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true">
+              <path d="M3 9V3h6M21 9V3h-6M3 15v6h6M21 15v6h-6" />
+            </svg>
+          )}
+          <span>{isFullscreen ? "離開全螢幕" : "全螢幕"}</span>
+        </button>
+      )}
 
       {/* ── Subtitle layer ────────────────────────────────────────────────
           Always mount while playing; SubtitleLayer picks the right mode:
@@ -1012,4 +1170,52 @@ function SystemErrorToast({ message }: { message: string }) {
       <p className="text-white text-sm font-medium">⚠ {message}</p>
     </div>
   );
+}
+
+
+export default function PlayerView({ roomId }: Props) {
+  const [token, setToken] = useState<string | null>(null);
+  const [restored, setRestored] = useState(false);
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    const saved = localStorage.getItem(`ktv_player_session_${roomId}`);
+    if (saved) {
+      try {
+        const payload = JSON.parse(atob(saved.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+        if (payload.scope === "player" && payload.room_id === roomId && payload.exp * 1000 > Date.now() + 60000) setToken(saved);
+        else localStorage.removeItem(`ktv_player_session_${roomId}`);
+      } catch { localStorage.removeItem(`ktv_player_session_${roomId}`); }
+    }
+    setRestored(true);
+  }, [roomId]);
+  const authFailed = useCallback(() => {
+    localStorage.removeItem(`ktv_player_session_${roomId}`);
+    setToken(null);
+    setError("連線驗證已失效，請重新輸入房間密碼。");
+  }, [roomId]);
+  if (!restored) return <div className="min-h-screen bg-gray-950 text-white grid place-items-center">載入中…</div>;
+  if (token) return <AuthorizedPlayerView roomId={roomId} token={token} onAuthFailed={authFailed} />;
+  return <div className="min-h-screen bg-gray-950 text-white grid place-items-center p-6">
+    <form className="w-full max-w-sm space-y-5" onSubmit={async (e) => {
+      e.preventDefault(); setBusy(true); setError("");
+      try {
+        const res = await fetch(`${apiBase()}/api/rooms/${encodeURIComponent(roomId)}/player-session`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }),
+        });
+        if (!res.ok) throw new Error(res.status === 429 ? "嘗試次數過多，請稍後再試。" : "房間密碼錯誤或暫時無法連線。");
+        const data = await res.json();
+        localStorage.setItem(`ktv_player_session_${roomId}`, data.access_token);
+        setToken(data.access_token); setPassword("");
+      } catch (err) { setError(err instanceof Error ? err.message : "連線失敗，請重試。"); }
+      finally { setBusy(false); }
+    }}>
+      <h1 className="text-2xl font-bold">連接電視播放器</h1>
+      <p className="text-gray-400">輸入 {roomId} 的房間密碼。這台裝置驗證後，重新整理仍可繼續使用。</p>
+      <label className="block">房間密碼<input className="mt-2 w-full rounded-xl bg-gray-800 p-3" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} placeholder="無密碼的房間可直接連接" /></label>
+      {error && <p role="alert" className="text-red-400">{error}</p>}
+      <button disabled={busy} className="w-full rounded-xl bg-violet-600 p-3 disabled:opacity-50">{busy ? "連接中…" : "連接播放器"}</button>
+    </form>
+  </div>;
 }

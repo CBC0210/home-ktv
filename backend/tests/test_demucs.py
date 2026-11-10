@@ -5,6 +5,7 @@ All tests use mocks — no real GPU or model downloads.
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch, AsyncMock
 
 import pytest
@@ -18,6 +19,7 @@ from ktv_pipeline.pipeline.demucs import (
     _classify_exception,
     _outputs_exist,
     _cleanup_partial,
+    _effective_device,
     _try_flush_cuda_cache,
     _GPU_LOCK,
 )
@@ -88,6 +90,26 @@ class TestClassifyException:
         exc = OSError("disk I/O error")
         result = _classify_exception(exc)
         assert isinstance(result, TemporaryError)
+
+
+class TestDeviceFallback:
+    def test_unavailable_cuda_resolves_to_cpu(self):
+        torch = SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: False))
+        assert _effective_device(torch, "cuda") == "cpu"
+
+    def test_cuda_probe_failure_resolves_to_cpu(self):
+        def broken_probe():
+            raise RuntimeError("driver mismatch")
+
+        torch = SimpleNamespace(cuda=SimpleNamespace(is_available=broken_probe))
+        assert _effective_device(torch, "cuda") == "cpu"
+
+    def test_explicit_cpu_stays_cpu_without_cuda_probe(self):
+        torch = SimpleNamespace(
+            cuda=SimpleNamespace(is_available=MagicMock(side_effect=AssertionError))
+        )
+        assert _effective_device(torch, "cpu") == "cpu"
+        torch.cuda.is_available.assert_not_called()
 
 
 class TestOutputsExist:

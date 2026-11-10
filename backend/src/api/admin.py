@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from ktv_pipeline.database import get_db_session, get_gpu_status
 from ktv_pipeline.models import Room, Song, QueueItem, ErrorLog
 from ktv_pipeline.deps import get_current_guest
+from ktv_pipeline.auth import is_system_admin
 
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -19,7 +20,7 @@ def get_session():
 
 
 def require_admin(payload: dict = Depends(get_current_guest)) -> dict:
-    if not payload.get("is_admin"):
+    if not is_system_admin(payload):
         raise HTTPException(status_code=403, detail="Admin only")
     return payload
 
@@ -350,9 +351,9 @@ def delete_song_admin(
 ):
     """Delete a song from the DB + remove its queue items + on-disk media.
 
-    Allowed for any room admin (guest.is_admin=True after admin-mode verify).
+    Only the system administrator can remove shared assets for all rooms.
     """
-    if not payload.get("is_admin"):
+    if not is_system_admin(payload):
         raise HTTPException(status_code=403, detail="Admin only")
     song = session.query(Song).filter_by(id=song_id).first()
     if not song:

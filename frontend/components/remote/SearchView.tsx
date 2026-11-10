@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import Image from "next/image";
-import { youtubeSearch, searchSongs, addSong, isYoutubeUrl, type YoutubeResult } from "@/lib/api";
+import { youtubeSearch, searchSongs, addSong, isYoutubeUrl, videoUrlForId, type YoutubeResult } from "@/lib/api";
 import LeaderboardView from "./LeaderboardView";
 import LibraryView from "./LibraryView";
 import SongBankView from "./SongBankView";
@@ -40,16 +40,24 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
   const [addedUrl, setAddedUrl] = useState(false); // feedback for direct URL add
   const [error, setError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchVersion = useRef(0);
 
   const runSearch = useCallback(async (q: string) => {
+    const version = ++searchVersion.current;
     if (!q.trim()) { setResults([]); return; }
     setLoading(true);
     setError(null);
     try {
-      const [ytResults, cachedSongs] = await Promise.all([
-        youtubeSearch(q).catch(() => [] as YoutubeResult[]),
-        searchSongs(q).catch(() => []),
+      const [online, local] = await Promise.allSettled([
+        youtubeSearch(q),
+        searchSongs(q),
       ]);
+      if (version !== searchVersion.current) return;
+      const ytResults = online.status === "fulfilled" ? online.value : [];
+      const cachedSongs = local.status === "fulfilled" ? local.value : [];
+      if (online.status === "rejected") {
+        setError(cachedSongs.length ? "線上搜尋暫時無法使用，目前僅顯示資料庫結果" : "線上搜尋失敗，請確認已登入並稍後重試");
+      }
       const cachedIds = new Set(cachedSongs.map((s) => s.id));
       const merged: YoutubeResult[] = ytResults.map((r) => ({ ...r, cached: cachedIds.has(r.id) }));
       const ytIds = new Set(ytResults.map((r) => r.id));
@@ -61,7 +69,7 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
             channel: s.artist,
             duration_sec: s.duration_sec,
             thumbnail_url: s.thumbnail_url,
-            url: `https://www.youtube.com/watch?v=${s.id}`,
+            url: videoUrlForId(s.id),
             cached: true,
           });
         }
@@ -70,13 +78,16 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
     } catch {
       setError("搜尋失敗，請重試");
     } finally {
-      setLoading(false);
+      if (version === searchVersion.current) setLoading(false);
     }
   }, []);
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const val = e.target.value;
     setQuery(val);
+    ++searchVersion.current;
+    setLoading(false);
+    setResults([]);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (val.trim() && !isYoutubeUrl(val)) {
       debounceRef.current = setTimeout(() => void runSearch(val), 600);
@@ -93,6 +104,9 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
   function handlePaste(e: React.ClipboardEvent<HTMLInputElement>) {
     const text = e.clipboardData.getData("text");
     if (isYoutubeUrl(text)) {
+      ++searchVersion.current;
+      setLoading(false);
+      setResults([]);
       e.preventDefault();
       setQuery(text);
       void handleAdd(text, "end");
@@ -114,8 +128,8 @@ export default function SearchView({ roomId, token = null, onAdded }: Props) {
         setTimeout(() => setAddedId(null), 2500);
       }
       onAdded?.();
-    } catch {
-      setError("加入失敗，請重試");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "加入失敗，請重試");
     } finally {
       setAdding(null);
     }

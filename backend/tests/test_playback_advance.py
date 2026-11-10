@@ -194,7 +194,8 @@ class TestPlayerReadySnapshot:
         from main import app
 
         client = TestClient(app)
-        with client.websocket_connect(f"/ws?room_id={ROOM}&role=player") as ws:
+        token = client.post(f"/api/rooms/{ROOM}/player-session", json={}).json()["access_token"]
+        with client.websocket_connect(f"/ws?room_id={ROOM}&role=player&token={token}") as ws:
             first = ws.receive_json()
             assert first["type"] == "playback.state"
             ws.send_text(json.dumps({"type": "player.ready"}))
@@ -224,6 +225,8 @@ class TestWrongLyricsReport:
             s.commit()
 
         client = TestClient(app)
+        from ktv_pipeline.auth import create_access_token
+        client.headers["Authorization"] = "Bearer " + create_access_token(playing_item["guest_id"], ROOM)
         resp = client.post(f"/api/songs/{SONG}/report", json={"issue": "wrong_lyrics"})
         assert resp.status_code == 200
         body = resp.json()
@@ -249,6 +252,8 @@ class TestWrongLyricsReport:
             s.commit()
 
         client = TestClient(app)
+        from ktv_pipeline.auth import create_access_token
+        client.headers["Authorization"] = "Bearer " + create_access_token(playing_item["guest_id"], ROOM)
         resp = client.post(f"/api/songs/{SONG}/report", json={"issue": "clipping"})
         assert resp.status_code == 200
         assert resp.json()["use_original_audio"] is True

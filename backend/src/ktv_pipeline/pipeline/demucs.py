@@ -13,6 +13,7 @@ Usage::
 
 import asyncio
 import logging
+import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,10 @@ log = logging.getLogger(__name__)
 
 # Retry delays in seconds for TemporaryError (exponential back-off).
 _RETRY_DELAYS = (5, 30, 120)
+
+# CPU Demucs is an emergency fallback.  Keep it from taking every core on the
+# playback host; the GPU lock also serializes this work with GPU jobs.
+_CPU_TORCH_THREADS = 2
 
 
 # ---------------------------------------------------------------------------
@@ -83,15 +88,69 @@ def _output_dir(base: Path, song_id: str) -> Path:
 
 
 def _outputs_exist(out_dir: Path) -> bool:
-    """Return True if both output files exist and are non-empty."""
-    vocal = out_dir / "vocals.wav"
-    inst = out_dir / "no_vocals.wav"
+    """Return True when both separated tracks have a usable cached asset.
+
+    A completed pipeline replaces the large WAV intermediates with verified
+    Opus assets.  Treat that pair as a Demucs cache hit too: recreating the
+    WAVs would require an unnecessary, expensive GPU separation.
+    """
+    vocal, inst = _output_paths(out_dir)
     return (
-        vocal.exists()
+        vocal is not None
+        and vocal.exists()
         and vocal.stat().st_size > 0
+        and inst is not None
         and inst.exists()
         and inst.stat().st_size > 0
     )
+
+
+def _output_paths(out_dir: Path) -> tuple[Optional[Path], Optional[Path]]:
+    """Return the preferred cached pair, choosing WAV before Opus per track."""
+    def _track(stem: str) -> Optional[Path]:
+        wav = out_dir / f"{stem}.wav"
+        if wav.is_file() and wav.stat().st_size > 0:
+            return wav
+        opus = out_dir / f"{stem}.opus"
+        if opus.is_file() and opus.stat().st_size > 0:
+            return opus
+        return None
+
+    return _track("vocals"), _track("no_vocals")
+
+
+def _effective_device(torch, requested_device: str) -> str:
+    """Return a usable Demucs device, never passing a dead CUDA device on."""
+    if requested_device != "cuda":
+        return "cpu"
+    try:
+        if torch.cuda.is_available():
+            return "cuda"
+    except Exception as exc:
+        log.warning("CUDA availability check failed; falling back to CPU: %s", exc)
+    log.warning("CUDA was requested but is unavailable; running Demucs on CPU")
+    return "cpu"
+
+
+def _load_audio_for_model(audio_path: Path, sample_rate: int, av, np, torch):
+    """Decode audio as normalized stereo float and resample for Demucs."""
+    frames = []
+    # Requesting fltp guarantees ndarray layout (channels, samples), including
+    # input streams that were originally packed interleaved PCM.
+    resampler = av.AudioResampler(format="fltp", layout="stereo", rate=sample_rate)
+    with av.open(str(audio_path)) as container:
+        stream = container.streams.audio[0]
+        for packet in container.demux(stream):
+            for frame in packet.decode():
+                frames.extend(resampler.resample(frame))
+        frames.extend(resampler.resample(None))
+
+    if not frames:
+        raise ValueError("Input contains no decodable audio frames")
+    audio = np.concatenate([frame.to_ndarray() for frame in frames], axis=1)
+    if audio.shape[0] != 2:
+        raise ValueError(f"Expected stereo decoded audio, got shape {audio.shape}")
+    return torch.from_numpy(np.ascontiguousarray(audio, dtype=np.float32)).unsqueeze(0)
 
 
 def _run_demucs_sync(
@@ -115,44 +174,47 @@ def _run_demucs_sync(
     import av
     import scipy.io.wavfile as wavfile
 
-    use_cuda = device == "cuda" and torch.cuda.is_available()
+    effective_device = _effective_device(torch, device)
+    use_cuda = effective_device == "cuda"
+    previous_threads: Optional[int] = None
+    if not use_cuda:
+        previous_threads = torch.get_num_threads()
+        cpu_threads = min(_CPU_TORCH_THREADS, max(1, os.cpu_count() or 1))
+        torch.set_num_threads(cpu_threads)
+        log.info("Demucs running on CPU (Torch threads=%d)", cpu_threads)
 
     # Load model
     model = get_model(model_name)
     model.eval()
     if use_cuda:
-        model.cuda()
-        log.info("Demucs running on CUDA")
-    else:
-        log.info("Demucs running on CPU")
+        try:
+            model.cuda()
+            log.info("Demucs running on CUDA")
+        except Exception as exc:
+            # A stale/mismatched driver can report available before the first
+            # CUDA allocation.  Do not pass "cuda" to apply_model in that case.
+            log.warning("CUDA initialization failed; falling back to CPU: %s", exc)
+            model.cpu()
+            effective_device = "cpu"
+            use_cuda = False
+            previous_threads = torch.get_num_threads()
+            cpu_threads = min(_CPU_TORCH_THREADS, max(1, os.cpu_count() or 1))
+            torch.set_num_threads(cpu_threads)
+            log.info("Demucs running on CPU (Torch threads=%d)", cpu_threads)
 
     # Capture stem names BEFORE we delete the model later
     stem_names = model.sources  # e.g. ['drums', 'bass', 'other', 'vocals']
     vocal_idx = stem_names.index("vocals")
     non_vocal_indices = [i for i, s in enumerate(stem_names) if s != "vocals"]
 
-    # Load audio via PyAV (av) — avoids torchcodec binary compatibility issues
-    with av.open(str(audio_path)) as container:
-        stream = container.streams.audio[0]
-        frames = []
-        for packet in container.demux(stream):
-            for frame in packet.decode():
-                frames.append(frame.to_ndarray())
-        # frames: list of (channels, samples_per_frame), e.g. (2, 1024)
-        arr = np.concatenate(frames, axis=-1)  # → (channels, total_samples)
-        if arr.shape[0] == 1:
-            arr = np.repeat(arr, 2, axis=0)
-        wav = torch.from_numpy(arr).float()  # (2, total_samples)
-        sr = stream.rate
-
-    # Demucs expects shape (batch, channels, samples)
-    wav = wav.unsqueeze(0)  # (1, 2, samples)
+    sr = model.samplerate
+    wav = _load_audio_for_model(audio_path, sr, av, np, torch)
 
     if use_cuda:
         wav = wav.cuda()
 
     with torch.no_grad():
-        sources = apply_model(model, wav, device=device, progress=False)
+        sources = apply_model(model, wav, device=effective_device, progress=False)
 
     # Immediately delete GPU tensors so empty_cache() can actually free them.
     # empty_cache() only frees blocks with no live Python references — so we
@@ -178,6 +240,9 @@ def _run_demucs_sync(
     wavfile.write(str(out_dir / "no_vocals.wav"), sr, no_vocal_data)
 
     del vocals, non_vocal, vocal_data, no_vocal_data
+
+    if previous_threads is not None:
+        torch.set_num_threads(previous_threads)
 
     log.info("Demucs separation complete → %s", out_dir)
 
@@ -207,25 +272,27 @@ class DemucsWrapper:
     async def separate(self, song_id: str, audio_path: Path) -> SeparationResult:
         """Separate vocals from *audio_path*.
 
-        Returns SeparationResult with paths to vocals.wav and no_vocals.wav.
+        Returns SeparationResult with paths to the cached WAV or Opus tracks.
         Raises TemporaryError (retriable) or PermanentError (fatal).
 
         The operation is idempotent: if outputs already exist they are returned
         immediately without re-running Demucs.
         """
-        if not audio_path.exists():
-            raise PermanentError(f"Input file not found: {audio_path}")
-
         out_dir = _output_dir(self.cache_dir, song_id)
 
         # Idempotency check
         if _outputs_exist(out_dir):
+            vocal_path, instrumental_path = _output_paths(out_dir)
+            assert vocal_path is not None and instrumental_path is not None
             log.info("Demucs cache hit for %s, skipping separation", song_id)
             return SeparationResult(
                 song_id=song_id,
-                vocal_path=out_dir / "vocals.wav",
-                instrumental_path=out_dir / "no_vocals.wav",
+                vocal_path=vocal_path,
+                instrumental_path=instrumental_path,
             )
+
+        if not audio_path.exists():
+            raise PermanentError(f"Input file not found: {audio_path}")
 
         last_exc: Optional[Exception] = None
         delays = list(_RETRY_DELAYS)

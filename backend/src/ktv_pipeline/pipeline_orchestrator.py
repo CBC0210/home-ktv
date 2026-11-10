@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
+import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -23,6 +24,7 @@ from typing import Optional, Tuple, Awaitable
 from .config import settings
 from .database import get_db_session, init_db
 from .models import Song, QueueItem
+from .playback_assets import playback_assets_ready
 
 from .pipeline.ytdlp import (
     YtDlpWrapper,
@@ -35,6 +37,8 @@ from .pipeline.demucs import (
     SeparationResult,
     PermanentError as DemucsPermError,
     TemporaryError as DemucsTempError,
+    _output_paths,
+    _outputs_exist,
 )
 from .pipeline.lyrics import fetch_lyrics, TempLyricsError, PermLyricsError, LyricsResult
 from .pipeline.whisperx_align import (
@@ -221,7 +225,20 @@ class PipelineOrchestrator:
                 self._run_pipeline(song_id),
                 timeout=self.config.total_timeout_sec,
             )
-            await self._mark_ready(song_id)
+            # A successful download alone must never promote a song.  In
+            # particular, a later separation/package failure can leave a
+            # playable video cache but no audio assets for the player.
+            if not result.get("ok"):
+                await self._mark_failed_perm(
+                    song_id, str(result.get("error") or "pipeline failed")
+                )
+                return result
+            if not await self._mark_ready(song_id):
+                return {
+                    "ok": False,
+                    "error": "ready_validation_failed",
+                    "perm": True,
+                }
             return result
         except asyncio.TimeoutError:
             log.error("[%s] Total timeout (%ds) exceeded", song_id, self.config.total_timeout_sec)
@@ -381,9 +398,9 @@ class PipelineOrchestrator:
 
         # Check cache — Demucs outputs go to self._demucs.cache_dir
         out_dir = self._demucs.cache_dir / song_id
-        vocal_path = out_dir / "vocals.wav"
-        inst_path = out_dir / "no_vocals.wav"
-        if vocal_path.exists() and vocal_path.stat().st_size > 0 and inst_path.exists():
+        if _outputs_exist(out_dir):
+            vocal_path, inst_path = _output_paths(out_dir)
+            assert vocal_path is not None and inst_path is not None
             log.info("[%s] Separation cache hit, skipping Demucs", song_id)
             from .pipeline.demucs import SeparationResult as SepRes
             return SepRes(song_id=song_id, vocal_path=vocal_path, instrumental_path=inst_path)
@@ -414,7 +431,7 @@ class PipelineOrchestrator:
         )
 
         aligned_lrc: Optional[str] = None
-        if lyrics_result.lyrics_type == "synced" and lyrics_result.lrc:
+        if settings.enable_word_alignment and lyrics_result.lyrics_type == "synced" and lyrics_result.lrc:
             # Try word-level alignment via WhisperX
             log.info("[%s] Stage: align", song_id)
             await self._update_state(song_id, SongState.ALIGNING)
@@ -502,13 +519,26 @@ class PipelineOrchestrator:
                 txt_path.write_text("\n".join(text_lines), encoding="utf-8")
                 files["lyrics_text"] = str(txt_path)
 
+        opus_ready = False
+        wav_paths: tuple[Path, Path] | None = None
         if sep_result:
-            files["vocal"] = str(sep_result.vocal_path)
-            files["instrumental"] = str(sep_result.instrumental_path)
-
-            # Eagerly convert WAV → Opus so first play is smooth
-            await self._convert_opus_async(sep_result.vocal_path)
-            await self._convert_opus_async(sep_result.instrumental_path)
+            # Eager conversion makes the public historical *.wav URL serve
+            # Opus on the first play.  A failed or unverifiable conversion
+            # deliberately leaves its WAV source in place.
+            vocal_opus = await self._convert_opus_async(sep_result.vocal_path)
+            instrumental_opus = await self._convert_opus_async(sep_result.instrumental_path)
+            opus_ready = vocal_opus is not None and instrumental_opus is not None
+            if opus_ready:
+                assert vocal_opus is not None and instrumental_opus is not None
+                files["vocal"] = str(vocal_opus)
+                files["instrumental"] = str(instrumental_opus)
+                wav_paths = (
+                    sep_result.vocal_path.with_suffix(".wav"),
+                    sep_result.instrumental_path.with_suffix(".wav"),
+                )
+            else:
+                files["vocal"] = str(sep_result.vocal_path)
+                files["instrumental"] = str(sep_result.instrumental_path)
 
         # Write Song record
         with get_db_session() as db:
@@ -523,6 +553,39 @@ class PipelineOrchestrator:
                 song.lyrics_quality = lyrics_result.quality
                 song.has_timing = lyrics_result.lyrics_type == "synced"
                 song.processed_at = _utcnow()
+                metadata = dict(song.extra_metadata or {})
+                metadata["separated_audio"] = {
+                    "vocal": Path(files["vocal"]).name if sep_result else None,
+                    "instrumental": Path(files["instrumental"]).name if sep_result else None,
+                    "opus_ready": opus_ready,
+                    # The second metadata write below changes this to
+                    # "removed" only after the filesystem cleanup succeeds.
+                    "wav_intermediates": "retained" if sep_result else "not_applicable",
+                }
+                # Separation may be intentionally unavailable (for example a
+                # configured original-audio fallback).  Make that mode
+                # explicit before a row can become ready: PlayerView only
+                # uses the video's embedded audio when this flag is true.
+                if sep_result is None:
+                    playback = dict(metadata.get("playback") or {})
+                    playback["use_original_audio"] = True
+                    playback["audio_mode"] = "original"
+                    metadata["playback"] = playback
+                song.extra_metadata = metadata
+
+        # This is deliberately last: WhisperX and every other WAV consumer
+        # have completed, the package metadata is committed, and both tracks
+        # passed ffprobe plus a complete decoder pass.  Never delete a WAV if
+        # either Opus conversion or verification failed.
+        if opus_ready and wav_paths and self._cleanup_verified_wavs(*wav_paths):
+            with get_db_session() as db:
+                song = db.query(Song).filter(Song.id == song_id).first()
+                if song:
+                    metadata = dict(song.extra_metadata or {})
+                    audio_meta = dict(metadata.get("separated_audio") or {})
+                    audio_meta["wav_intermediates"] = "removed"
+                    metadata["separated_audio"] = audio_meta
+                    song.extra_metadata = metadata
 
         return files
 
@@ -584,34 +647,100 @@ class PipelineOrchestrator:
 
         await asyncio.to_thread(_probe_and_run)
 
-    async def _convert_opus_async(self, wav_path: Path) -> None:
-        """Convert wav_path to .opus with loudness normalization.
+    async def _convert_opus_async(self, source_path: Path) -> Optional[Path]:
+        """Return a fully decoded, verified Opus asset for a separated track.
 
         Applies EBU R128 loudnorm to bring each track to -14 LUFS so the
         Demucs-separated vocal isn't perceptually quieter than the
         instrumental — without this the vocal slider feels useless because
         the raw vocal track is typically ~5-15 dB quieter than the original.
         """
-        opus_path = wav_path.with_suffix(".opus")
-        if opus_path.exists() and opus_path.stat().st_size > 0:
-            return
-        import subprocess
+        opus_path = source_path.with_suffix(".opus")
+        reference = source_path if source_path.suffix == ".wav" else None
+        if await asyncio.to_thread(self._is_valid_opus, opus_path, reference):
+            return opus_path
 
-        def _run() -> None:
+        if source_path.suffix == ".opus":
+            # Never delete the only surviving separated track.
+            return None
+
+        # Write a sibling temporary asset; a failed encoder must never
+        # expose a partial Opus file to the streaming endpoint.
+        import uuid
+        pending_path = opus_path.with_name(f".{opus_path.stem}-{uuid.uuid4().hex}.opus")
+
+        def _run() -> bool:
             try:
                 subprocess.run(
-                    ["ffmpeg", "-y", "-i", str(wav_path),
+                    ["ffmpeg", "-nostdin", "-y", "-i", str(source_path),
                      "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
-                     "-c:a", "libopus", "-b:a", "128k", "-vbr", "on",
-                     str(opus_path)],
-                    capture_output=True, timeout=180,
+                     "-c:a", "libopus", "-b:a", "128k", "-vbr", "on", str(pending_path)],
+                    capture_output=True, timeout=180, check=True,
                 )
-            except Exception as exc:
-                log.warning("Opus conversion failed for %s: %s", wav_path.name, exc)
+                if not self._is_valid_opus(pending_path, reference):
+                    return False
+                pending_path.replace(opus_path)
+                return True
+            except (OSError, subprocess.SubprocessError) as exc:
+                log.warning("Opus conversion failed for %s: %s", source_path.name, exc)
+                return False
+            finally:
+                pending_path.unlink(missing_ok=True)
 
-        await asyncio.to_thread(_run)
-        if opus_path.exists():
-            log.info("Converted %s → %s (loudnorm applied)", wav_path.name, opus_path.name)
+        if await asyncio.to_thread(_run):
+            return opus_path
+        return None
+
+    @staticmethod
+    def _is_valid_opus(opus_path: Path, reference: Optional[Path] = None) -> bool:
+        """Check that an Opus asset has audio metadata and decodes end-to-end."""
+        if not opus_path.is_file() or opus_path.stat().st_size == 0:
+            return False
+        try:
+            probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-select_streams", "a:0",
+                 "-show_entries", "stream=codec_name:format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", str(opus_path)],
+                capture_output=True, text=True, timeout=30, check=True,
+            )
+            lines = [line.strip() for line in probe.stdout.splitlines() if line.strip()]
+            import math
+            if not lines or lines[0] != "opus" or len(lines) < 2 or not math.isfinite(float(lines[1])) or float(lines[1]) <= 0:
+                return False
+            if reference and reference.exists():
+                wav_probe = subprocess.run(
+                    ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                     "-of", "default=noprint_wrappers=1:nokey=1", str(reference)],
+                    capture_output=True, text=True, timeout=30, check=True,
+                )
+                import math
+                wav_duration = float(wav_probe.stdout.strip())
+                if not math.isfinite(wav_duration) or abs(wav_duration - float(lines[1])) > 0.15:
+                    return False
+            decoded = subprocess.run(
+                ["ffmpeg", "-v", "error", "-xerror", "-nostdin", "-threads", "1", "-i", str(opus_path), "-map", "0:a:0", "-f", "null", "-"],
+                capture_output=True, timeout=180, check=True,
+            )
+            return not decoded.stderr.strip()
+        except (OSError, subprocess.SubprocessError, ValueError):
+            return False
+
+    @staticmethod
+    def _cleanup_verified_wavs(vocal_wav: Path, instrumental_wav: Path) -> bool:
+        """Remove only the two known Demucs intermediates after Opus success."""
+        expected = {"vocals.wav", "no_vocals.wav"}
+        paths = (vocal_wav, instrumental_wav)
+        if {path.name for path in paths} != expected or len({path.parent for path in paths}) != 1:
+            log.error("Refusing unsafe separated-WAV cleanup: %s", paths)
+            return False
+        try:
+            for path in paths:
+                if path.exists():
+                    path.unlink()
+            return True
+        except OSError as exc:
+            log.warning("Could not clean verified WAV intermediates: %s", exc)
+            return False
 
     # ------------------------------------------------------------------
     # State / DB helpers
@@ -672,24 +801,23 @@ class PipelineOrchestrator:
             except Exception as exc:
                 log.debug("[%s] broadcast failed: %s", song_id, exc)
 
-    async def _mark_ready(self, song_id: str) -> None:
-        # Guard: 'ready' promises the Player a playable video. A ready row
-        # without its file (seen in prod: 4 zombie rows) makes the TV 404 →
-        # error → skip on every attempt to play it.
-        from ktv_pipeline.config import settings as _cfg
-        has_video = any(
-            (_cfg.data_dir / d / song_id / "video.mp4").exists()
-            for d in ("media", "cache")
-        )
-        if not has_video:
-            log.error("[%s] refusing to mark ready — video.mp4 missing", song_id)
-            await self._mark_failed_perm(song_id, "video file missing after pipeline")
-            return
+    async def _mark_ready(self, song_id: str) -> bool:
+        """Promote only assets that match PlayerView's selected audio mode."""
         with get_db_session() as db:
             song = db.query(Song).filter(Song.id == song_id).first()
-            if song:
-                song.status = "ready"
+            if not song:
+                log.error("[%s] refusing to mark ready — song row missing", song_id)
+                return False
+            if not await asyncio.to_thread(playback_assets_ready, song):
+                reason = "required playback assets missing or invalid after pipeline"
+                log.error("[%s] refusing to mark ready — %s", song_id, reason)
+                song.status = "failed_perm"
+                song.error_message = reason
                 song.processed_at = _utcnow()
+                return False
+            song.status = "ready"
+            song.processed_at = _utcnow()
+            return True
 
     async def _mark_failed_perm(self, song_id: str, reason: str) -> None:
         log.error("[%s] Marking failed_perm: %s", song_id, reason)

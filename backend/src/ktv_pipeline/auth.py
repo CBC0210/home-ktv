@@ -3,6 +3,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import bcrypt
+import hmac
 from fastapi import HTTPException, Request
 from jose import JWTError, jwt
 
@@ -23,7 +24,10 @@ def hash_password(password: str) -> str:
 
 def verify_password(password: str, hashed: str) -> bool:
     """Verify a plaintext password against a bcrypt hash."""
-    return bcrypt.checkpw(password.encode(), hashed.encode())
+    try:
+        return bcrypt.checkpw(password.encode(), hashed.encode())
+    except (ValueError, TypeError):
+        return False
 
 
 def create_access_token(
@@ -31,15 +35,18 @@ def create_access_token(
     room_id: str,
     is_admin: bool = False,
     expires_delta: Optional[timedelta] = None,
+    scope: Optional[str] = None,
 ) -> str:
     """Create a signed JWT for a guest session."""
+    scope = scope or ("system_admin" if is_admin and room_id == "__admin__" else "room_admin" if is_admin else "guest")
     if expires_delta is None:
-        expires_delta = timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
+        expires_delta = timedelta(hours=12 if is_admin else ACCESS_TOKEN_EXPIRE_HOURS)
     expire = datetime.now(timezone.utc) + expires_delta
     payload = {
         "sub": guest_id,
         "room_id": room_id,
         "is_admin": is_admin,
+        "scope": scope,
         "exp": expire,
         "iat": datetime.now(timezone.utc),
     }
@@ -49,7 +56,14 @@ def create_access_token(
 def decode_access_token(token: str) -> dict:
     """Decode and verify a JWT. Raises HTTPException on failure."""
     try:
-        payload = jwt.decode(token, settings.admin_cookie_secret, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, settings.admin_cookie_secret, algorithms=[ALGORITHM],
+                             options={"require_exp": True, "require_sub": True, "require_iat": True})
+        if not isinstance(payload.get("sub"), str) or not isinstance(payload.get("room_id"), str):
+            raise HTTPException(status_code=401, detail="Invalid session")
+        # Old elevated sessions lack a trustworthy privilege scope. Guests
+        # remain compatible; administrators must verify their password again.
+        if payload.get("is_admin") and payload.get("scope") not in ("system_admin", "room_admin"):
+            raise HTTPException(status_code=401, detail="Please sign in again")
         return payload
     except JWTError as exc:
         raise HTTPException(status_code=401, detail=f"Invalid or expired session: {exc}")
@@ -100,4 +114,20 @@ def verify_room_password(room_password_hash: Optional[str], provided_password: s
 
 def verify_admin_password(provided_password: str) -> bool:
     """Check if provided password matches the admin password from settings."""
-    return provided_password == settings.admin_password
+    return hmac.compare_digest(provided_password.encode(), settings.admin_password.encode())
+
+def is_system_admin(payload: dict) -> bool:
+    return bool(payload.get("is_admin") and payload.get("scope") == "system_admin"
+                and payload.get("room_id") == "__admin__")
+
+
+def is_room_admin(payload: dict, room_id: str) -> bool:
+    return is_system_admin(payload) or bool(
+        payload.get("is_admin") and payload.get("scope") == "room_admin"
+        and payload.get("room_id") == room_id
+    )
+
+
+def ensure_room_access(payload: dict, room_id: str) -> None:
+    if not is_system_admin(payload) and payload.get("room_id") != room_id:
+        raise HTTPException(status_code=403, detail="Join this room first")

@@ -19,6 +19,7 @@ from ktv_pipeline.pipeline.ytdlp import (
     PermDownloadError,
     _classify_ytdlp_error,
     _extract_youtube_id,
+    _js_runtimes,
 )
 
 
@@ -105,6 +106,32 @@ class TestYtDlpWrapperInterface:
     def test_has_download_method(self, tmp_path):
         wrapper = YtDlpWrapper(cache_dir=tmp_path)
         assert callable(wrapper.download)
+
+
+class TestJsRuntimeConfiguration:
+    def test_uses_absolute_executable_paths_and_ignores_relative_override(self, tmp_path, monkeypatch):
+        deno = tmp_path / "deno"
+        deno.write_text("#!/bin/sh\n")
+        deno.chmod(0o755)
+        monkeypatch.setenv("KTV_YTDLP_DENO_PATH", str(deno))
+        monkeypatch.setenv("KTV_YTDLP_NODE_PATH", "node")
+
+        assert _js_runtimes() == {"deno": {"path": str(deno)}}
+
+    def test_ydl_options_pass_configured_runtimes(self, tmp_path, monkeypatch):
+        deno = tmp_path / "deno"
+        deno.write_text("#!/bin/sh\n")
+        deno.chmod(0o755)
+        monkeypatch.setenv("KTV_YTDLP_DENO_PATH", str(deno))
+        monkeypatch.setenv("KTV_YTDLP_NODE_PATH", str(tmp_path / "missing-node"))
+
+        opts = YtDlpWrapper(cache_dir=tmp_path)._ydl_opts(str(tmp_path / "video.%(ext)s"))
+        assert opts["js_runtimes"] == {"deno": {"path": str(deno)}}
+
+    def test_ydl_options_use_mweb_client_for_po_token_provider(self, tmp_path):
+        opts = YtDlpWrapper(cache_dir=tmp_path)._ydl_opts(str(tmp_path / "video.%(ext)s"))
+        assert opts["extractor_args"]["youtube"] == {"player_client": ["mweb"]}
+        assert opts["extractor_args"]["youtubepot-bgutilscript"]["server_home"]
 
 
 # ---------------------------------------------------------------------------

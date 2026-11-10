@@ -16,6 +16,7 @@ from ktv_pipeline.config import settings
 from ktv_pipeline.database import get_db_session
 from ktv_pipeline.models import Song
 from ktv_pipeline.deps import get_current_guest
+from ktv_pipeline.auth import is_system_admin
 
 log = logging.getLogger(__name__)
 
@@ -39,26 +40,14 @@ async def _ensure_opus(wav_path: Path) -> Optional[Path]:
 
     _opus_converting.add(key)
 
-    def _convert() -> bool:
-        try:
-            result = subprocess.run(
-                ["ffmpeg", "-y", "-i", str(wav_path),
-                 "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
-                 "-c:a", "libopus", "-b:a", "128k", "-vbr", "on",
-                 str(opus_path)],
-                capture_output=True, timeout=300,
-            )
-            return result.returncode == 0
-        except Exception:
-            return False
-
-    loop = asyncio.get_event_loop()
-    ok = await loop.run_in_executor(None, _convert)
-    _opus_converting.discard(key)
-    if ok:
-        log.info("Converted %s → %s", wav_path.name, opus_path.name)
-        return opus_path
-    return None
+    try:
+        from ktv_pipeline.pipeline_orchestrator import PipelineOrchestrator
+        # Reuse atomic conversion and full duration/decode verification. This
+        # background fallback never removes its source WAV.
+        converted = await PipelineOrchestrator()._convert_opus_async(wav_path)
+        return converted
+    finally:
+        _opus_converting.discard(key)
 
 
 router = APIRouter(prefix="/songs", tags=["streaming"])
@@ -94,6 +83,20 @@ def _song_video_path(song_id: str) -> Path:
         return media_path
     # Fallback: yt-dlp download cache
     return settings.data_dir / "cache" / song_id / "video.mp4"
+
+
+def _stream_song_status(song_id: str) -> str:
+    """Read status and release the DB connection before streaming starts.
+
+    FastAPI keeps yielded dependencies alive until a StreamingResponse body is
+    finished.  Holding a SQLAlchemy session here exhausts the small connection
+    pool when browsers preload, seek, abort, or reconnect media requests.
+    """
+    with get_db_session() as session:
+        song = session.query(Song).filter_by(id=song_id).first()
+        if not song:
+            raise HTTPException(status_code=404, detail="Song not found")
+        return song.status
 
 
 # ── Range request helpers ───────────────────────────────────────────────────
@@ -168,12 +171,9 @@ async def serve_hls_manifest(
 async def serve_video_file(
     song_id: str,
     request: Request,
-    session: Session = Depends(get_session),
 ):
     """Stream the video.mp4 with HTTP Range support (required for browser seeking)."""
-    song = session.query(Song).filter_by(id=song_id).first()
-    if not song:
-        raise HTTPException(status_code=404, detail="Song not found")
+    _stream_song_status(song_id)
 
     video_path = _song_video_path(song_id)
     if not video_path.exists():
@@ -210,36 +210,38 @@ async def serve_audio_file(
     song_id: str,
     filename: str,
     request: Request,
-    session: Session = Depends(get_session),
 ):
     """Stream an audio file (vocals.wav / no_vocals.wav) with range-request support.
 
     Serves the Opus-encoded version when available (much smaller than WAV).
     Triggers background Opus conversion on first request so subsequent plays are faster.
     """
-    song = session.query(Song).filter_by(id=song_id).first()
-    if not song:
-        raise HTTPException(status_code=404, detail="Song not found")
-    if song.status != "ready":
-        raise HTTPException(status_code=202, detail=f"Song status is '{song.status}', not ready")
+    status = _stream_song_status(song_id)
+    if status != "ready":
+        raise HTTPException(status_code=202, detail=f"Song status is '{status}', not ready")
 
     if filename not in ("vocals.wav", "no_vocals.wav", "audio.m4a"):
         raise HTTPException(status_code=403, detail="Invalid filename")
 
-    wav_path = _song_cache_dir(song_id) / filename
-    if not wav_path.exists():
-        raise HTTPException(status_code=404, detail=f"File '{filename}' not found")
-
-    # Prefer Opus (much smaller, fast-start); trigger conversion if not yet done
-    opus_path = wav_path.with_suffix(".opus")
-    if opus_path.exists():
+    source_path = _song_cache_dir(song_id) / filename
+    # A completed pipeline may deliberately remove its large WAV intermediates
+    # after producing both verified Opus tracks.  The public URL remains the
+    # historical ``*.wav`` URL, but its canonical playback asset is Opus.
+    opus_path = source_path.with_suffix(".opus")
+    if filename in ("vocals.wav", "no_vocals.wav") and (
+        opus_path.is_file() and opus_path.stat().st_size > 0
+    ):
         audio_path = opus_path
         media_type = "audio/ogg; codecs=opus"
+    elif source_path.is_file() and source_path.stat().st_size > 0:
+        audio_path = source_path
+        media_type = "audio/wav" if filename.endswith(".wav") else "audio/mp4"
+        # Start background conversion only for a remaining Demucs WAV.  m4a
+        # files are original-audio fallbacks and are never converted here.
+        if filename in ("vocals.wav", "no_vocals.wav"):
+            asyncio.create_task(_ensure_opus(source_path))
     else:
-        # Start background conversion (first play will use WAV; subsequent plays Opus)
-        asyncio.create_task(_ensure_opus(wav_path))
-        audio_path = wav_path
-        media_type = "audio/wav"
+        raise HTTPException(status_code=404, detail=f"File '{filename}' not found")
 
     file_size = audio_path.stat().st_size
     range_header = request.headers.get("range")
@@ -313,13 +315,16 @@ async def update_lyrics_ass(
     song_id: str,
     body: LyricsUpdateBody,
     session: Session = Depends(get_session),
-    _guest: dict = Depends(get_current_guest),
+    payload: dict = Depends(get_current_guest),
 ):
     """Replace the cached ASS lyrics file for a song (user-edited karaoke timing).
 
-    Requires an authenticated guest. song_id is DB-constrained below (404 if
+    Requires a system-admin session. song_id is DB-constrained below (404 if
     the song doesn't exist), so it can't escape the media directory.
     """
+    if not is_system_admin(payload):
+        raise HTTPException(status_code=403, detail="System admin access required")
+
     if not body.ass.strip():
         raise HTTPException(status_code=400, detail="ASS content cannot be empty")
 
@@ -345,10 +350,25 @@ def stream_info(song_id: str, session: Session = Depends(get_session)):
     ass_path = _song_ass_path(song_id)
 
     files = {}
-    for fname in ["vocals.wav", "no_vocals.wav", "audio.m4a"]:
-        fpath = cache_dir / fname
-        if fpath.exists():
-            files[fname] = {"size_bytes": fpath.stat().st_size}
+    for fname in ["vocals.wav", "no_vocals.wav"]:
+        wav_path = cache_dir / fname
+        opus_path = wav_path.with_suffix(".opus")
+        if opus_path.is_file() and opus_path.stat().st_size > 0:
+            files[fname] = {
+                "size_bytes": opus_path.stat().st_size,
+                "stored_as": opus_path.name,
+                "format": "opus",
+            }
+        elif wav_path.is_file() and wav_path.stat().st_size > 0:
+            files[fname] = {
+                "size_bytes": wav_path.stat().st_size,
+                "stored_as": wav_path.name,
+                "format": "wav",
+            }
+
+    original_path = cache_dir / "audio.m4a"
+    if original_path.is_file() and original_path.stat().st_size > 0:
+        files["audio.m4a"] = {"size_bytes": original_path.stat().st_size}
 
     return {
         "song_id": song_id,

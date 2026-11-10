@@ -7,6 +7,7 @@ retries temp errors with exponential back-off (1 s, 2 s, 4 s).
 import asyncio
 import json
 import logging
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,6 +19,33 @@ import yt_dlp.utils
 from ..config import settings
 
 log = logging.getLogger(__name__)
+
+# YouTube now needs an external JavaScript runtime to solve its EJS challenges.
+# Do not rely on the systemd service PATH: it does not include either runtime.
+# Operators can override these absolute paths without changing application code.
+_JS_RUNTIME_PATHS = (
+    ("deno", "KTV_YTDLP_DENO_PATH", "/home/cbc/.deno/bin/deno"),
+    ("node", "KTV_YTDLP_NODE_PATH", "/home/cbc/.nvm/versions/node/v24.15.0/bin/node"),
+)
+_BGUTIL_SERVER_HOME = os.environ.get(
+    "KTV_BGUTIL_SERVER_HOME",
+    "/home/cbc/.local/share/home-ktv/bgutil-ytdlp-pot-provider/server",
+)
+
+
+def _js_runtimes() -> dict[str, dict[str, str]]:
+    """Return installed JS runtimes using absolute executable paths only."""
+    runtimes: dict[str, dict[str, str]] = {}
+    for name, env_name, default_path in _JS_RUNTIME_PATHS:
+        path = Path(os.environ.get(env_name, default_path))
+        if path.is_absolute() and path.is_file() and os.access(path, os.X_OK):
+            runtimes[name] = {"path": str(path)}
+    if not runtimes:
+        log.error(
+            "No configured yt-dlp JS runtime found; set KTV_YTDLP_DENO_PATH or "
+            "KTV_YTDLP_NODE_PATH to an absolute executable path"
+        )
+    return runtimes
 
 # Messages that indicate the video cannot ever be downloaded (perm errors).
 _PERM_SUBSTRINGS = (
@@ -138,6 +166,9 @@ class YtDlpWrapper:
                 "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/"
                 "best[height<=1080][ext=mp4]/best[height<=1080]/best"
             ),
+            "noplaylist": True,
+            "max_filesize": 500 * 1024 * 1024,
+            "match_filter": yt_dlp.utils.match_filter_func("duration <= 1200 & !is_live"),
             "outtmpl": output_template,
             "merge_output_format": "mp4",
             "quiet": True,
@@ -146,6 +177,16 @@ class YtDlpWrapper:
             "retries": 0,          # we control retry ourselves
             "fragment_retries": 3,
             "http_chunk_size": 10 * 1024 * 1024,
+            # Explicit paths make this work under systemd, whose PATH has no deno/node.
+            "js_runtimes": _js_runtimes(),
+            # YouTube now enforces a GVS Proof-of-Origin token for this client.
+            # The bgutil yt-dlp plugin supplies it through the local provider service.
+            "extractor_args": {
+                "youtube": {"player_client": ["mweb"]},
+                # Sequential pipeline admission makes the on-demand provider
+                # safe here and avoids exposing or supervising an HTTP token service.
+                "youtubepot-bgutilscript": {"server_home": [_BGUTIL_SERVER_HOME]},
+            },
         }
         if self.cookies_path and self.cookies_path.exists():
             opts["cookiefile"] = str(self.cookies_path)

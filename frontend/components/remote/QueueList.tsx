@@ -3,13 +3,13 @@
 import { useState } from "react";
 import Image from "next/image";
 import type { QueueItem, ClientCommand } from "@/lib/types";
-import { deleteSong } from "@/lib/api";
 
 interface Props {
   queue: QueueItem[];
   currentQueueItemId: number | null;
   sendCommand: (cmd: ClientCommand) => void;
   adminMode?: boolean;
+  guestId?: string;
 }
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
@@ -25,11 +25,10 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   playing:        { label: "播放中",   color: "text-violet-400" },
 };
 
-export default function QueueList({ queue, currentQueueItemId, sendCommand, adminMode = false }: Props) {
+export default function QueueList({ queue, currentQueueItemId, sendCommand, adminMode = false, guestId }: Props) {
   const pending = queue.filter((q) => q.id !== currentQueueItemId && q.status !== "playing");
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
-  const [deleting, setDeleting] = useState<string | null>(null);
 
   if (pending.length === 0) {
     return (
@@ -55,18 +54,6 @@ export default function QueueList({ queue, currentQueueItemId, sendCommand, admi
     sendCommand({ type: "queue.reorder", queueItemIds: reordered.map((q) => q.id) });
   }
 
-  async function handleDeleteSong(songId: string) {
-    if (!confirm("確定要從資料庫永久刪除這首歌嗎？")) return;
-    setDeleting(songId);
-    try {
-      await deleteSong(songId);
-    } catch (err) {
-      alert("刪除失敗：" + (err as Error).message);
-    } finally {
-      setDeleting(null);
-    }
-  }
-
   return (
     <div className="flex flex-col">
       {/* Header */}
@@ -75,7 +62,7 @@ export default function QueueList({ queue, currentQueueItemId, sendCommand, admi
           <span className="text-white/50 text-sm font-medium">{pending.length} 首待播</span>
           {adminMode && (
             <span className="text-amber-300 text-[10px] uppercase tracking-wider font-bold">
-              可拖曳排序 / 永久刪除
+              可拖曳排序 / 移除點歌
             </span>
           )}
         </div>
@@ -171,28 +158,20 @@ export default function QueueList({ queue, currentQueueItemId, sendCommand, admi
                 </div>
               </div>
 
-              {/* Action buttons — admin only (guests can't delete others' songs) */}
-              {adminMode && (
+              {/* Guests can remove their own requests; admins can manage the room. */}
+              {(adminMode || item.guest_id === guestId) && (
                 <div className="flex items-center gap-1 flex-shrink-0">
                   <button
                     onClick={() => sendCommand({ type: "queue.remove", queueItemId: item.id })}
                     className="text-white/20 hover:text-red-400 transition-colors p-1.5 rounded-xl hover:bg-red-400/10"
                     title="從隊列移除"
+                    aria-label={`移除 ${item.song?.title ?? item.song_id}`}
                   >
                     <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
                       <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
                     </svg>
                   </button>
-                  <button
-                    onClick={() => handleDeleteSong(item.song_id)}
-                    disabled={deleting === item.song_id}
-                    className="text-amber-400/60 hover:text-amber-300 transition-colors p-1.5 rounded-xl hover:bg-amber-400/10 disabled:opacity-40"
-                    title="從資料庫永久刪除（含媒體檔）"
-                  >
-                    <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
-                      <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-                    </svg>
-                  </button>
+
                 </div>
               )}
             </div>

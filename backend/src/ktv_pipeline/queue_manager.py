@@ -59,6 +59,8 @@ class QueueManager:
 
         position: "end" (default), "next" (after current position), or integer position
         """
+        if self.session.query(QueueItem).filter(QueueItem.room_id == room_id, QueueItem.status.in_(self.ACTIVE_STATUSES)).count() >= 200:
+            raise ValueError("Room queue is full (200 songs)")
         # Verify song exists
         song = self.session.query(Song).filter_by(id=song_id).first()
         if not song:
@@ -202,18 +204,30 @@ class QueueManager:
         picking), so what plays is exactly what the queue displays showed.
         """
         self.apply_fair_order(room_id)
-        return (
+        from ktv_pipeline.playback_assets import playback_assets_ready
+        candidates = (
             self.session.query(QueueItem)
-            .filter_by(room_id=room_id, status="ready")
+            .join(Song, Song.id == QueueItem.song_id)
+            .filter(QueueItem.room_id == room_id, QueueItem.status == "ready")
+            .filter(Song.status == "ready")
             .order_by(QueueItem.position)
-            .first()
+            .all()
         )
+        for item in candidates:
+            if playback_assets_ready(self.session.get(Song, item.song_id)):
+                return item
+            log.warning("Skipping incomplete ready item %s (%s)", item.id, item.song_id)
+        return None
 
     def mark_playing(self, item_id: int) -> Optional[QueueItem]:
         """Mark a queue item as 'playing'."""
         # Clear any existing playing item for this room
         item = self.session.query(QueueItem).filter_by(id=item_id).first()
         if not item:
+            return None
+        from ktv_pipeline.playback_assets import playback_assets_ready
+        song = self.session.get(Song, item.song_id)
+        if item.status != "ready" or not song or song.status != "ready" or not playback_assets_ready(song):
             return None
         # Clear previous playing
         self.session.query(QueueItem).filter_by(

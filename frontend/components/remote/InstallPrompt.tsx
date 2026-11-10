@@ -1,16 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-
-interface BIPEvent extends Event {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-}
+import { requestPwaInstall, usePwaInstall } from "@/lib/pwa-install";
 
 export default function InstallPrompt() {
-  const [deferred, setDeferred] = useState<BIPEvent | null>(null);
   const [show, setShow] = useState(false);
-  const [iosHint, setIosHint] = useState(false);
+  const { canInstall, isIOS, isInstalled } = usePwaInstall();
 
   useEffect(() => {
     // Register the service worker (required for installability)
@@ -18,33 +13,14 @@ export default function InstallPrompt() {
       navigator.serviceWorker.register("/sw.js").catch(() => {});
     }
 
-    const standalone =
-      window.matchMedia("(display-mode: standalone)").matches ||
-      (window.navigator as unknown as { standalone?: boolean }).standalone === true;
-    if (standalone) return; // already installed
-
     if (localStorage.getItem("ktv_install_dismissed") === "1") return;
-
-    const onBIP = (e: Event) => {
-      e.preventDefault();
-      setDeferred(e as BIPEvent);
-      setShow(true);
-    };
-    window.addEventListener("beforeinstallprompt", onBIP);
-
-    // iOS Safari has no beforeinstallprompt — show manual hint
-    const ua = window.navigator.userAgent;
-    const isIOS = /iphone|ipad|ipod/i.test(ua);
-    const isSafari = /^((?!chrome|android).)*safari/i.test(ua);
-    if (isIOS && isSafari) {
-      setIosHint(true);
-      setShow(true);
-    }
-
-    return () => window.removeEventListener("beforeinstallprompt", onBIP);
   }, []);
 
-  if (!show) return null;
+  useEffect(() => {
+    if (!isInstalled && localStorage.getItem("ktv_install_dismissed") !== "1" && (canInstall || isIOS)) setShow(true);
+  }, [canInstall, isIOS, isInstalled]);
+
+  if (!show || isInstalled) return null;
 
   function dismiss() {
     setShow(false);
@@ -52,11 +28,8 @@ export default function InstallPrompt() {
   }
 
   async function install() {
-    if (!deferred) return;
-    await deferred.prompt();
-    await deferred.userChoice.catch(() => {});
-    setShow(false);
-    setDeferred(null);
+    const outcome = await requestPwaInstall();
+    if (outcome !== "unavailable") setShow(false);
   }
 
   return (
@@ -66,7 +39,7 @@ export default function InstallPrompt() {
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-white text-sm font-medium">下載到桌面當 App 用</p>
-        {iosHint ? (
+        {isIOS ? (
           <p className="text-white/45 text-[11px] mt-0.5 leading-snug">
             點 Safari 分享鈕 <span className="text-white/70">⎙</span> →「加入主畫面」
           </p>
@@ -74,7 +47,7 @@ export default function InstallPrompt() {
           <p className="text-white/45 text-[11px] mt-0.5">全螢幕、開啟更快</p>
         )}
       </div>
-      {!iosHint && deferred && (
+      {!isIOS && canInstall && (
         <button
           onClick={install}
           className="px-3.5 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-medium flex-shrink-0 transition-colors"

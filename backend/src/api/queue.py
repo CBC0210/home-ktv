@@ -7,6 +7,7 @@ from ktv_pipeline.models import QueueItem, Room, Guest, Song
 from ktv_pipeline.schemas import QueueItemCreate, QueueItemOut
 from ktv_pipeline.queue_manager import QueueManager
 from ktv_pipeline.deps import get_current_guest
+from ktv_pipeline.auth import ensure_room_access, is_room_admin
 
 
 router = APIRouter(prefix="/queue", tags=["queue"])
@@ -37,6 +38,7 @@ def add_to_queue(
     The song is processed through the pipeline (if not already ready).
     On success, the queue item is created with status='processing'.
     """
+    ensure_room_access(payload, room_id)
     guest_id = payload["sub"]
 
     # Verify room exists
@@ -50,6 +52,9 @@ def add_to_queue(
         # TODO: trigger pipeline for a new song (M2-T6)
         raise HTTPException(status_code=404, detail=f"Song '{data.song_id}' not found or not yet processed")
 
+    from ktv_pipeline.security import allow_request
+    if not allow_request(("add", guest_id), 20, 60):
+        raise HTTPException(status_code=429, detail="Too many song requests")
     mgr = QueueManager(session)
     try:
         item = mgr.add_song(
@@ -72,7 +77,7 @@ def reorder_queue(
     session: Session = Depends(get_session),
 ):
     """Reorder the queue. Admin only."""
-    if not payload.get("is_admin"):
+    if not is_room_admin(payload, room_id):
         raise HTTPException(status_code=403, detail="Admin only")
 
     mgr = QueueManager(session)
@@ -92,9 +97,12 @@ def remove_from_queue(
     if not item:
         raise HTTPException(status_code=404, detail="Queue item not found")
 
+    ensure_room_access(payload, item.room_id)
     # Only the guest who added it or admin can remove
-    if item.guest_id != payload["sub"] and not payload.get("is_admin"):
+    if item.guest_id != payload["sub"] and not is_room_admin(payload, item.room_id):
         raise HTTPException(status_code=403, detail="Not authorized to remove this item")
+    if item.status == "playing":
+        raise HTTPException(status_code=409, detail="Song is playing; use skip instead")
 
     mgr.remove_item(item_id)
     return {"ok": True}
@@ -107,7 +115,10 @@ def start_playing(
     session: Session = Depends(get_session),
 ):
     """Mark a queue item as currently playing. Admin only."""
-    if not payload.get("is_admin"):
+    item = session.query(QueueItem).filter_by(id=item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Queue item not found")
+    if not is_room_admin(payload, item.room_id):
         raise HTTPException(status_code=403, detail="Admin only")
 
     mgr = QueueManager(session)
@@ -124,7 +135,10 @@ def finish_playing(
     session: Session = Depends(get_session),
 ):
     """Mark a queue item as done (playback finished). Admin only."""
-    if not payload.get("is_admin"):
+    item = session.query(QueueItem).filter_by(id=item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Queue item not found")
+    if not is_room_admin(payload, item.room_id):
         raise HTTPException(status_code=403, detail="Admin only")
 
     mgr = QueueManager(session)

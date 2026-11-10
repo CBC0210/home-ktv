@@ -82,6 +82,9 @@ const TAB_ITEMS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 
 export default function RemoteView({ roomId }: Props) {
   const [tab, setTab] = useState<Tab>("playing");
+  const contentRef = useRef<HTMLElement>(null);
+  const [queueError, setQueueError] = useState<string | null>(null);
+  const queueRequestVersion = useRef(0);
   const [session, setSession] = useState<GuestSession | null>(null);
   const [loadingSession, setLoadingSession] = useState(true);
   const [hasPassword, setHasPassword] = useState(false);
@@ -239,17 +242,40 @@ export default function RemoteView({ roomId }: Props) {
   }, [roomId, setRoom]);
 
   const refreshRoomData = useCallback(() => {
+    const version = ++queueRequestVersion.current;
     getQueue(roomId).then((q) => {
+      if (version !== queueRequestVersion.current) return;
       setQueue(q);
+      setQueueError(null);
       // Detect currently-playing song from queue so "正在播放" works on late join
       const playing = q.find((item) => item.status === "playing");
       if (playing?.song) {
         setCurrentSong(playing.song, playing);
         setIsPlaying(true);
       }
-    }).catch(() => {});
+    }).catch(() => {
+      if (version === queueRequestVersion.current) setQueueError("隊列讀取失敗，請重試");
+    });
     getOnlineGuests(roomId).then(setGuests).catch(() => {});
   }, [roomId, setQueue, setCurrentSong, setIsPlaying, setGuests]);
+
+  useEffect(() => {
+    contentRef.current?.scrollTo({ top: 0 });
+    window.scrollTo({ top: 0 });
+    if (tab !== "queue" || !session) return;
+    // Re-fetch when opened and while visible: a missed WebSocket update or
+    // a phone returning from sleep must not leave an empty, stale queue.
+    const refresh = () => {
+      if (document.visibilityState === "visible") refreshRoomData();
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 5000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [tab, session, refreshRoomData]);
 
   useEffect(() => {
     if (!session) return;
@@ -263,7 +289,11 @@ export default function RemoteView({ roomId }: Props) {
 
   const handleEvent = useCallback(
     (event: ServerEvent) => {
-      if (event.type === "queue.updated") setQueue(event.queue);
+      if (event.type === "queue.updated") {
+        ++queueRequestVersion.current;
+        setQueue(event.queue);
+        setQueueError(null);
+      }
       else if (event.type === "song.started") {
         setCurrentSong(event.song, event.queueItem);
         setIsPlaying(true);
@@ -483,7 +513,7 @@ export default function RemoteView({ roomId }: Props) {
       )}
 
       {/* Content */}
-      <main className="flex-1 overflow-y-auto pb-20">
+      <main ref={contentRef} className="flex-1 overflow-y-auto pb-20">
         {tab === "playing" && (
           <NowPlaying
             currentSong={currentSong}
@@ -492,15 +522,23 @@ export default function RemoteView({ roomId }: Props) {
             processing={processing}
             sendCommand={wsCommand}
             adminMode={adminMode}
+            guestId={session.guest.id}
           />
         )}
         {tab === "queue" && (
+          <div>
+          <div className="flex items-center justify-between px-4 py-2">
+            <span role="status" className="text-amber-300 text-xs">{queueError}</span>
+            <button onClick={refreshRoomData} className="text-violet-300 text-sm px-3 py-2">重新整理隊列</button>
+          </div>
           <QueueList
             queue={queue}
             currentQueueItemId={currentQueueItem?.id ?? null}
             sendCommand={wsCommand}
             adminMode={adminMode}
+            guestId={session.guest.id}
           />
+          </div>
         )}
         {tab === "search" && (
           <SearchView roomId={roomId} token={session.token} />
