@@ -1,0 +1,12 @@
+packages:
+  - .
+overrides:
+  postcss: ^8.5.23
+  sharp: ^0.35.5
+  source-map-js: ^1.2.2
+  nanoid@3: ^3.3.18
+onlyBuiltDependencies:
+  - sharp
+  - unrs-resolver
+allowBuilds:
+  unrs-resolver: set this to true or false

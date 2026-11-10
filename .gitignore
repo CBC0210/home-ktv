@@ -24,6 +24,8 @@ htmlcov/
 # Node
 node_modules/
 .next/
+.next-before-*/
+.next-candidate-*/
 out/
 .turbo/
 .vercel/
