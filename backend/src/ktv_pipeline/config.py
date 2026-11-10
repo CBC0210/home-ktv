@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     cf_domain: str = ""
     cf_subdomain: str = ""
     enable_gpu: bool = True
+    enable_word_alignment: bool = True
     whisperx_model: str = "small"
     demucs_model: str = "htdemucs"
     song_total_timeout_sec: int = 900

@@ -129,7 +129,7 @@ class TestProcessSong:
         with patch("ktv_pipeline.pipeline_orchestrator.init_db"):
             result = await process_song("not-a-youtube-url")
         assert result["ok"] is False
-        assert result["error"] == "invalid_youtube_url"
+        assert result["error"] == "invalid_video_url"
         assert result["perm"] is True
 
     @pytest.mark.asyncio
