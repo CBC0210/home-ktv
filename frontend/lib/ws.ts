@@ -58,8 +58,8 @@ export function useWebSocket(
   }, []);
 
   useEffect(() => {
-    // Skip until we have a token (except player which connects unauthenticated)
-    if (role !== "player" && !token) return;
+    // Every role, including the paired display, needs a token.
+    if (!token) return;
 
     let destroyed = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;

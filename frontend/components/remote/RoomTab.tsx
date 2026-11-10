@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { getRoomStats, getProcessingStats, type RoomStats, type ProcessingStats } from "@/lib/api";
+import { requestPwaInstall, usePwaInstall } from "@/lib/pwa-install";
 
 // Recharts lazy import
 import { PieChart, Pie, Cell, Tooltip as ReTooltip, BarChart, Bar, XAxis, YAxis, Cell as BarCell } from "recharts";
@@ -160,6 +161,9 @@ export default function RoomTab({ room, session, guests, onLeave, adminMode = fa
   const [stats, setStats] = useState<RoomStats | null>(null);
   const [procStats, setProcStats] = useState<ProcessingStats | null>(null);
   const [loadingStats, setLoadingStats] = useState(false);
+  const [showInstallHelp, setShowInstallHelp] = useState(false);
+  const [installMessage, setInstallMessage] = useState<string | null>(null);
+  const { canInstall, isIOS, isInstalled, isStandalone } = usePwaInstall();
 
   const roomUrl =
     typeof window !== "undefined"
@@ -183,11 +187,31 @@ export default function RoomTab({ room, session, guests, onLeave, adminMode = fa
     return () => { cancelled = true; };
   }, [room.id]);
 
+  useEffect(() => {
+    if (!showInstallHelp) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowInstallHelp(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [showInstallHelp]);
+
   function copyLink() {
     navigator.clipboard.writeText(roomUrl).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
+  }
+
+  async function installApp() {
+    setInstallMessage(null);
+    if (isInstalled || isStandalone || isIOS || !canInstall) {
+      setShowInstallHelp(true);
+      return;
+    }
+    const outcome = await requestPwaInstall();
+    if (outcome === "dismissed") setInstallMessage("已取消安裝，你隨時可以再試一次。");
+    else if (outcome === "unavailable") setInstallMessage("安裝提示目前不可用，請從瀏覽器選單尋找「安裝應用程式」或「加入主畫面」。");
   }
 
   return (
@@ -204,7 +228,36 @@ export default function RoomTab({ room, session, guests, onLeave, adminMode = fa
         >
           {copied ? "✓ 已複製連結" : "複製房間連結"}
         </button>
+        <button
+          onClick={installApp}
+          className="mt-2 w-full text-sm bg-violet-600 hover:bg-violet-500 text-white py-2 rounded-lg transition-colors"
+          aria-haspopup="dialog"
+        >
+          {isStandalone ? "已以 App 開啟" : isInstalled ? "已安裝 App" : "安裝響窩 App"}
+        </button>
+        {installMessage && !isInstalled && <p className="mt-2 text-xs text-gray-400" role="status">{installMessage}</p>}
       </div>
+
+      {showInstallHelp && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4" role="presentation">
+          <div className="w-full max-w-sm rounded-2xl bg-gray-800 border border-white/10 p-5 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="install-help-title">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 id="install-help-title" className="text-white font-semibold">{isStandalone ? "已以 App 開啟" : isInstalled ? "App 已安裝" : "安裝響窩 App"}</h2>
+                {isInstalled || isStandalone ? (
+                  <p className="mt-2 text-sm leading-6 text-gray-300">你已可從裝置主畫面或應用程式列表開啟響窩。</p>
+                ) : isIOS ? (
+                  <p className="mt-2 text-sm leading-6 text-gray-300">點瀏覽器的「分享」按鈕，再選擇「加入主畫面」。</p>
+                ) : (
+                  <p className="mt-2 text-sm leading-6 text-gray-300">請從瀏覽器選單尋找「安裝應用程式」或「加入主畫面」。</p>
+                )}
+              </div>
+              <button onClick={() => setShowInstallHelp(false)} className="text-gray-400 hover:text-white text-xl" aria-label="關閉安裝說明" autoFocus>✕</button>
+            </div>
+            <button onClick={() => setShowInstallHelp(false)} className="mt-5 w-full rounded-xl bg-gray-700 hover:bg-gray-600 py-2 text-sm text-white transition-colors">知道了</button>
+          </div>
+        </div>
+      )}
 
       {/* Processing pie chart */}
       {procStats !== null && <ProcessingPieChart data={procStats} />}
