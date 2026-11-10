@@ -1,7 +1,6 @@
 # 架構 Architecture — 響窩 Echonest / Home KTV
 
-> 給部署者與貢獻者的系統導覽。原始設計規格（含歷史決策脈絡）在 [`CLAUDE.md`](../CLAUDE.md)，
-> 但以本文與實際程式碼為準。
+> 給部署者與貢獻者的系統導覽；以本文與實際程式碼為準。
 
 ## 總覽
 
@@ -78,7 +77,8 @@ Remote 送 `playback.* / queue.* / lyrics.* / reaction.send`。完整訊息表�
 ## 認證
 
 - 訪客：房間密碼（bcrypt）→ 暱稱 → guest JWT（60 天），存 localStorage。
-- 房間管理模式：房間管理密碼（預設 `<room>admin`，可改）→ 重簽 `is_admin` JWT。
+- 房間管理模式：系統 `ADMIN_PASSWORD` 或另設的房間管理密碼 → 重簽 `is_admin` JWT；
+  歷史預設 `<room_id>admin` 已停用。
 - 系統 Admin：`ADMIN_PASSWORD`（`/admin`）。
 - 首次啟動自動建立預設房間 `home`（`DEFAULT_ROOM_PASSWORD` 可設密碼）。
 
@@ -97,7 +97,7 @@ backend/src/
   main.py                  # FastAPI app、lifespan（migration/seed/recovery）
   api/                     # rooms/queue/songs/guests/auth/admin/ws/streaming
   ktv_pipeline/
-    config.py              # Settings（.env）；CUDA lib 路徑自動解析
+    config.py              # Settings（根目錄 .env）；CUDA lib 路徑自動解析
     queue_manager.py       # 隊列 + 公平輪唱
     ws_manager.py          # 連線管理與廣播
     pipeline_orchestrator.py
@@ -106,6 +106,6 @@ frontend/
   app/r/[roomId]/{player,remote}/  # 兩個入口
   components/{player,remote}/
   lib/{api,ws,endpoint,stores}.ts
-deploy/                    # Dockerfile、systemd 樣板、cloudflared/nginx 範例
+deploy/                    # Dockerfile、systemd user 樣板、cloudflared/nginx 範例
 scripts/                   # backup / watchdog / update-ytdlp / cleanup
 ```

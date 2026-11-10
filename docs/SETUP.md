@@ -1,268 +1,206 @@
-# Setup Guide
+# Ubuntu 正式部署指南
 
-> 路徑中的 `<REPO_DIR>`/`<HOME>`/`<user>`/`ktv.example.com` 請換成你自己的值。
+本指南以 systemd user services 為標準部署方式。所有指令均以一般部署帳號執行；只有安裝
+系統套件與啟用 linger 需要 `sudo`。Docker Compose 是保留的替代方案，不是本指南主線。
 
-> 這份檔案記錄所有需要使用者手動操作的步驟，按時間順序追加。
-> Claude 不會跳過此檔案——任何需要使用者操作的事都會在這裡新增章節。
+## 1. 系統需求
 
----
+- Ubuntu 近期 LTS、Git、curl、FFmpeg。
+- Python 3.12 與 `uv`。
+- Node.js 24 與 `pnpm`。
+- Deno（yt-dlp 的 JavaScript runtime）。
+- 選用 NVIDIA GPU；沒有 GPU 時在 `.env` 設 `ENABLE_GPU=false`。
 
-## 一次性環境準備（M0 階段）
-
-### 1. GitHub Repo（M0-T1）
-
-詳見 PROGRESS.md「⚠️ User Action Required」區塊。
-
-### 2. 確認伺服器基本工具
-
-請在 Telegram 告訴 OpenClaw 以下哪些已安裝：
+安裝一般工具、uv、Deno 與 Node.js 24：
 
 ```bash
-python3 --version    # 需 ≥ 3.12
-node --version       # 需 ≥ 20
-git --version
-docker --version
-nvidia-smi           # 看到 GTX 1660 Super 即可
-cloudflared --version
-```
-
-任何未安裝的，Claude 在 M0-T5 會嘗試自動安裝。
-
-### 3. NVIDIA Driver / CUDA / cuDNN（M0-T5，自動）
-
-Claude 會跑 `scripts/gpu-setup-check.sh`，這支腳本會：
-
-1. 檢查 `nvidia-smi` 是否可用
-2. 不可用則安裝 `nvidia-driver-535` 或對應版本
-3. 安裝 CUDA 12.x + cuDNN
-4. 在 ERRORS.md 記錄安裝過程
-
-如果腳本遇到需要重開機的步驟，會在 PROGRESS.md 標記 ⚠️ 並通知你重開伺服器。
-
-### 4. Cloudflare Tunnel（M0-T6）
-
-#### 4.1 確認你有 Cloudflare 帳號和 `example.com` 域名
-
-如果還沒在 Cloudflare 管理 `example.com`：
-1. 登入 https://dash.cloudflare.com
-2. Add Site → 輸入 `example.com`
-3. 把網域註冊商的 nameserver 改成 Cloudflare 提供的
-4. 等 DNS 生效（最多 24 小時）
-
-#### 4.2 安裝 cloudflared
-
-```bash
-# Ubuntu
-curl -L https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
-echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' | sudo tee /etc/apt/sources.list.d/cloudflared.list
 sudo apt update
-sudo apt install cloudflared
+sudo apt install -y git curl ffmpeg build-essential sqlite3
+curl -LsSf https://astral.sh/uv/install.sh | sh
+curl -fsSL https://deno.land/install.sh | sh
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+nvm install 24
+corepack enable
+corepack prepare pnpm@latest --activate
 ```
 
-#### 4.3 登入 Cloudflare
+重新登入 shell 後確認：
+
+```bash
+uv --version
+deno --version
+node --version
+pnpm --version
+ffmpeg -version | head -n 1
+```
+
+若使用 NVIDIA GPU，另依 Ubuntu/NVIDIA 官方方式安裝相容的驅動，並先確認 `nvidia-smi` 正常。
+
+## 2. 取得固定版本
+
+正式機建議部署 release tag，不直接追蹤開發分支。將 `<VERSION_TAG>` 換成要部署的版本：
+
+```bash
+git clone https://github.com/CBC0210/home-ktv.git
+cd home-ktv
+git fetch --tags
+git checkout <VERSION_TAG>
+```
+
+下文假設目前目錄是 repository 根目錄。
+
+## 3. 設定根目錄 `.env`
+
+唯一標準位置是 repository 根目錄的 `.env`：
+
+```bash
+cp .env.example .env
+sed -i "s/^ADMIN_COOKIE_SECRET=.*/ADMIN_COOKIE_SECRET=$(openssl rand -hex 32)/" .env
+$EDITOR .env
+```
+
+至少修改：
+
+- `ADMIN_PASSWORD`：Admin 後台與房主進入房間管理模式使用。
+- `ADMIN_COOKIE_SECRET`：上面指令已產生隨機值。
+- `DATA_DIR`：正式機建議填絕對路徑，例如 `/home/你的帳號/.local/share/home-ktv/data`。
+
+常調整項目是 `ENABLE_GPU`、`ENABLE_WORD_ALIGNMENT`、`WHISPERX_MODEL`、
+`DEFAULT_ROOM_PASSWORD` 與 `PUBLIC_BASE_URL`；完整清單與註解見 [`.env.example`](../.env.example)。
+建立資料目錄（路徑須與 `.env` 相同）：
+
+```bash
+mkdir -p "$HOME/.local/share/home-ktv/data"
+```
+
+不要建立 `backend/.env`；程式只為舊部署保留相容讀取。
+
+## 4. 後端與 yt-dlp provider
+
+安裝鎖定的 Python 相依：
+
+```bash
+cd backend
+uv sync --locked --python 3.12
+cd ..
+```
+
+安裝 bgutil PO token provider。路徑是程式會自動偵測的預設位置：
+
+```bash
+PROVIDER_DIR="$HOME/.local/share/home-ktv/bgutil-ytdlp-pot-provider"
+git clone --single-branch --branch 2.0.0 \
+  https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git "$PROVIDER_DIR"
+test "$(git -C "$PROVIDER_DIR" rev-parse HEAD)" = 2d758ea29ae5c65886bdf56c42ebbdfe17d78bbb
+cd "$PROVIDER_DIR/server"
+npm ci
+npx tsc
+cd -
+```
+
+程式依序從 `KTV_YTDLP_*_PATH`、`PATH`、`~/.deno`／`~/.nvm` 找 Deno 與 Node。
+provider 預設在上述位置；非標準安裝才需要設定 `.env.example` 中三個 `KTV_*` 變數。
+驗證處理相依：
+
+```bash
+cd backend
+uv run python -c 'import yt_dlp_ejs, yt_dlp_plugins.extractor.getpot_bgutil_script; from ktv_pipeline.pipeline.ytdlp import _js_runtimes; assert _js_runtimes(); print("processing dependencies ready")'
+cd ..
+```
+
+## 5. 建置前端
+
+```bash
+cd frontend
+pnpm install --frozen-lockfile
+pnpm build
+cd ..
+test -f frontend/.next/standalone/server.js
+```
+
+若使用單一外部網域，先建立 `frontend/.env.production.local` 再 build：
+
+```bash
+printf 'NEXT_PUBLIC_API_URL=https://ktv.example.com\n' > frontend/.env.production.local
+```
+
+## 6. 安裝 systemd user services
+
+安裝器會偵測 repository、uv 與 Node 絕對路徑，渲染 unit 到
+`~/.config/systemd/user/`，再 daemon-reload 與 enable。預設前端 port 是 3000：
+
+```bash
+bash scripts/install-user-services.sh --frontend-port 3000
+sudo loginctl enable-linger "$USER"
+systemctl --user start ktv-frontend.service
+```
+
+若自動偵測不到工具，可明確指定：
+
+```bash
+bash scripts/install-user-services.sh --uv "$HOME/.local/bin/uv" \
+  --node "$HOME/.nvm/versions/node/v24.15.0/bin/node" --frontend-port 3000
+```
+
+安裝器覆蓋內容不同的既有 unit 前會建立 `.bak-<時間>` 備份。
+
+## 7. 驗證與排錯
+
+```bash
+curl --fail http://127.0.0.1:8000/health
+curl --fail http://127.0.0.1:3000/
+systemctl --user status ktv-backend.service ktv-frontend.service
+journalctl --user -u ktv-backend.service -n 100 --no-pager
+journalctl --user -u ktv-frontend.service -n 100 --no-pager
+```
+
+從同網段裝置開啟 `http://<伺服器IP>:3000/r/home/player`。若 service 找不到 Node、uv、
+Deno 或 provider，重新執行安裝器並用 `.env` 的 `KTV_*` 變數指定非標準路徑。
+
+## 8. 更新版本
+
+先確認工作樹沒有未保存修改，再把 `<VERSION_TAG>` 換成新 release tag：
+
+```bash
+git fetch --tags
+git checkout <VERSION_TAG>
+cd backend
+uv sync --locked --python 3.12
+cd ../frontend
+pnpm install --frozen-lockfile
+pnpm build
+cd ..
+bash scripts/install-user-services.sh --frontend-port 3000
+systemctl --user restart ktv-backend.service ktv-frontend.service
+curl --fail http://127.0.0.1:8000/health
+```
+
+## 9. 備份
+
+備份 SQLite 與根目錄 `.env`；媒體 cache 可重新產生，不會打包。路徑應與 `.env` 一致：
+
+```bash
+DATA_DIR="$HOME/.local/share/home-ktv/data" \
+BACKUP_BASE="$HOME/backups/home-ktv" \
+bash scripts/backup.sh
+```
+
+先手動驗證產物，再自行加入 cron 或 systemd timer。還原前先停止兩個 KTV user services，並保留
+現有資料副本。
+
+## 10. 可選：Cloudflare Tunnel
+
+只有跨網路存取才需要。先依 Cloudflare 官方文件安裝 `cloudflared`、登入並建立 tunnel：
 
 ```bash
 cloudflared tunnel login
-```
-
-會開瀏覽器要你選擇域名授權。完成後 `~/.cloudflared/cert.pem` 會被建立。
-
-#### 4.4 建立 Tunnel
-
-```bash
 cloudflared tunnel create ktv
+cp deploy/cloudflared.example.yml "$HOME/.cloudflared/config.yml"
+$EDITOR "$HOME/.cloudflared/config.yml"
+cloudflared tunnel --config "$HOME/.cloudflared/config.yml" run ktv
 ```
 
-記下輸出的 Tunnel UUID（類似 `abc123-def456-ghi789`），並把它寫進 `.env`：
-
-```
-CF_TUNNEL_UUID=abc123-def456-ghi789
-```
-
-#### 4.5 設定 DNS
-
-```bash
-cloudflared tunnel route dns ktv ktv.example.com
-```
-
-#### 4.6 設定檔
-
-`/etc/cloudflared/config.yml`（要 sudo 建立）：
-
-```yaml
-tunnel: <填入 UUID>
-credentials-file: /home/<your-user>/.cloudflared/<UUID>.json
-
-ingress:
-  - hostname: ktv.example.com
-    service: http://localhost:8000
-  - service: http_status:404
-```
-
-#### 4.7 安裝為 systemd 服務（選做，方便開機自啟）
-
-```bash
-sudo cloudflared service install
-sudo systemctl start cloudflared
-sudo systemctl enable cloudflared
-```
-
-#### 4.8 測試
-
-先用任意服務測試（之後會被 KTV 替換）：
-
-```bash
-python3 -m http.server 8000
-```
-
-開另一個終端：
-
-```bash
-curl https://ktv.example.com
-```
-
-看到 Python 的目錄列表即代表 Tunnel 通了。
-
----
-
-## 生產部署（M5 完成後適用）
-
-### 5. Systemd 服務安裝
-
-#### 5.1 Backend
-
-```bash
-sudo cp <REPO_DIR>/deploy/ktv-backend.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable ktv-backend
-sudo systemctl start ktv-backend
-sudo systemctl status ktv-backend
-```
-
-確認服務正常：
-```bash
-curl http://localhost:8000/health
-# → {"status":"ok","app":"ktv-backend","version":"0.1.0"}
-```
-
-#### 5.2 Frontend（可選，也可直接用 pnpm dev）
-
-```bash
-# 先 build
-cd <REPO_DIR>/frontend
-pnpm build
-
-# 安裝服務
-sudo cp <REPO_DIR>/deploy/ktv-frontend.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable ktv-frontend
-sudo systemctl start ktv-frontend
-```
-
-> 注意：`ktv-frontend.service` 的 ExecStartPre 會在每次重啟時執行 `pnpm build`，首次啟動較慢。
-> 若要加快，可把 build 單獨做好後改用 `pnpm start` 跳過 Pre。
-
-#### 5.3 Cloudflare Tunnel
-
-```bash
-# 複製設定檔（已有 tunnel UUID）
-sudo cp <REPO_DIR>/deploy/cloudflared.yml /etc/cloudflared/config.yml
-
-# 啟動服務
-sudo systemctl enable cloudflared
-sudo systemctl start cloudflared
-
-# 測試穿透
-curl https://ktv.example.com/health
-```
-
-### 6. 備份設定
-
-#### 6.1 手動備份
-
-```bash
-bash <REPO_DIR>/scripts/backup.sh
-```
-
-備份位置：`<REPO_DIR>-backups/ktv-backup-YYYYMMDD_HHMMSS.tar.gz`
-備份內容：SQLite DB、`.env`、`cloudflared.yml`、最近 7 天的 log
-
-#### 6.2 自動備份（每天凌晨 2:00）
-
-```bash
-crontab -e
-```
-
-加入：
-```
-0 2 * * * <REPO_DIR>/scripts/backup.sh >> /data/ktv/logs/backup.log 2>&1
-```
-
-### 7. 資料目錄初始化
-
-第一次部署時，確認資料目錄存在：
-
-```bash
-sudo mkdir -p /data/ktv/{cache,logs,tmp}
-sudo chown -R <user>:<user> /data/ktv
-```
-
-### 8. 系統健康確認清單
-
-部署後逐項確認：
-
-```bash
-# 1. Backend 回應
-curl https://ktv.example.com/health
-
-# 2. 房間列表
-curl https://ktv.example.com/api/rooms
-
-# 3. 前端頁面
-curl -s https://ktv.example.com/ | head -5
-
-# 4. GPU 狀態（不連顯示器時 nvidia-smi 可能會有非零退出碼，是正常的）
-nvidia-smi
-
-# 5. 服務狀態
-sudo systemctl status ktv-backend cloudflared
-
-# 6. Disk 空間
-df -h /data
-
-# 7. Backend log（最近 50 行）
-journalctl -u ktv-backend -n 50 --no-pager
-```
-
----
-
-## 發布前的最終設定（M6 階段）
-
-(M6 達成時補充)
-
----
-
-## 日常維運
-
-### 重啟服務
-
-```bash
-sudo systemctl restart ktv-backend
-sudo systemctl restart ktv-frontend
-sudo systemctl restart cloudflared
-```
-
-### 查看 log
-
-```bash
-journalctl -u ktv-backend -f
-tail -f /home/<user>/home-ktv/data/logs/app.log
-```
-
-### 備份
-
-```bash
-bash /home/<user>/home-ktv/scripts/backup.sh
-```
-
-備份位置：`/home/<user>/home-ktv-backups/YYYYMMDD/`
+範本會把 `/api`、`/ws`、`/songs`、`/health`、`/version` 送到後端 8000，其餘送到前端
+3000。啟用前應設定 `PUBLIC_BASE_URL`、`COOKIE_SECURE=true`，重建前端並重啟服務。

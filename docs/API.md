@@ -137,7 +137,7 @@ wss://ktv.example.com/ws?token=<token>&room_id=<room_id>&role=remote
 
 ### `PATCH /api/rooms/{room_id}/password`
 
-變更房間密碼。需管理員。
+變更入房密碼。需系統管理員；房間管理模式密碼由管理頁的獨立端點設定。
 
 **Query Params** — `new_password: string`
 
@@ -531,7 +531,7 @@ Range: bytes=0-65535
     "driver_version": "580.65.06"
   },
   "db_path": "<DATA_DIR>/ktv.db",
-  "data_dir": "/data/ktv"
+  "data_dir": "/home/user/.local/share/home-ktv/data"
 }
 ```
 
@@ -719,4 +719,4 @@ interface PlaybackState {
 
 ---
 
-*最後更新：2026-05-11 — M5-T3 部署文檔*
+*API 行為以目前程式碼與 OpenAPI `/docs` 為準。*

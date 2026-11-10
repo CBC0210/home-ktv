@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Home KTV Watchdog
-詳見 CLAUDE.md §21.11
 
 由 systemd timer 每 10 分鐘呼叫一次。
 功能：
@@ -10,9 +9,7 @@ Home KTV Watchdog
 3. 檢查磁碟空間
 4. 檢查 GPU 健康
 5. 檢查 cloudflared 服務
-6. 通知 OpenClaw（透過寫入 alerts 檔案）
-
-⚠️ 這是 M0-T7 的骨架，實際功能待 M2 後實作。
+6. 寫入本機 alerts 檔案
 """
 import json
 import shutil
@@ -34,7 +31,7 @@ DISK_INFO_PCT = 20
 
 
 def alert(level: str, message: str, data: dict | None = None) -> None:
-    """寫入 alerts 檔案，OpenClaw 會讀並透過 Telegram 通知。"""
+    """寫入本機 alerts 檔案，供管理者或外部監控讀取。"""
     ALERTS_FILE.parent.mkdir(parents=True, exist_ok=True)
     record = {
         "timestamp": datetime.now().isoformat(),
@@ -50,7 +47,7 @@ def alert(level: str, message: str, data: dict | None = None) -> None:
 def check_stale_pipeline() -> None:
     """重置 last_heartbeat 過舊的 processing items 為 pending。"""
     if not DB_PATH.exists():
-        return  # DB 還沒建好（M2 前）
+        return  # DB 尚未建立
     conn = sqlite3.connect(DB_PATH)
     try:
         cutoff = (datetime.now() - timedelta(minutes=STALE_HEARTBEAT_MIN)).isoformat()
@@ -126,7 +123,7 @@ def check_cloudflared() -> None:
 def check_ktv_backend() -> None:
     try:
         result = subprocess.run(
-            ["systemctl", "is-active", "ktv-backend"],
+            ["systemctl", "--user", "is-active", "ktv-backend"],
             capture_output=True,
             text=True,
             timeout=5,

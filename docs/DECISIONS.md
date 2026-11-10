@@ -1,7 +1,7 @@
 # Architecture Decision Records (ADR)
 
 > 重大架構決策記錄。每個 ADR 一條，按時間順序排列。
-> Claude 在做出影響架構的決定時必須新增一條 ADR。
+> 維護者做出影響架構的決定時應新增一條 ADR。
 
 格式範例：
 
@@ -67,22 +67,11 @@
   - ⚠️ 部分 API 是 reverse-engineered，可能因平台改版失效
   - ⚠️ 純文字依賴 HTML 解析，更脆弱
 
-## ADR-006: 開發直接在伺服器進行
-- Date: 2026-05-09
-- Status: accepted
-- Context: 使用者偏好直接在 Ubuntu 伺服器上開發，無需本機/遠端分離。
-- Decision: 不做本機開發環境，所有 task 在伺服器執行。Docker 可用但非強制。
-- Consequences:
-  - ✅ 環境一致，免同步
-  - ✅ GPU 任務可直接驗證
-  - ⚠️ 開發機沒有 GUI 時，前端調試靠瀏覽器 devtools
-  - ⚠️ 若伺服器掛掉，開發環境也沒了（但有 git 備份）
-
 ## ADR-007: 不使用 Sentry，自製錯誤追蹤
 - Date: 2026-05-09
 - Status: accepted
 - Context: 自用範圍不需要外部錯誤追蹤服務。
-- Decision: 錯誤寫入 SQLite `error_log` table + 檔案 log + 透過 OpenClaw 通知。
+- Decision: 錯誤寫入 SQLite `error_log` table 與檔案 log。
 - Consequences:
   - ✅ 不需付費
   - ✅ 隱私（不上傳到第三方）
@@ -108,27 +97,6 @@
   - ✅ idempotent 設計讓重跑無副作用（已有檔案會跳過該階段）
   - ⚠️ 偶爾會浪費幾分鐘重跑已完成的階段
   - ⚠️ 接受此成本因為自用範圍
-
-## ADR-010: Rate limit 無限重試 + 退避
-- Date: 2026-05-09
-- Status: accepted
-- Context: Claude session 因 Anthropic rate limit 中斷，需要重試策略。
-- Decision: 無限重試，但使用退避序列：5min → 15min → 30min → 1hr → 3hr → 6hr/次。
-- Consequences:
-  - ✅ 不會永久放棄
-  - ✅ 不會造成 API spam
-  - ⚠️ 若使用者付費等級不夠用，可能停滯數天
-  - ⚠️ OpenClaw 用 MiniMax，自身不受 Anthropic 限額影響，可永遠監控
-
-## ADR-011: Heartbeat 機制
-- Date: 2026-05-09
-- Status: accepted
-- Context: 需要區分「Claude 還在運作」和「Claude 卡死了」。
-- Decision: 三層 heartbeat——Claude 每 5 分鐘更新 PROGRESS.md；pipeline 每 30 秒更新 queue_items.last_heartbeat；OpenClaw 每 10 分鐘巡邏。
-- Consequences:
-  - ✅ 1 小時內可偵測 Claude session 死亡
-  - ✅ 15 分鐘內可偵測 pipeline stage 卡住
-  - ⚠️ 增加少量寫入，自用範圍可忽略
 
 ## ADR-012: 單首歌總 timeout 15 分鐘
 - Date: 2026-05-09

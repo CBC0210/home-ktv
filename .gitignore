@@ -62,7 +62,7 @@ desktop.ini
 # Cloudflare
 .cloudflared/
 
-# Claude / OpenClaw 暫存
+# 本機開發工具暫存
 .claude/
 *.tmp
 

@@ -2,7 +2,6 @@
 name = "ktv-pipeline"
 version = "0.1.0"
 description = "Home KTV backend — FastAPI + pipeline workers"
-readme = "README.md"
 authors = [
     { name = "章魚", email = "cbc210.tech@gmail.com" }
 ]

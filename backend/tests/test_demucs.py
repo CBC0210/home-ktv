@@ -148,14 +148,26 @@ class TestCleanupPartial:
 
 class TestTryFlushCudaCache:
     def test_does_not_raise_when_cuda_unavailable(self):
-        with patch("torch.cuda.is_available", return_value=False):
+        torch = SimpleNamespace(
+            cuda=SimpleNamespace(
+                is_available=MagicMock(return_value=False),
+                empty_cache=MagicMock(),
+            )
+        )
+        with patch.dict("sys.modules", {"torch": torch}):
             _try_flush_cuda_cache()  # must not raise
+        torch.cuda.empty_cache.assert_not_called()
 
     def test_calls_empty_cache_when_cuda_available(self):
-        with patch("torch.cuda.is_available", return_value=True), \
-             patch("torch.cuda.empty_cache") as mock_empty:
+        torch = SimpleNamespace(
+            cuda=SimpleNamespace(
+                is_available=MagicMock(return_value=True),
+                empty_cache=MagicMock(),
+            )
+        )
+        with patch.dict("sys.modules", {"torch": torch}):
             _try_flush_cuda_cache()
-            mock_empty.assert_called_once()
+        torch.cuda.empty_cache.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

@@ -18,6 +18,7 @@ from ktv_pipeline.pipeline.ytdlp import (
     TempDownloadError,
     PermDownloadError,
     _classify_ytdlp_error,
+    _bgutil_server_home,
     _extract_youtube_id,
     _js_runtimes,
 )
@@ -109,14 +110,47 @@ class TestYtDlpWrapperInterface:
 
 
 class TestJsRuntimeConfiguration:
-    def test_uses_absolute_executable_paths_and_ignores_relative_override(self, tmp_path, monkeypatch):
+    @staticmethod
+    def _executable(path: Path) -> Path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("#!/bin/sh\n")
+        path.chmod(0o755)
+        return path
+
+    def test_environment_override_has_priority(self, tmp_path, monkeypatch):
         deno = tmp_path / "deno"
-        deno.write_text("#!/bin/sh\n")
-        deno.chmod(0o755)
+        self._executable(deno)
         monkeypatch.setenv("KTV_YTDLP_DENO_PATH", str(deno))
-        monkeypatch.setenv("KTV_YTDLP_NODE_PATH", "node")
+        monkeypatch.setenv("KTV_YTDLP_NODE_PATH", str(tmp_path / "missing-node"))
+        monkeypatch.setattr("shutil.which", lambda name: str(tmp_path / f"path-{name}"))
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
 
         assert _js_runtimes() == {"deno": {"path": str(deno)}}
+
+    def test_path_has_priority_over_home_fallback(self, tmp_path, monkeypatch):
+        path_node = self._executable(tmp_path / "path/node")
+        self._executable(tmp_path / "home/.nvm/versions/node/v99.0.0/bin/node")
+        monkeypatch.delenv("KTV_YTDLP_DENO_PATH", raising=False)
+        monkeypatch.delenv("KTV_YTDLP_NODE_PATH", raising=False)
+        monkeypatch.setattr("shutil.which", lambda name: str(path_node) if name == "node" else None)
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
+
+        assert _js_runtimes() == {"node": {"path": str(path_node)}}
+
+    def test_home_fallback_uses_deno_and_latest_nvm_node(self, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        deno = self._executable(home / ".deno/bin/deno")
+        self._executable(home / ".nvm/versions/node/v22.9.0/bin/node")
+        node = self._executable(home / ".nvm/versions/node/v24.15.0/bin/node")
+        monkeypatch.delenv("KTV_YTDLP_DENO_PATH", raising=False)
+        monkeypatch.delenv("KTV_YTDLP_NODE_PATH", raising=False)
+        monkeypatch.setattr("shutil.which", lambda name: None)
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+
+        assert _js_runtimes() == {
+            "deno": {"path": str(deno)},
+            "node": {"path": str(node)},
+        }
 
     def test_ydl_options_pass_configured_runtimes(self, tmp_path, monkeypatch):
         deno = tmp_path / "deno"
@@ -124,14 +158,27 @@ class TestJsRuntimeConfiguration:
         deno.chmod(0o755)
         monkeypatch.setenv("KTV_YTDLP_DENO_PATH", str(deno))
         monkeypatch.setenv("KTV_YTDLP_NODE_PATH", str(tmp_path / "missing-node"))
+        monkeypatch.setattr("shutil.which", lambda name: None)
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
 
         opts = YtDlpWrapper(cache_dir=tmp_path)._ydl_opts(str(tmp_path / "video.%(ext)s"))
         assert opts["js_runtimes"] == {"deno": {"path": str(deno)}}
 
-    def test_ydl_options_use_mweb_client_for_po_token_provider(self, tmp_path):
+    def test_ydl_options_use_mweb_client_for_po_token_provider(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("KTV_BGUTIL_SERVER_HOME", str(tmp_path / "provider/server"))
         opts = YtDlpWrapper(cache_dir=tmp_path)._ydl_opts(str(tmp_path / "video.%(ext)s"))
         assert opts["extractor_args"]["youtube"] == {"player_client": ["mweb"]}
-        assert opts["extractor_args"]["youtubepot-bgutilscript"]["server_home"]
+        assert opts["extractor_args"]["youtubepot-bgutilscript"]["server_home"] == [
+            str(tmp_path / "provider/server")
+        ]
+
+    def test_bgutil_home_fallback(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("KTV_BGUTIL_SERVER_HOME", raising=False)
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+        assert _bgutil_server_home() == (
+            tmp_path / ".local/share/home-ktv/bgutil-ytdlp-pot-provider/server"
+        )
 
 
 # ---------------------------------------------------------------------------

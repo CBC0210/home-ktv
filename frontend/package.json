@@ -2,6 +2,7 @@
   "name": "home-ktv-frontend",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@11.0.9",
   "scripts": {
     "dev": "next dev",
     "build": "node scripts/gen-build-id.mjs && next build && cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/public",

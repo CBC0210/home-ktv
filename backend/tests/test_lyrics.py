@@ -180,15 +180,10 @@ class TestFetchLyricsManager:
     @pytest.mark.asyncio
     async def test_all_sources_fail_returns_quality_none(self):
         """When every source fails, return quality=none."""
-        # Patch all fetchers to return None
-        with patch("ktv_pipeline.pipeline.lyrics.fetch_amll", new_callable=AsyncMock, return_value=None), \
-             patch("ktv_pipeline.pipeline.lyrics.fetch_netease", new_callable=AsyncMock, return_value=None), \
-             patch("ktv_pipeline.pipeline.lyrics.fetch_qq", new_callable=AsyncMock, return_value=None), \
-             patch("ktv_pipeline.pipeline.lyrics.fetch_syncedlyrics", new_callable=AsyncMock, return_value=None), \
-             patch("ktv_pipeline.pipeline.lyrics._fetch_mojim", new_callable=AsyncMock, return_value=None), \
-             patch("ktv_pipeline.pipeline.lyrics._fetch_kkbox", new_callable=AsyncMock, return_value=None), \
-             patch("ktv_pipeline.pipeline.lyrics._fetch_genius", new_callable=AsyncMock, return_value=None):
-
+        synced = [(name, AsyncMock(return_value=None)) for name in ("amll_ttml", "netease", "qq", "syncedlyrics")]
+        plaintext = [(name, AsyncMock(return_value=None)) for name in ("mojim", "kkbox", "genius")]
+        with patch("ktv_pipeline.pipeline.lyrics._SYNCED_SOURCES", synced), \
+             patch("ktv_pipeline.pipeline.lyrics._PLAINTEXT_SOURCES", plaintext):
             result = await fetch_lyrics("nonexistent", "unknown")
 
         assert result.quality == "none"
@@ -199,12 +194,14 @@ class TestFetchLyricsManager:
     @pytest.mark.asyncio
     async def test_returns_first_successful_synced_source(self):
         success_result = LyricsResult(lyrics_type="synced", lrc="[00:10]foo", source="netease", quality="official_line")
-
-        with patch("ktv_pipeline.pipeline.lyrics.fetch_amll", new_callable=AsyncMock, return_value=None), \
-             patch("ktv_pipeline.pipeline.lyrics.fetch_netease", new_callable=AsyncMock, return_value=success_result), \
-             patch("ktv_pipeline.pipeline.lyrics.fetch_qq", new_callable=AsyncMock, return_value=None), \
-             patch("ktv_pipeline.pipeline.lyrics.fetch_syncedlyrics", new_callable=AsyncMock, return_value=None):
-
+        synced = [
+            ("amll_ttml", AsyncMock(return_value=None)),
+            ("netease", AsyncMock(return_value=success_result)),
+            ("qq", AsyncMock(return_value=None)),
+            ("syncedlyrics", AsyncMock(return_value=None)),
+        ]
+        with patch("ktv_pipeline.pipeline.lyrics._SYNCED_SOURCES", synced), \
+             patch("ktv_pipeline.pipeline.lyrics._PLAINTEXT_SOURCES", []):
             result = await fetch_lyrics("test", "artist")
 
         assert result.source == "netease"
@@ -213,15 +210,14 @@ class TestFetchLyricsManager:
     @pytest.mark.asyncio
     async def test_falls_back_to_plaintext_after_synced_fail(self):
         plain_result = LyricsResult(lyrics_type="plain", lrc="plain lyrics text", source="mojim", quality="plaintext")
-
-        with patch("ktv_pipeline.pipeline.lyrics.fetch_amll", new_callable=AsyncMock, return_value=None), \
-             patch("ktv_pipeline.pipeline.lyrics.fetch_netease", new_callable=AsyncMock, return_value=None), \
-             patch("ktv_pipeline.pipeline.lyrics.fetch_qq", new_callable=AsyncMock, return_value=None), \
-             patch("ktv_pipeline.pipeline.lyrics.fetch_syncedlyrics", new_callable=AsyncMock, return_value=None), \
-             patch("ktv_pipeline.pipeline.lyrics._fetch_mojim", new_callable=AsyncMock, return_value=plain_result), \
-             patch("ktv_pipeline.pipeline.lyrics._fetch_kkbox", new_callable=AsyncMock, return_value=None), \
-             patch("ktv_pipeline.pipeline.lyrics._fetch_genius", new_callable=AsyncMock, return_value=None):
-
+        synced = [(name, AsyncMock(return_value=None)) for name in ("amll_ttml", "netease", "qq", "syncedlyrics")]
+        plaintext = [
+            ("mojim", AsyncMock(return_value=plain_result)),
+            ("kkbox", AsyncMock(return_value=None)),
+            ("genius", AsyncMock(return_value=None)),
+        ]
+        with patch("ktv_pipeline.pipeline.lyrics._SYNCED_SOURCES", synced), \
+             patch("ktv_pipeline.pipeline.lyrics._PLAINTEXT_SOURCES", plaintext):
             result = await fetch_lyrics("test", "artist")
 
         assert result.source == "mojim"
@@ -232,15 +228,19 @@ class TestFetchLyricsManager:
     async def test_skips_perm_errors_and_continues(self):
         """A PermLyricsError from one source should not stop the chain."""
         plain_result = LyricsResult(lyrics_type="plain", lrc="genius lyrics", source="genius", quality="plaintext")
-
-        with patch("ktv_pipeline.pipeline.lyrics.fetch_amll", new_callable=AsyncMock, return_value=None), \
-             patch("ktv_pipeline.pipeline.lyrics.fetch_netease", new_callable=AsyncMock, side_effect=PermLyricsError("not found")), \
-             patch("ktv_pipeline.pipeline.lyrics.fetch_qq", new_callable=AsyncMock, return_value=None), \
-             patch("ktv_pipeline.pipeline.lyrics.fetch_syncedlyrics", new_callable=AsyncMock, return_value=None), \
-             patch("ktv_pipeline.pipeline.lyrics._fetch_mojim", new_callable=AsyncMock, return_value=None), \
-             patch("ktv_pipeline.pipeline.lyrics._fetch_kkbox", new_callable=AsyncMock, return_value=None), \
-             patch("ktv_pipeline.pipeline.lyrics._fetch_genius", new_callable=AsyncMock, return_value=plain_result):
-
+        synced = [
+            ("amll_ttml", AsyncMock(return_value=None)),
+            ("netease", AsyncMock(side_effect=PermLyricsError("not found"))),
+            ("qq", AsyncMock(return_value=None)),
+            ("syncedlyrics", AsyncMock(return_value=None)),
+        ]
+        plaintext = [
+            ("mojim", AsyncMock(return_value=None)),
+            ("kkbox", AsyncMock(return_value=None)),
+            ("genius", AsyncMock(return_value=plain_result)),
+        ]
+        with patch("ktv_pipeline.pipeline.lyrics._SYNCED_SOURCES", synced), \
+             patch("ktv_pipeline.pipeline.lyrics._PLAINTEXT_SOURCES", plaintext):
             result = await fetch_lyrics("test", "artist")
 
         assert result.source == "genius"
@@ -250,13 +250,21 @@ class TestFetchLyricsManager:
         """AMLL is source 1 in the chain."""
         amll_result = LyricsResult(lyrics_type="synced", lrc="[00:10]amll timed", source="amll_ttml", quality="official_word")
         netease_result = LyricsResult(lyrics_type="synced", lrc="[00:10]netease lrc", source="netease", quality="official_line")
-
-        with patch("ktv_pipeline.pipeline.lyrics.fetch_amll", new_callable=AsyncMock, return_value=amll_result), \
-             patch("ktv_pipeline.pipeline.lyrics.fetch_netease", new_callable=AsyncMock, return_value=netease_result):
-
+        fetch_amll_mock = AsyncMock(return_value=amll_result)
+        fetch_netease_mock = AsyncMock(return_value=netease_result)
+        synced = [("amll_ttml", fetch_amll_mock), ("netease", fetch_netease_mock)]
+        with patch("ktv_pipeline.pipeline.lyrics._SYNCED_SOURCES", synced), \
+             patch("ktv_pipeline.pipeline.lyrics._PLAINTEXT_SOURCES", []):
             result = await fetch_lyrics("test", "artist")
 
         assert result.source == "amll_ttml"
+        fetch_netease_mock.assert_not_awaited()
+
+    def test_source_chain_order(self):
+        """The real fallback order: official word-level first, plaintext last."""
+        from ktv_pipeline.pipeline import lyrics
+        assert [name for name, _ in lyrics._SYNCED_SOURCES] == ["amll_ttml", "netease", "qq", "syncedlyrics"]
+        assert [name for name, _ in lyrics._PLAINTEXT_SOURCES] == ["mojim", "kkbox", "genius"]
 
 
 # ---------------------------------------------------------------------------
