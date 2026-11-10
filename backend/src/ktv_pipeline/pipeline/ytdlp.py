@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -20,25 +21,51 @@ from ..config import settings
 
 log = logging.getLogger(__name__)
 
-# YouTube now needs an external JavaScript runtime to solve its EJS challenges.
-# Do not rely on the systemd service PATH: it does not include either runtime.
-# Operators can override these absolute paths without changing application code.
-_JS_RUNTIME_PATHS = (
-    ("deno", "KTV_YTDLP_DENO_PATH", "/home/cbc/.deno/bin/deno"),
-    ("node", "KTV_YTDLP_NODE_PATH", "/home/cbc/.nvm/versions/node/v24.15.0/bin/node"),
-)
-_BGUTIL_SERVER_HOME = os.environ.get(
-    "KTV_BGUTIL_SERVER_HOME",
-    "/home/cbc/.local/share/home-ktv/bgutil-ytdlp-pot-provider/server",
-)
+_JS_RUNTIME_ENV = {
+    "deno": "KTV_YTDLP_DENO_PATH",
+    "node": "KTV_YTDLP_NODE_PATH",
+}
+
+
+def _is_executable(path: Path) -> bool:
+    return path.is_absolute() and path.is_file() and os.access(path, os.X_OK)
+
+
+def _home_runtime_candidates(name: str) -> list[Path]:
+    if name == "deno":
+        return [Path.home() / ".deno/bin/deno"]
+    nvm_root = Path.home() / ".nvm/versions/node"
+    candidates = list(nvm_root.glob("*/bin/node"))
+    return sorted(
+        candidates,
+        key=lambda path: tuple(int(part) for part in re.findall(r"\d+", path.parent.parent.name)),
+        reverse=True,
+    )
+
+
+def _resolve_js_runtime(name: str, env_name: str) -> Path | None:
+    override = os.environ.get(env_name)
+    candidates = [Path(override).expanduser()] if override else []
+    discovered = shutil.which(name)
+    if discovered:
+        candidates.append(Path(discovered))
+    candidates.extend(_home_runtime_candidates(name))
+    return next((path for path in candidates if _is_executable(path)), None)
+
+
+def _bgutil_server_home() -> Path:
+    override = os.environ.get("KTV_BGUTIL_SERVER_HOME")
+    return Path(override).expanduser() if override else (
+        Path.home() / ".local/share/home-ktv/bgutil-ytdlp-pot-provider/server"
+    )
 
 
 def _js_runtimes() -> dict[str, dict[str, str]]:
     """Return installed JS runtimes using absolute executable paths only."""
     runtimes: dict[str, dict[str, str]] = {}
-    for name, env_name, default_path in _JS_RUNTIME_PATHS:
-        path = Path(os.environ.get(env_name, default_path))
-        if path.is_absolute() and path.is_file() and os.access(path, os.X_OK):
+    for name, env_name in _JS_RUNTIME_ENV.items():
+        path = _resolve_js_runtime(name, env_name)
+        if path:
             runtimes[name] = {"path": str(path)}
     if not runtimes:
         log.error(
@@ -185,7 +212,7 @@ class YtDlpWrapper:
                 "youtube": {"player_client": ["mweb"]},
                 # Sequential pipeline admission makes the on-demand provider
                 # safe here and avoids exposing or supervising an HTTP token service.
-                "youtubepot-bgutilscript": {"server_home": [_BGUTIL_SERVER_HOME]},
+                "youtubepot-bgutilscript": {"server_home": [str(_bgutil_server_home())]},
             },
         }
         if self.cookies_path and self.cookies_path.exists():

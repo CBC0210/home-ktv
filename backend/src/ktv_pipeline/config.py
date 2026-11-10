@@ -55,7 +55,9 @@ _configure_cuda_env()
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # Standard deployment keeps .env at the repository root.  The second
+        # path preserves legacy backend/.env installs and takes precedence.
+        env_file=("../.env", ".env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         # Unknown .env entries must never crash startup — deployers keep

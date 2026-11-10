@@ -1,0 +1,22 @@
+[Unit]
+Description=Home KTV Next.js frontend
+After=network-online.target ktv-backend.service
+Wants=network-online.target
+Requires=ktv-backend.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=@REPO_DIR@/frontend/.next/standalone
+Environment=NODE_ENV=production
+Environment=PORT=@FRONTEND_PORT@
+Environment=NEXT_TELEMETRY_DISABLED=1
+ExecStart="@NODE@" server.js
+Restart=on-failure
+RestartSec=10s
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

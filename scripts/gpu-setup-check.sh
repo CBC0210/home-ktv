@@ -1,11 +1,14 @@
 #!/bin/bash
-# GPU Setup Check & Auto-Install (M0-T5)
+# GPU Setup Check & Auto-Install
 # 檢查 NVIDIA driver / CUDA / cuDNN 是否安裝，沒有則安裝。
-# 詳見 CLAUDE.md §3.3 與 SETUP.md。
+# 正式部署需求見 docs/SETUP.md。
 
 set -euo pipefail
 
-LOG_FILE="${HOME}/home-ktv/data/logs/gpu-setup.log"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+PROJECT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd -P)"
+DATA_DIR="${DATA_DIR:-${PROJECT_DIR}/data}"
+LOG_FILE="${DATA_DIR}/logs/gpu-setup.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 
 log() {

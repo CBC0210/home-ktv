@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """Purge pytest artifacts from the production KTV database.
 
-Historically pytest loaded backend/.env (DATA_DIR=/data/ktv) and wrote its
-fixtures straight into the LIVE database — "Test Song N" / "HLS Test Song"
+Historically pytest could load a deployment DATA_DIR and write its fixtures
+straight into the live database — "Test Song N" / "HLS Test Song"
 entries then showed up in the 曲庫. tests/conftest.py now isolates tests in a
 temp DATA_DIR, so pollution stops recurring; this script removes what already
 leaked.
 
 Usage:
-    python3 scripts/cleanup_test_data.py            # dry-run: report only
-    python3 scripts/cleanup_test_data.py --apply    # actually delete
+    DATA_DIR=/path/to/data python3 scripts/cleanup_test_data.py
     python3 scripts/cleanup_test_data.py --db /path/to/ktv.db --apply
 
 Only matches explicit test fixture patterns (lb-song-*, smoketester-*,
@@ -17,10 +16,10 @@ test-* rooms, ...). Real songs have 11-char YouTube / BV… Bilibili ids and
 are never touched.
 """
 import argparse
+import os
+from pathlib import Path
 import sqlite3
 import sys
-
-DEFAULT_DB = "/data/ktv/ktv.db"
 
 # Fixture patterns from backend/tests/ — keep in sync when new test id
 # schemes appear. (SQL LIKE patterns.)
@@ -52,9 +51,14 @@ GUEST_WHERE = """
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--db", default=DEFAULT_DB)
+    ap.add_argument("--db", type=Path, help="database path (default: $DATA_DIR/ktv.db)")
     ap.add_argument("--apply", action="store_true", help="delete (default: dry-run)")
     args = ap.parse_args()
+    if args.db is None:
+        data_dir = os.environ.get("DATA_DIR")
+        if not data_dir:
+            ap.error("set DATA_DIR or pass --db; refusing to guess a deployment database")
+        args.db = Path(data_dir) / "ktv.db"
 
     db = sqlite3.connect(args.db)
     c = db.cursor()

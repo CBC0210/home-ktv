@@ -15,8 +15,8 @@ AFTER=$(uv run python -c "import yt_dlp; print(yt_dlp.version.__version__)")
 
 echo "yt-dlp: ${BEFORE} → ${AFTER}"
 if [ "${BEFORE}" != "${AFTER}" ]; then
-  if systemctl is-active --quiet ktv-backend 2>/dev/null; then
-    sudo systemctl restart ktv-backend
+  if systemctl --user is-active --quiet ktv-backend 2>/dev/null; then
+    systemctl --user restart ktv-backend
     echo "ktv-backend restarted"
   fi
 fi
