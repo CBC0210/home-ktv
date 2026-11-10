@@ -86,7 +86,7 @@ LRC_WORD_CN = (
 
 
 def _count_dialogue(ass: str) -> tuple[int, int]:
-    """Return (default_count, preview_count)."""
+    """Return dialogue counts grouped by the current and legacy styles."""
     defaults = [l for l in ass.splitlines() if "Dialogue:" in l and ",Default," in l]
     previews = [l for l in ass.splitlines() if "Dialogue:" in l and ",Preview," in l]
     return len(defaults), len(previews)
@@ -176,19 +176,19 @@ class TestConvertLrcToAss:
         ass = convert_lrc_to_ass(LRC_LINE_EN, song_id="test3")
         assert "[V4+ Styles]" in ass
         assert "Style: Default" in ass
-        assert "Style: Preview" in ass
+        assert "Style: Preview" not in ass
 
     def test_events_present(self):
         ass = convert_lrc_to_ass(LRC_LINE_EN, song_id="test4")
         assert "[Events]" in ass
         assert "Format: Layer, Start, End, Style, Name" in ass
 
-    def test_line_level_has_default_and_preview(self):
-        """Line-level auto-detect: N LRC lines → N Default + (N-1) Preview dialogues."""
+    def test_line_level_uses_rolling_window(self):
+        """Each timing window shows the current line and nearby context."""
         ass = convert_lrc_to_ass(LRC_LINE_EN, song_id="test5l")
         defaults, previews = _count_dialogue(ass)
-        assert defaults == 3
-        assert previews == 2  # every line except the last has a preview
+        assert defaults == 8
+        assert previews == 0
 
     def test_line_level_text_appears(self):
         """Line-level ASS should contain the lyric texts (possibly with \\kf tags)."""
@@ -236,15 +236,16 @@ class TestConvertLrcToAss:
         assert "Arial" in ass
         assert "48" in ass
 
-    def test_word_level_true_karaoke_tags(self):
-        """word_level=True produces \\kf karaoke fill tags."""
+    def test_word_level_true_uses_static_text(self):
+        """Unreliable word timestamps do not produce karaoke fill tags."""
         ass = convert_lrc_to_ass(LRC_WORD_EN, word_level=True, song_id="test_wl")
-        assert r"{\k" in ass
+        assert r"{\k" not in ass
+        assert "Hello" in ass
 
     def test_word_level_true_fade_in_tag(self):
         """word_level=True includes fade-in tag."""
         ass = convert_lrc_to_ass(LRC_WORD_EN, word_level=True, song_id="test_fade")
-        assert r"{\fad(" in ass
+        assert r"\fad(100,0)" in ass
 
     def test_preview_lines_for_next_song(self):
         """Preview lines should contain the NEXT line's full text."""
@@ -255,15 +256,12 @@ class TestConvertLrcToAss:
         assert "Goodbye" in ass
 
     def test_dialogue_count_word_level(self):
-        """"Word-level with separate-per-word LRC: tokens grouped on 1500ms gap."""
+        """Word-level groups are rendered in rolling context windows."""
         ass = convert_lrc_to_ass(LRC_WORD_EN, word_level=True, song_id="test5w")
         defaults, previews = _count_dialogue(ass)
-        # Tokens at 12s, 14s, 17s, 18.5s, 20s, 22s; _LINE_GAP_MS=1500
-        # Groups: Hello(12-14), world(14-17), This(17-18.5), is(18.5-20), a(20-22), test(22-27)
-        # Each group = 1 Default + 1 Preview (except last = Default only)
-        assert defaults == 6
-        assert previews == 5
-        assert ass.count("Dialogue:") == 11
+        # Six groups, each showing up to previous/current/next/next2.
+        assert defaults == 20
+        assert previews == 0
 
 
 # ---------------------------------------------------------------------------
