@@ -23,23 +23,6 @@ def get_session():
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def _resolve_bili_short_link(url: str) -> Optional[str]:
-    """Follow a Bilibili b23.tv / bili2233.cn short link to its final
-    bilibili.com URL (the short link carries no BV id). Host-restricted so it
-    can't be used as an SSRF primitive against arbitrary hosts."""
-    if not re.match(r"^https?://(www\.)?(b23\.tv|bili2233\.cn)/", (url or "").strip(), re.I):
-        return None
-    import urllib.request
-    try:
-        req = urllib.request.Request(
-            url.strip(), method="GET", headers={"User-Agent": "Mozilla/5.0"}
-        )
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            return resp.geturl()
-    except Exception:
-        return None
-
-
 def extract_youtube_id(url_or_id: str) -> str:
     """Bare video id (YouTube *or* Bilibili) from a URL or id.
 
@@ -47,12 +30,15 @@ def extract_youtube_id(url_or_id: str) -> str:
     id doubles as the song PK / cache dir regardless of source. Bilibili
     b23.tv short links (the app's default share format) are resolved first.
     """
+    from ktv_pipeline.bilibili_share import BilibiliShareError, extract_bilibili_video_id
     from ktv_pipeline.video_source import extract_video_id
+    try:
+        bili_id = extract_bilibili_video_id(url_or_id)
+    except BilibiliShareError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if bili_id:
+        return bili_id
     vid = extract_video_id(url_or_id)
-    if not vid:
-        resolved = _resolve_bili_short_link(url_or_id)
-        if resolved:
-            vid = extract_video_id(resolved)
     if vid:
         return vid
     raise HTTPException(status_code=400, detail=f"Invalid video URL/ID: {url_or_id}")
@@ -64,7 +50,48 @@ async def _try_start_if_idle(room_id: str) -> None:
     await _start_next_song(room_id)
 
 
+_PIPELINE_SLOT = asyncio.Semaphore(1)
+_PIPELINE_TASKS: set[asyncio.Task] = set()
+
+
+async def _schedule_pipeline(queue_item_id: int, room_id: str) -> None:
+    """Detach a long pipeline from FastAPI's response background lifecycle.
+
+    A BackgroundTasks callback is awaited before yielded dependencies are
+    closed. Running the whole pipeline there kept the add-song request's DB
+    session checked out for minutes, exhausting the pool when several songs
+    were queued. This callback returns immediately after scheduling the work.
+    """
+    task = asyncio.create_task(_run_pipeline_task(queue_item_id, room_id))
+    _PIPELINE_TASKS.add(task)
+
+    def completed(done: asyncio.Task) -> None:
+        _PIPELINE_TASKS.discard(done)
+        try:
+            done.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "Pipeline task failed for queue item %s", queue_item_id
+            )
+
+    task.add_done_callback(completed)
+
+
 async def _run_pipeline_task(queue_item_id: int, room_id: str) -> None:
+    # Wait before starting the per-song timeout. CPU fallback must not make
+    # every waiting song expire while another song is being separated.
+    async with _PIPELINE_SLOT:
+        with get_db_session() as session:
+            item = session.query(QueueItem).filter_by(id=queue_item_id).first()
+            if item is None or item.status in {"playing", "done", "skipped", "ready"}:
+                return
+        await _run_pipeline_task_now(queue_item_id, room_id)
+
+
+async def _run_pipeline_task_now(queue_item_id: int, room_id: str) -> None:
     """Async pipeline background task — runs pipeline then triggers auto-play."""
     from ktv_pipeline.pipeline_orchestrator import PipelineOrchestrator, PipelineConfig
     from ktv_pipeline.config import settings as s
@@ -143,7 +170,19 @@ def search_songs(q: str = "", limit: int = 20, session: Session = Depends(get_se
         query = query.filter(
             (Song.title.ilike(f"%{q}%")) | (Song.artist.ilike(f"%{q}%"))
         )
-    return query.order_by(Song.play_count.desc()).limit(limit).all()
+    from ktv_pipeline.config import settings
+    from ktv_pipeline.search_filter import is_song_search_result
+    limit = max(1, min(limit, 100))
+    results = []
+    for song in query.order_by(Song.play_count.desc()).yield_per(100):
+        if is_song_search_result(
+            {"title": song.title, "duration_sec": song.duration_sec},
+            settings.search_min_duration_sec, settings.search_max_duration_sec,
+        ):
+            results.append(song)
+            if len(results) >= limit:
+                break
+    return results
 
 
 _LANG_ORDER = ["zh", "en", "tw", "ja", "ko", "other"]
@@ -233,8 +272,14 @@ def browse_library(
 
 
 @router.get("/youtube-search")
-def youtube_search(q: str, limit: int = 10):
+def youtube_search(q: str, limit: int = 10, payload: dict = Depends(get_current_guest)):
     """Search YouTube via yt-dlp and return video metadata (no processing)."""
+    from ktv_pipeline.security import allow_request
+    if not allow_request(("youtube-search", payload["sub"]), 30, 60):
+        raise HTTPException(status_code=429, detail="Search too frequent")
+    limit = max(1, min(limit, 20))
+    if len(q) > 200:
+        raise HTTPException(status_code=400, detail="Search query too long")
     if not q.strip():
         return []
     try:
@@ -248,7 +293,7 @@ def youtube_search(q: str, limit: int = 10):
             "noplaylist": True,
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            result = ydl.extract_info(f"ytsearch{limit}:{q}", download=False)
+            result = ydl.extract_info(f"ytsearch{min(limit * 3, 60)}:{q}", download=False)
 
         if not result or "entries" not in result:
             return []
@@ -272,22 +317,7 @@ def youtube_search(q: str, limit: int = 10):
 
         from ktv_pipeline.config import settings as _cfg
         lo, hi = _cfg.search_min_duration_sec, _cfg.search_max_duration_sec
-        _NONMUSIC = re.compile(
-            r"(合輯|合集|精選輯|完整專輯|全專|串[燒烧]|演唱會完整|完整版演唱會|"
-            r"直播回放|直播檔|reaction|react |開箱|教學|教程|訪談|采访|採訪|"
-            r"playlist|full album|mix \d|nonstop|live stream|podcast|"
-            r"一小時|1\s*hour|2\s*hours)",
-            re.I,
-        )
-
-        def _ok(e: dict) -> bool:
-            d = e.get("duration")
-            # No duration (livestream/premiere) → drop. Out of song range → drop.
-            if not isinstance(d, (int, float)) or d < lo or d > hi:
-                return False
-            if _NONMUSIC.search(e.get("title") or ""):
-                return False
-            return True
+        from ktv_pipeline.search_filter import is_song_search_result
 
         return [
             {
@@ -300,8 +330,8 @@ def youtube_search(q: str, limit: int = 10):
                 "cached": False,  # will be updated by frontend using local search
             }
             for entry in result.get("entries", [])
-            if entry and entry.get("id") and _ok(entry)
-        ]
+            if entry and entry.get("id") and is_song_search_result(entry, lo, hi)
+        ][:limit]
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"YouTube search unavailable: {exc}")
 
@@ -462,6 +492,8 @@ def add_song(
     If the song exists but is not yet ready, the existing queue item is returned.
     New songs are created with status='pending' and processing is triggered in background.
     """
+    from ktv_pipeline.auth import ensure_room_access
+    ensure_room_access(payload, data.room_id)
     room_id = data.room_id
 
     # Verify room exists
@@ -470,6 +502,9 @@ def add_song(
         raise HTTPException(status_code=404, detail="Room not found")
 
     guest_id = payload["sub"]
+    from ktv_pipeline.security import allow_request
+    if not allow_request(("add", guest_id), 20, 60):
+        raise HTTPException(status_code=429, detail="Too many song requests")
     yt_id = extract_youtube_id(data.youtube_url)
 
     # A real user is adding a song → discard any pending autoplay pick so it
@@ -506,7 +541,7 @@ def add_song(
         session.refresh(song)
         if existing_item.status == "pending" and song.status not in ("ready", "processing"):
             # Pending item with no active pipeline — (re)trigger it
-            background_tasks.add_task(_run_pipeline_task, existing_item.id, room_id)
+            background_tasks.add_task(_schedule_pipeline, existing_item.id, room_id)
         else:
             background_tasks.add_task(_try_start_if_idle, room_id)
         background_tasks.add_task(_broadcast_queue_update, room_id)
@@ -524,7 +559,7 @@ def add_song(
         background_tasks.add_task(_try_start_if_idle, room_id)
     else:
         # Trigger pipeline; periodic broadcasts + final broadcast happen inside the task.
-        background_tasks.add_task(_run_pipeline_task, item.id, room_id)
+        background_tasks.add_task(_schedule_pipeline, item.id, room_id)
 
     # Push the new queue to every connected client immediately (otherwise a
     # ready/cached add only shows after a manual refresh).
@@ -565,14 +600,15 @@ def song_status(song_id: str, session: Session = Depends(get_session)):
 # ── Lyrics source selection (Remote can switch + we remember the choice) ──────
 
 from pydantic import BaseModel as _BaseModel
+from typing import Literal
 
 
 class LyricsSourceBody(_BaseModel):
-    source: str  # youtube|amll_ttml|netease|qq|syncedlyrics|mojim|kkbox|genius|none
+    source: Literal["youtube", "amll_ttml", "netease", "qq", "syncedlyrics", "mojim", "kkbox", "genius", "none"]
 
 
 @router.get("/{song_id}/lyrics/source")
-def get_lyrics_source(song_id: str, session: Session = Depends(get_session)):
+async def get_lyrics_source(song_id: str, session: Session = Depends(get_session), payload: dict = Depends(get_current_guest)):
     """Return current + preferred source and the list of PRE-FETCHED sources.
 
     If a ready song has never been prefetched (older songs), kick the
@@ -605,6 +641,7 @@ def get_lyrics_source(song_id: str, session: Session = Depends(get_session)):
 async def set_lyrics_source(
     song_id: str,
     body: LyricsSourceBody,
+    payload: dict = Depends(get_current_guest),
     session: Session = Depends(get_session),
 ):
     """Switch the active lyrics source — INSTANT.
@@ -620,6 +657,9 @@ async def set_lyrics_source(
     if not song:
         raise HTTPException(status_code=404, detail="Song not found")
 
+    from ktv_pipeline.security import allow_request
+    if not allow_request(("lyrics-source", payload["sub"]), 12, 60):
+        raise HTTPException(status_code=429, detail="Please wait before changing lyrics again")
     src = body.source
     media_dir = cfg.data_dir / "media" / song_id
     media_dir.mkdir(parents=True, exist_ok=True)
@@ -837,10 +877,13 @@ async def report_song_issue(
     song_id: str,
     body: ReportIssueBody,
     session: Session = Depends(get_session),
-    payload: dict | None = Depends(get_optional_guest_dep),
+    payload: dict = Depends(get_current_guest),
 ):
     """Report a playback problem. Anyone may report. Switches the song to
     original-audio mode for its next play."""
+    from ktv_pipeline.security import allow_request
+    if not allow_request(("song-report", payload["sub"]), 10, 60):
+        raise HTTPException(status_code=429, detail="Too many reports")
     issue = body.issue if body.issue in _ISSUE_LABELS else "other"
     song = session.query(Song).filter_by(id=song_id).first()
     if not song:
@@ -934,8 +977,9 @@ async def revert_song_report(
     session: Session = Depends(get_session),
     payload: dict = Depends(get_current_guest),
 ):
-    """Revert to separated-audio mode (admin only). Report history is kept."""
-    if not payload.get("is_admin"):
+    """Revert shared audio mode (system admin only). Report history is kept."""
+    from ktv_pipeline.auth import is_system_admin
+    if not is_system_admin(payload):
         raise HTTPException(status_code=403, detail="Admin only")
     song = session.query(Song).filter_by(id=song_id).first()
     if not song:

@@ -15,13 +15,17 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     "Content-Type": "application/json",
     ...initHeaders,
   };
-  if (_guestToken) headers["Authorization"] = `Bearer ${_guestToken}`;
+  if (_guestToken && !Object.keys(headers).some(k => k.toLowerCase() === "authorization")) headers["Authorization"] = `Bearer ${_guestToken}`;
   const res = await fetch(`${apiBase()}${path}`, {
     credentials: "include",
     ...init,
     headers,
   });
-  if (!res.ok) throw new Error(`API ${path} → ${res.status}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const detail = typeof body?.detail === "string" ? body.detail : null;
+    throw new Error(detail || (res.status === 401 ? "登入已失效，請重新加入房間" : `請求失敗（${res.status}）`));
+  }
   return res.json() as Promise<T>;
 }
 
@@ -315,7 +319,13 @@ export function extractYoutubeId(input: string): string | null {
 
 /** True for a YouTube *or* Bilibili link/id — i.e. a direct-add, not a search. */
 export function isYoutubeUrl(input: string): boolean {
-  return /youtube\.com|youtu\.be|bilibili\.com|b23\.tv|bili2233\.cn|(?:^|\/)BV[0-9A-Za-z]{10}/.test(input);
+  return /youtube\.com|youtu\.be|bilibili\.com|b23\.tv|bili2233\.cn|(?:^|\/)BV[0-9A-Za-z]{10}|^av\d+$/i.test(input.trim());
+}
+
+export function videoUrlForId(id: string): string {
+  return /^(BV[0-9A-Za-z]{10}|av\d+)$/.test(id)
+    ? `https://www.bilibili.com/video/${id}`
+    : `https://www.youtube.com/watch?v=${id}`;
 }
 // ── Admin API ─────────────────────────────────────────────────────────────────
 
