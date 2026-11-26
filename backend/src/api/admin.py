@@ -537,49 +537,38 @@ def clear_cache(
     session: Session = Depends(get_session),
     _=Depends(require_admin),
 ):
-    """Clear contents of cache/ and tmp/ subdirectories."""
-    import os
+    """Reclaim disk space: cache/ keeps every playback asset, tmp/ is emptied.
+
+    See ktv_pipeline.cache_cleanup for what counts as reclaimable. Wiping all
+    of cache/ used to delete the separated vocals of every song (#5).
+    """
+    from ktv_pipeline.cache_cleanup import ReclaimResult, reclaim_cache
     from ktv_pipeline.config import settings
 
     what = data.get("what", "all")  # "all", "cache", "tmp"
-    roots = {"cache": settings.media_root, "tmp": settings.data_dir}
+    if what not in ("all", "cache", "tmp"):
+        raise HTTPException(status_code=400, detail="what must be all, cache or tmp")
     cleared: list[dict] = []
 
-    for sub in ("cache", "tmp"):
-        if what not in ("all", sub):
-            continue
-        dir_path = os.path.join(str(roots[sub]), sub)
-        if not os.path.exists(dir_path):
-            continue
-        count = 0
-        bytes_freed = 0
-        for entry in os.scandir(dir_path):
-            try:
-                if entry.is_dir():
-                    for dp, dn, fn in os.walk(entry.path):
-                        for f in fn:
-                            try:
-                                bytes_freed += os.path.getsize(os.path.join(dp, f))
-                                os.remove(os.path.join(dp, f))
-                            except OSError:
-                                pass
-                        for d in dn:
-                            try:
-                                os.rmdir(os.path.join(dp, d))
-                            except OSError:
-                                pass
-                    try:
-                        os.rmdir(entry.path)
-                    except OSError:
-                        pass
+    if what in ("all", "cache"):
+        status = dict(session.query(Song.id, Song.status).all())
+        r = reclaim_cache(settings.media_root, status)
+        if r.files_removed:
+            cleared.append({"dir": "cache", "files_removed": r.files_removed,
+                            "bytes_freed": r.bytes_freed})
+
+    if what in ("all", "tmp"):
+        tmp = settings.data_dir / "tmp"
+        r = ReclaimResult()
+        if tmp.is_dir():
+            for entry in tmp.iterdir():
+                if entry.is_dir() and not entry.is_symlink():
+                    r.add_tree(entry)
                 else:
-                    bytes_freed += entry.stat().st_size
-                    entry.unlink()
-                count += 1
-            except OSError:
-                pass
-        if count:
-            cleared.append({"dir": sub, "files_removed": count, "bytes_freed": bytes_freed})
+                    r.add_file(entry)
+        if r.files_removed:
+            cleared.append({"dir": "tmp", "files_removed": r.files_removed,
+                            "bytes_freed": r.bytes_freed})
 
     return {"status": "ok", "cleared": cleared}
 

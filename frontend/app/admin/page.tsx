@@ -739,13 +739,17 @@ function CacheTab() {
   }
 
   async function handleClear(what: "all" | "cache" | "tmp") {
-    if (!confirm(`確定清除 ${what}？`)) return;
+    const label = { all: "Cache 與 Tmp", cache: "Cache", tmp: "Tmp" }[what];
+    if (!confirm(`確定清除 ${label}？只會刪掉播放用不到的檔案。`)) return;
     setClearing(true);
     try {
       const result = await adminClearCache(what);
       const updated = await adminGetCacheStats();
       setStats(updated);
-      alert(`已清除：${result.cleared.map((c) => `${c.dir} (${c.files_removed} 檔案, ${c.bytes_freed} bytes)`).join(" / ")}`);
+      const mb = (b: number) => `${(b / 1024 / 1024).toFixed(1)} MB`;
+      alert(result.cleared.length
+        ? `已清除：${result.cleared.map((c) => `${c.dir}（${c.files_removed} 個檔案，${mb(c.bytes_freed)}）`).join(" / ")}`
+        : "沒有可清除的檔案");
     } catch {
       alert("清除失敗");
     }
@@ -759,8 +763,9 @@ function CacheTab() {
       <h2 className="text-white font-semibold text-lg">磁碟用量</h2>
       <div className="bg-gray-900/60 border border-gray-800 rounded-lg p-3 text-xs text-gray-400 leading-relaxed">
         <p><span className="text-gray-300">media</span>：每首歌的成品（轉碼後影片、字幕 .ass/.txt、各來源歌詞快取）— 刪了該首歌要重新處理。</p>
-        <p><span className="text-gray-300">cache</span>：原始下載（yt-dlp 原片）與 Demucs 人聲分離的 WAV/Opus — 最佔空間，刪了會重新下載/分離。</p>
-        <p><span className="text-gray-300">tmp / logs</span>：暫存與日誌，可安全清除。</p>
+        <p><span className="text-gray-300">cache</span>：原始下載（yt-dlp 原片）與 Demucs 人聲分離音軌。人聲分離音軌是播放必需的檔案。</p>
+        <p><span className="text-gray-300">清除 Cache</span>：只刪播放用不到的檔案：下載殘檔、已轉碼歌曲的原片（重新處理時會重新下載）、已刪除歌曲的殘留。人聲分離音軌與處理中的歌不會動。</p>
+        <p><span className="text-gray-300">tmp / logs</span>：暫存與日誌，清除 Tmp 可安全清空暫存。</p>
       </div>
       {loading ? <p className="text-gray-500">載入中…</p> : stats ? (
         <>
