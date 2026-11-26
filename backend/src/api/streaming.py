@@ -59,15 +59,15 @@ def get_session():
 
 
 def _song_cache_dir(song_id: str) -> Path:
-    return settings.data_dir / "cache" / "demucs" / song_id
+    return settings.media_root / "cache" / "demucs" / song_id
 
 
 def _song_media_dir(song_id: str) -> Path:
-    return settings.data_dir / "media" / song_id
+    return settings.media_root / "media" / song_id
 
 
 def _song_ass_path(song_id: str) -> Path:
-    return settings.data_dir / "media" / song_id / "lyrics.ass"
+    return settings.media_root / "media" / song_id / "lyrics.ass"
 
 
 def _song_video_path(song_id: str) -> Path:
@@ -78,11 +78,11 @@ def _song_video_path(song_id: str) -> Path:
     songs processed via the pipeline (cache path) and manually placed files
     (media path) both work.
     """
-    media_path = settings.data_dir / "media" / song_id / "video.mp4"
+    media_path = settings.media_root / "media" / song_id / "video.mp4"
     if media_path.exists():
         return media_path
     # Fallback: yt-dlp download cache
-    return settings.data_dir / "cache" / song_id / "video.mp4"
+    return settings.media_root / "cache" / song_id / "video.mp4"
 
 
 def _stream_song_status(song_id: str) -> str:
@@ -275,7 +275,7 @@ async def serve_lyrics_txt(song_id: str, session: Session = Depends(get_session)
     song = session.query(Song).filter_by(id=song_id).first()
     if not song:
         raise HTTPException(status_code=404, detail="Song not found")
-    txt_path = settings.data_dir / "media" / song_id / "lyrics.txt"
+    txt_path = settings.media_root / "media" / song_id / "lyrics.txt"
     if not txt_path.exists():
         raise HTTPException(status_code=404, detail="Plain-text lyrics not available")
     return Response(content=txt_path.read_text(encoding="utf-8"), media_type="text/plain; charset=utf-8")

@@ -176,7 +176,7 @@ class YtDlpWrapper:
         max_retries: int = 3,
         cookies_path: Optional[Path] = None,
     ):
-        self.cache_dir = cache_dir or (settings.data_dir / "cache")
+        self.cache_dir = cache_dir or (settings.media_root / "cache")
         self.timeout_sec = timeout_sec
         self.max_retries = max_retries
         self.cookies_path = cookies_path

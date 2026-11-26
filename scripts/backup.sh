@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Home KTV — Backup script
 # Backs up the SQLite database and configuration files.
-# Media files ($DATA_DIR/cache/) are NOT backed up (too large, regenerable).
+# Media files (media/ and cache/ under MEDIA_ROOT_DIR or DATA_DIR) are NOT backed up (too large, regenerable).
 #
 # Usage:
 #   bash scripts/backup.sh

@@ -8,7 +8,7 @@
 [手機 Remote]──┐                       ┌─ FastAPI (REST + WebSocket)   backend/src/
 [電視 Player]──┼── HTTP/WS ──────────→ ├─ SQLite (WAL) + SQLAlchemy    DATA_DIR/ktv.db
 [Admin 後台]───┘   （同一台伺服器）      ├─ asyncio pipeline workers
-                                       ├─ 媒體永久快取                 DATA_DIR/media/<id>/
+                                       ├─ 媒體永久快取                 MEDIA_ROOT_DIR/media/<id>/
                                        └─ Demucs / WhisperX (CUDA，序列化)
 ```
 
@@ -26,14 +26,18 @@
 
 `songs.id` 即影片 ID（YouTube 11 碼；Bilibili `BV…`/`av…`），同時是快取目錄名：
 
+影音檔放在 `MEDIA_ROOT_DIR`（未設定時即 `DATA_DIR`）；`ktv.db` 與 `logs/` 一律在 `DATA_DIR`。
+
 ```
-DATA_DIR/media/<id>/
-  video.mp4            # ≤1080p
-  vocals.wav           # Demucs 分離的人聲
-  no_vocals.wav        # 伴奏
-  lyrics.ass           # 作用中的卡拉 OK 字幕
-  lyrics_<source>.ass  # 各來源預抓快取（歌詞來源秒切）
-  lyrics.txt           # 純文字歌詞
+MEDIA_ROOT_DIR/
+  cache/<id>/video.mp4         # yt-dlp 下載的原始檔
+  cache/demucs/<id>/           # vocals.opus、no_vocals.opus（Demucs 分離）
+  cache/whisperx/              # 逐字對齊快取
+  media/<id>/
+    video.mp4                  # 播放用 ≤1080p；原檔夠小時與 cache 的原檔是 hardlink
+    lyrics.ass                 # 作用中的卡拉 OK 字幕
+    lyrics_<source>.ass        # 各來源預抓快取（歌詞來源秒切）
+    lyrics.txt                 # 純文字歌詞
 ```
 
 ## 處理 Pipeline（`ktv_pipeline/pipeline_orchestrator.py`）

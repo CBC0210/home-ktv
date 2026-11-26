@@ -14,6 +14,9 @@ import pytest
 _TEST_DATA_DIR = tempfile.mkdtemp(prefix="ktv-test-data-")
 os.environ["DATA_DIR"] = _TEST_DATA_DIR
 os.environ["LOG_DIR"] = os.path.join(_TEST_DATA_DIR, "logs")
+# Blank = media/cache follow DATA_DIR, so a MEDIA_ROOT_DIR in the live .env
+# can never point tests at the real media drive.
+os.environ["MEDIA_ROOT_DIR"] = ""
 
 # Ensure CUDA libraries are on the path before any module that imports torch
 # runs. Reuses config.py's machine-independent locator (safe to import here:

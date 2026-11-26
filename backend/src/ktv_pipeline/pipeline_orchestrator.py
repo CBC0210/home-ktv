@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
 import subprocess
 from dataclasses import dataclass, field
@@ -357,7 +358,7 @@ class PipelineOrchestrator:
         """Stage 1: yt-dlp download.
 
         Idempotent: returns cached result if video already downloaded.
-        Caches to self._ytdlp.cache_dir (settings.data_dir / "cache").
+        Caches to self._ytdlp.cache_dir (settings.media_root / "cache").
         """
         log.info("[%s] Stage: download", song_id)
         await self._update_state(song_id, SongState.DOWNLOADING)
@@ -437,7 +438,7 @@ class PipelineOrchestrator:
             await self._update_state(song_id, SongState.ALIGNING)
 
             # Check cache
-            ass_cache = settings.data_dir / "media" / song_id / "lyrics.ass"
+            ass_cache = settings.media_root / "media" / song_id / "lyrics.ass"
             if ass_cache.exists() and ass_cache.stat().st_size > 0:
                 log.info("[%s] Alignment cache hit, skipping WhisperX", song_id)
                 # Return aligned LRC from cache
@@ -494,7 +495,7 @@ class PipelineOrchestrator:
         if aligned_lrc and lyrics_result.lyrics_type == "synced":
             try:
                 lrc_converter = self._lrc_converter
-                cache_dir = settings.data_dir / "media"
+                cache_dir = settings.media_root / "media"
                 lrc_converter.cache_dir = cache_dir
                 ass_result = lrc_converter.convert(
                     song_id,
@@ -514,7 +515,7 @@ class PipelineOrchestrator:
                 if stripped:
                     text_lines.append(stripped)
             if text_lines:
-                txt_path = settings.data_dir / "media" / song_id / "lyrics.txt"
+                txt_path = settings.media_root / "media" / song_id / "lyrics.txt"
                 txt_path.parent.mkdir(parents=True, exist_ok=True)
                 txt_path.write_text("\n".join(text_lines), encoding="utf-8")
                 files["lyrics_text"] = str(txt_path)
@@ -598,7 +599,7 @@ class PipelineOrchestrator:
         """
         if not video_path.exists():
             return
-        media_out = settings.data_dir / "media" / song_id / "video.mp4"
+        media_out = settings.media_root / "media" / song_id / "video.mp4"
         if media_out.exists() and media_out.stat().st_size > 0:
             return  # already transcoded
 
@@ -620,10 +621,18 @@ class PipelineOrchestrator:
             if height <= 1080 and size_mb < 60:
                 # Small enough — just hardlink/copy into media for stable path
                 try:
-                    import shutil
-                    shutil.copy2(video_path, media_out)
-                    log.info("[%s] Video already small (%dp, %.0fMB) — copied",
-                             song_id, height, size_mb)
+                    # Hardlink: same bytes, no second copy on disk. Falls back
+                    # to copying when cache/ and media/ are on different
+                    # filesystems.
+                    try:
+                        os.link(video_path, media_out)
+                        how = "hardlinked"
+                    except OSError:
+                        import shutil
+                        shutil.copy2(video_path, media_out)
+                        how = "copied"
+                    log.info("[%s] Video already small (%dp, %.0fMB) — %s",
+                             song_id, height, size_mb, how)
                     return
                 except Exception:
                     pass

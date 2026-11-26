@@ -170,6 +170,7 @@ async def _idle_room_cleanup_loop() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    settings.check_media_root()
     init_db()
     _migrate_admin_password_column()
     _seed_default_room()
@@ -263,6 +264,7 @@ def version():
             "demucs_model": settings.demucs_model,
             "enable_gpu": settings.enable_gpu,
             "data_dir": str(settings.data_dir),
+            "media_root": str(settings.media_root),
         },
         "gpu": gpu,
         "db": {

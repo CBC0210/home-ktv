@@ -965,7 +965,7 @@ async def _handle_lyrics_edit(room_id: str, msg: dict) -> None:
             return
     try:
         from ktv_pipeline.config import settings
-        ass_path = settings.data_dir / "media" / song_id / "lyrics.ass"
+        ass_path = settings.media_root / "media" / song_id / "lyrics.ass"
         ass_path.parent.mkdir(parents=True, exist_ok=True)
         ass_path.write_text(ass_content, encoding="utf-8")
         await manager.broadcast_lyrics_updated(room_id, song_id)

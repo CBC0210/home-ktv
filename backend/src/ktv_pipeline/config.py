@@ -2,6 +2,9 @@
 import importlib.metadata
 import os
 from pathlib import Path
+from typing import Optional
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -70,6 +73,9 @@ class Settings(BaseSettings):
     public_base_url: str = ""              # optional; QR uses page origin
     local_port: int = 8000
     data_dir: Path = Path("./data")        # repo-local by default (LAN/dev)
+    # 影音檔（media/、cache/）的根目錄。這兩個資料夾占掉幾乎所有空間，可放到
+    # 另一顆大容量硬碟；資料庫與 logs 仍留在 DATA_DIR。留空 = 與 DATA_DIR 相同。
+    media_root_dir: Optional[Path] = None
     # Auth cookie. Bearer (localStorage) is the primary mechanism; the
     # cookie is secondary. Keep secure=False so it also works on a plain
     # HTTP LAN; set true only when always served over HTTPS.
@@ -112,6 +118,29 @@ class Settings(BaseSettings):
             return importlib.metadata.version("ktv-pipeline")
         except importlib.metadata.PackageNotFoundError:
             return "0.0.0"
+
+    @field_validator("media_root_dir", mode="before")
+    @classmethod
+    def _blank_media_root_is_unset(cls, v):
+        return None if isinstance(v, str) and not v.strip() else v
+
+    @property
+    def media_root(self) -> Path:
+        """Root that holds media/ and cache/ (MEDIA_ROOT_DIR, else DATA_DIR)."""
+        return self.media_root_dir or self.data_dir
+
+    def check_media_root(self) -> None:
+        """Refuse to start when MEDIA_ROOT_DIR is set but missing.
+
+        A missing dir usually means the drive is not mounted. Creating it
+        would silently put new downloads on the system disk, and every
+        existing song would look unprocessed and be downloaded again.
+        """
+        if self.media_root_dir is not None and not self.media_root_dir.is_dir():
+            raise RuntimeError(
+                f"MEDIA_ROOT_DIR={self.media_root_dir} 不存在或不是資料夾"
+                "（硬碟沒掛載？）。請先建立或掛載它再啟動。"
+            )
 
     @property
     def db_path(self) -> Path:

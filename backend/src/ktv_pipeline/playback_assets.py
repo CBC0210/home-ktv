@@ -33,14 +33,14 @@ def _original_has_audio(path: str, size: int, mtime: int) -> bool:
 def playback_assets_ready(song) -> bool:
     if song is None:
         return False
-    video = next((settings.data_dir / directory / song.id / 'video.mp4'
+    video = next((settings.media_root / directory / song.id / 'video.mp4'
                   for directory in ('media', 'cache')
-                  if _nonempty(settings.data_dir / directory / song.id / 'video.mp4')), None)
+                  if _nonempty(settings.media_root / directory / song.id / 'video.mp4')), None)
     if video is None:
         return False
     if ((song.extra_metadata or {}).get('playback') or {}).get('use_original_audio'):
         stat = video.stat()
         return _original_has_audio(str(video), stat.st_size, stat.st_mtime_ns)
-    audio = settings.data_dir / 'cache' / 'demucs' / song.id
+    audio = settings.media_root / 'cache' / 'demucs' / song.id
     return all(any(_nonempty(audio / (stem + ext)) for ext in ('.opus', '.wav'))
                for stem in ('vocals', 'no_vocals'))
