@@ -298,7 +298,7 @@ class WhisperXWrapper:
         timeout_sec: int = _ALIGN_TIMEOUT_SEC,
         max_retries: int = 3,
     ):
-        self.cache_dir = cache_dir or (settings.data_dir / "cache" / "whisperx")
+        self.cache_dir = cache_dir or (settings.media_root / "cache" / "whisperx")
         self.model_name = model_name or settings.whisperx_model
         self.device = device or ("cuda" if settings.enable_gpu else "cpu")
         self.timeout_sec = timeout_sec

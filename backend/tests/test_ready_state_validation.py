@@ -44,7 +44,7 @@ async def test_video_only_song_is_not_ready_in_separated_mode(tmp_path):
 
     with patch("ktv_pipeline.pipeline_orchestrator.get_db_session", return_value=_db_for(song)), \
          patch("ktv_pipeline.playback_assets.settings") as config:
-        config.data_dir = tmp_path
+        config.media_root = tmp_path
         assert await orch._mark_ready(song.id) is False
 
     assert song.status == "failed_perm"
@@ -68,7 +68,7 @@ async def test_nonempty_opus_pair_promotes_song_to_ready(tmp_path):
 
     with patch("ktv_pipeline.pipeline_orchestrator.get_db_session", return_value=_db_for(song)), \
          patch("ktv_pipeline.playback_assets.settings") as config:
-        config.data_dir = tmp_path
+        config.media_root = tmp_path
         assert await orch._mark_ready(song.id) is True
 
     assert song.status == "ready"

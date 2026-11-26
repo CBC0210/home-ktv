@@ -661,7 +661,7 @@ async def set_lyrics_source(
     if not allow_request(("lyrics-source", payload["sub"]), 12, 60):
         raise HTTPException(status_code=429, detail="Please wait before changing lyrics again")
     src = body.source
-    media_dir = cfg.data_dir / "media" / song_id
+    media_dir = cfg.media_root / "media" / song_id
     media_dir.mkdir(parents=True, exist_ok=True)
     ass_path = media_dir / "lyrics.ass"
     txt_path = media_dir / "lyrics.txt"
@@ -913,7 +913,7 @@ async def report_song_issue(
         # sources (lyrics_<src>.ass) are kept so the 歌詞來源 picker can swap
         # in the right one instantly.
         from ktv_pipeline.config import settings as _cfg
-        ass_path = _cfg.data_dir / "media" / song_id / "lyrics.ass"
+        ass_path = _cfg.media_root / "media" / song_id / "lyrics.ass"
         try:
             if ass_path.exists():
                 ass_path.unlink()

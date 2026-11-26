@@ -313,7 +313,7 @@ def list_saved_songs(
                     pass
         return tot
 
-    data = str(settings.data_dir)
+    data = str(settings.media_root)
     songs = session.query(Song).order_by(Song.processed_at.desc()).all()
     out = []
     for s in songs:
@@ -366,7 +366,7 @@ def delete_song_admin(
     from ktv_pipeline.config import settings as cfg
     import shutil
     for sub in ("media", "cache", "cache/demucs"):
-        path = cfg.data_dir / sub / song_id
+        path = cfg.media_root / sub / song_id
         if path.exists():
             try:
                 shutil.rmtree(path)
@@ -387,7 +387,7 @@ def clear_all_songs(
     from ktv_pipeline.config import settings as cfg
     import shutil
     for sub in ("media", "cache", "cache/demucs"):
-        path = cfg.data_dir / sub
+        path = cfg.media_root / sub
         if path.exists():
             for child in path.iterdir():
                 try:
@@ -512,19 +512,23 @@ def cache_stats(_=Depends(require_admin)):
                     pass
         return total
 
-    def disk_entry(sub: str) -> dict:
-        p = os.path.join(str(settings.data_dir), sub)
+    def disk_entry(sub: str, root=None) -> dict:
+        p = os.path.join(str(root or settings.data_dir), sub)
         sz = walk_size(p)
         return {"bytes": sz, "human": _human_size(sz)}
 
-    base = str(settings.data_dir)
-    return {
-        "media": disk_entry("media"),
-        "cache": disk_entry("cache"),
+    media_root = settings.media_root
+    entries = {
+        "media": disk_entry("media", media_root),
+        "cache": disk_entry("cache", media_root),
         "logs": disk_entry("logs"),
         "tmp": disk_entry("tmp"),
-        "total": disk_entry("."),
     }
+    total = sum(e["bytes"] for e in entries.values())
+    if media_root.resolve() == settings.data_dir.resolve():
+        total = walk_size(str(settings.data_dir))  # includes the DB
+    entries["total"] = {"bytes": total, "human": _human_size(total)}
+    return entries
 
 
 @router.post("/cache/clear")
@@ -538,13 +542,13 @@ def clear_cache(
     from ktv_pipeline.config import settings
 
     what = data.get("what", "all")  # "all", "cache", "tmp"
-    base = str(settings.data_dir)
+    roots = {"cache": settings.media_root, "tmp": settings.data_dir}
     cleared: list[dict] = []
 
     for sub in ("cache", "tmp"):
         if what not in ("all", sub):
             continue
-        dir_path = os.path.join(base, sub)
+        dir_path = os.path.join(str(roots[sub]), sub)
         if not os.path.exists(dir_path):
             continue
         count = 0
@@ -847,7 +851,7 @@ def _purge_song(db, song_id: str) -> None:
     from ktv_pipeline.config import settings as cfg
     import shutil
     for sub in ("media", "cache", "cache/demucs"):
-        p = cfg.data_dir / sub / song_id
+        p = cfg.media_root / sub / song_id
         if p.exists():
             try:
                 shutil.rmtree(p)

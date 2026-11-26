@@ -80,7 +80,7 @@ async def prefetch_all_lyrics(song_id: str) -> dict:
     log.info("[%s] prefetch using title=%r artist=%r (%s)",
              song_id, title, artist, cleaned.get("via"))
 
-    media_dir = settings.data_dir / "media" / song_id
+    media_dir = settings.media_root / "media" / song_id
     media_dir.mkdir(parents=True, exist_ok=True)
     available: dict = {}
 

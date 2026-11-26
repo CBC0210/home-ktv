@@ -191,7 +191,7 @@ def apply_deletion(record: dict[str, Any]) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--cache-root", type=Path, help="Demucs cache root (default: $DATA_DIR/cache/demucs)")
+    parser.add_argument("--cache-root", type=Path, help="Demucs cache root (default: $MEDIA_ROOT_DIR or $DATA_DIR, + /cache/demucs)")
     parser.add_argument("--manifest", type=Path, required=True, help="JSONL audit output; must not be inside --cache-root")
     parser.add_argument("--resume-manifest", type=Path, help="reuse successful validations only when both file snapshots are unchanged")
     parser.add_argument("--apply", action="store_true", help="delete verified WAV files (default: dry-run)")
@@ -199,10 +199,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS, help="per ffprobe/ffmpeg command timeout")
     args = parser.parse_args()
     if args.cache_root is None:
-        data_dir = os.environ.get("DATA_DIR")
-        if not data_dir:
-            parser.error("set DATA_DIR or pass --cache-root; refusing to guess a deployment path")
-        args.cache_root = Path(data_dir) / "cache/demucs"
+        root = os.environ.get("MEDIA_ROOT_DIR") or os.environ.get("DATA_DIR")
+        if not root:
+            parser.error("set MEDIA_ROOT_DIR/DATA_DIR or pass --cache-root; refusing to guess a deployment path")
+        args.cache_root = Path(root) / "cache/demucs"
     if not 1 <= args.workers <= MAX_WORKERS:
         parser.error(f"--workers must be between 1 and {MAX_WORKERS}")
     if args.timeout_seconds <= 0:

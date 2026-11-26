@@ -261,7 +261,7 @@ class DemucsWrapper:
         timeout_sec: int = 600,
         max_retries: int = 3,
     ):
-        self.cache_dir = cache_dir or (settings.data_dir / "cache" / "demucs")
+        self.cache_dir = cache_dir or (settings.media_root / "cache" / "demucs")
         self.model_name = model_name or settings.demucs_model
         self.device = device or ("cuda" if settings.enable_gpu else "cpu")
         self.timeout_sec = timeout_sec

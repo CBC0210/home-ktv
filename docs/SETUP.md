@@ -66,6 +66,9 @@ $EDITOR .env
 - `ADMIN_PASSWORD`：Admin 後台與房主進入房間管理模式使用。
 - `ADMIN_COOKIE_SECRET`：上面指令已產生隨機值。
 - `DATA_DIR`：正式機建議填絕對路徑，例如 `/home/你的帳號/.local/share/home-ktv/data`。
+- `MEDIA_ROOT_DIR`（可選）：影片與分離音軌會占掉數十到數百 GB，可指到另一顆硬碟，
+  例如 `/mnt/storage/home-ktv`；資料庫與 logs 仍留在 `DATA_DIR`。資料夾要先建立，
+  且該硬碟要在 `/etc/fstab` 設好開機自動掛載。
 
 常調整項目是 `ENABLE_GPU`、`ENABLE_WORD_ALIGNMENT`、`WHISPERX_MODEL`、
 `DEFAULT_ROOM_PASSWORD` 與 `PUBLIC_BASE_URL`；完整清單與註解見 [`.env.example`](../.env.example)。
